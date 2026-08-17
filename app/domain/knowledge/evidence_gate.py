@@ -19,6 +19,10 @@ from app.domain.knowledge.retrieval import (
     RetrievalRequest,
     RetrievalResult,
 )
+from app.domain.knowledge.user_material_lineage import (
+    declares_user_material,
+    has_valid_user_material_lineage,
+)
 
 
 class EvidenceSufficiencySignals(BaseModel):
@@ -89,18 +93,41 @@ class RetrievalEvidenceGate:
                 gate_version=self.version,
             )
 
+        lineage = [
+            (
+                chunk,
+                declares_user_material(chunk),
+                has_valid_user_material_lineage(chunk),
+            )
+            for chunk in selected_evidence
+        ]
+        system_evidence = [
+            chunk for chunk, declared_user, _valid in lineage if not declared_user
+        ]
         invalid = [
             chunk.chunk_id
-            for chunk in selected_evidence
-            if not chunk.metadata.get("content_sha256")
-            or not chunk.metadata.get("corpus_manifest_sha256")
+            for chunk, declared_user, valid_user in lineage
+            if (
+                declared_user
+                and (
+                    not valid_user
+                    or bool(chunk.metadata.get("corpus_manifest_sha256"))
+                )
+            )
+            or (
+                not declared_user
+                and (
+                    not chunk.metadata.get("content_sha256")
+                    or not chunk.metadata.get("corpus_manifest_sha256")
+                )
+            )
         ]
         manifests = {
             str(chunk.metadata.get("corpus_manifest_sha256"))
-            for chunk in selected_evidence
+            for chunk in system_evidence
             if chunk.metadata.get("corpus_manifest_sha256")
         }
-        if invalid or len(manifests) != 1:
+        if invalid or (system_evidence and len(manifests) != 1):
             reasons = []
             if invalid:
                 reasons.append("invalid_knowledge_metadata")

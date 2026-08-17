@@ -9,8 +9,82 @@ import {
 import { usePageMeta } from "../hooks/usePageMeta";
 import { getRagOverview } from "../rag/ragApi";
 import { useRagResource } from "../rag/useRagResource";
-import { displayFieldLabel } from "../rag/ragDisplay";
+import { displayFieldLabel, displayStatus } from "../rag/ragDisplay";
+import { RAG_LAB_ROUTES } from "../rag/ragRoutes";
 import "../styles/pages/rag-console.css";
+
+const blockerFindings = {
+  HUMAN_TUNING_GT_MISSING: "当前结论来自机器预标注，尚未形成独立人工标注结论。",
+  NO_EVIDENCE_GATE_FAILED: "无证据判断仍未达到发布要求，是当前最明确的算法缺口。",
+  HYBRID_NOT_BETTER_THAN_LEGACY: "现有诊断制品不能证明 Hybrid 已整体优于 Legacy。",
+  SEALED_HOLDOUT_MISSING: "当前只有历史诊断结果，不包含正式封存测试集结论。",
+  BUSINESS_BLIND_AB_PENDING: "Reviewer 与 Follow-up 的盲测尚未完成。",
+  SHADOW_NOT_AUTHORIZED: "Shadow 当前未启用，也不属于本地学习演示范围。",
+};
+
+function asArray(value) {
+  return Array.isArray(value) ? value : [];
+}
+
+function displayOverviewValue(value) {
+  if (typeof value === "boolean") return value ? "是" : "否";
+  if (typeof value === "string") return displayStatus(value);
+  return value;
+}
+
+function normalizeRagOverview(payload = {}) {
+  const componentVersions = payload.component_versions || {};
+  const profiles = asArray(payload.profiles);
+  const releaseEvidence = payload.release_evidence || {};
+  const blockers = asArray(payload.promotion?.blockers);
+  const comparisonEngines = asArray(payload.comparison_engines).length
+    ? payload.comparison_engines
+    : [payload.formal_engine, payload.candidate_engine].filter(Boolean);
+  const technologies = asArray(payload.technologies).length
+    ? payload.technologies
+    : [
+        profiles.some((profile) => profile.semantic_enabled) ? "语义检索" : null,
+        profiles.some((profile) => profile.lexical_enabled) ? "词法检索" : null,
+        componentVersions.fusion ? `融合：${componentVersions.fusion}` : null,
+        componentVersions.reranker ? `重排：${componentVersions.reranker}` : null,
+      ].filter(Boolean);
+  const diagnosticDataset = payload.diagnostic_dataset || {
+    annotation_status: releaseEvidence.annotation_status || "not_recorded",
+    human_annotator_count: releaseEvidence.human_annotator_count ?? 0,
+    independent_evidence_eligible:
+      releaseEvidence.independent_evidence_eligible === true,
+    holdout_status: releaseEvidence.holdout_status || "not_recorded",
+    formal_sealed_holdout_available:
+      releaseEvidence.formal_sealed_holdout_available === true,
+  };
+  const experimentFindings = asArray(payload.experiment_findings).length
+    ? payload.experiment_findings
+    : blockers.map(
+        (blocker) =>
+          blockerFindings[blocker.code]
+          || blocker.observed_evidence
+          || `仍需处理：${blocker.code}`,
+      );
+
+  return {
+    ...payload,
+    current_engine: payload.current_engine || payload.formal_engine || "未记录",
+    comparison_engines: comparisonEngines,
+    corpus: payload.corpus || {},
+    embedding: payload.embedding || {},
+    profiles,
+    component_versions: componentVersions,
+    technologies,
+    diagnostic_dataset: diagnosticDataset,
+    experiment_findings: experimentFindings,
+    demo_boundaries: asArray(payload.demo_boundaries).length
+      ? payload.demo_boundaries
+      : [
+          "仅用于本地学习、检索诊断与资料管理。",
+          "当前结果不代表生产发布、Shadow、Canary 或 Legacy 退役结论。",
+        ],
+  };
+}
 
 export function RagOverviewPage() {
   usePageMeta({
@@ -23,7 +97,9 @@ export function RagOverviewPage() {
   return (
     <RagConsoleShell statusLabel="本地技术演示">
       <RagState resource={resource}>
-        {(data) => (
+        {(payload) => {
+          const data = normalizeRagOverview(payload);
+          return (
           <>
             <header className="rag-page-head">
               <div>
@@ -94,7 +170,7 @@ export function RagOverviewPage() {
                     <strong>从一个真实问题开始</strong>
                     <span>在同一请求里比较 Legacy 与 Hybrid 的全阶段排名。</span>
                   </div>
-                  <a className="rag-link-button" href="/rag/retrieval">
+                  <a className="rag-link-button" href={RAG_LAB_ROUTES.retrieval}>
                     打开检索诊断
                   </a>
                 </div>
@@ -106,7 +182,7 @@ export function RagOverviewPage() {
                     <IdentityValue
                       key={key}
                       label={displayFieldLabel(key)}
-                      value={typeof value === "boolean" ? (value ? "是" : "否") : value}
+                      value={displayOverviewValue(value)}
                     />
                   ))}
                 </dl>
@@ -152,7 +228,8 @@ export function RagOverviewPage() {
               </div>
             </section>
           </>
-        )}
+          );
+        }}
       </RagState>
     </RagConsoleShell>
   );

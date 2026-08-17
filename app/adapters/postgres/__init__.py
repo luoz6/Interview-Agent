@@ -46,6 +46,10 @@ _EXPORTS = {
         "app.adapters.postgres.migration_harness",
         "RuntimeMigrationHarness",
     ),
+    "PostgresUserDocumentStore": (
+        "app.adapters.postgres.user_documents",
+        "PostgresUserDocumentStore",
+    ),
 }
 
 __all__ = list(_EXPORTS)

@@ -12,8 +12,6 @@ from pydantic import ValidationError
 from contracts.evidence import (
     AtomicEvidenceWriter,
     EvidenceIssuer,
-    EvidenceRegistry,
-    EvidenceVerifier,
     HmacReceiptSigner,
     ProductionBudgetReadinessEvidencePayload,
     ProductionShadowApprovalRequestPayload,
@@ -203,7 +201,7 @@ def test_payload_schema_and_policy_reject_approved_private_or_mutated_state():
     assert "READINESS_CONFIGURATION_CHANGED" in result.gate_codes
 
 
-def test_current_repository_snapshot_uses_verified_request_without_external_input(
+def test_current_local_v1_snapshot_remains_blocked_for_production_readiness(
     monkeypatch,
 ):
     monkeypatch.setattr(readiness, "_git_revision", lambda: "a" * 40)
@@ -218,11 +216,17 @@ def test_current_repository_snapshot_uses_verified_request_without_external_inpu
     assert snapshot["pending_example_gate_codes"] == [
         "APPROVAL_RECORD_NOT_EXTERNAL",
         "APPROVAL_STATUS_NOT_APPROVED",
+        "SAFE_DEFAULTS_CHANGED",
     ]
-    assert evaluate_readiness(snapshot) == SUCCESS_LINES
+    with pytest.raises(ReadinessBlocked) as raised:
+        evaluate_readiness(snapshot)
+    assert raised.value.codes == (
+        "PENDING_EXAMPLE_FAIL_CLOSED_INVALID",
+        "SAFE_DEFAULTS_CHANGED",
+    )
 
 
-def test_cli_verifies_approval_receipt_and_writes_signed_readiness(
+def test_cli_verifies_approval_receipt_then_blocks_local_v1_defaults(
     monkeypatch,
     tmp_path,
     capsys,
@@ -261,29 +265,19 @@ def test_cli_verifies_approval_receipt_and_writes_signed_readiness(
             "--output",
             str(output),
         ]
-    ) == 0
+    ) == 1
 
-    verified = EvidenceVerifier(
-        registry=EvidenceRegistry.default(),
-        receipt_signer=signer,
-    ).verify(
-        json.loads(output.read_text(encoding="utf-8")),
-        expected_revision="abcdef2",
-        expected_scope="memory.production-budget-shadow.readiness",
-    )
-    assert isinstance(
-        verified.payload,
-        ProductionBudgetReadinessEvidencePayload,
-    )
-    assert verified.bundle.artifact.payload_type == (
-        "production-budget-readiness-evidence"
-    )
-    assert verified.bundle.artifact.verification_status is VerificationStatus.PASS
-    assert verified.bundle.artifact.promotion_decision is PromotionDecision.HOLD
-    assert len(verified.bundle.artifact.envelope.input_manifest) == 1
-    stdout = capsys.readouterr().out
-    assert "VERIFICATION_STATUS=PASS" in stdout
-    assert "PROMOTION_DECISION=HOLD" in stdout
+    assert not output.exists()
+    assert capsys.readouterr().out.strip().splitlines() == [
+        "PRODUCTION_BUDGET_SHADOW_TOOLING=BLOCKED",
+        "GATE=PENDING_EXAMPLE_FAIL_CLOSED_INVALID",
+        "GATE=SAFE_DEFAULTS_CHANGED",
+        "APPROVAL_STATUS=PENDING",
+        "CHANGE_PREFLIGHT=BLOCKED",
+        "CONFIGURATION_CHANGED=false",
+        "PRODUCTION_OBSERVATION=NOT_RUN",
+        "LONG_TERM_MEMORY_CONSUMPTION=BLOCKED",
+    ]
 
 
 def test_cli_rejects_legacy_unsigned_request_without_writing_output(

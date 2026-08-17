@@ -899,10 +899,28 @@
   list-style: none;
 }
 
-.report-detail-feedback-references > ul {
+.report-detail-citation-groups {
+  display: grid;
+  gap: var(--start-space-sm);
+  margin-top: var(--start-space-xs);
+}
+
+.report-detail-citation-groups > section {
+  display: grid;
+  gap: var(--start-space-2xs);
+}
+
+.report-detail-citation-groups h5 {
+  margin: 0;
+  color: var(--start-color-text-muted);
+  font-size: var(--start-text-micro);
+  font-weight: var(--start-font-weight-semibold);
+  letter-spacing: .08em;
+}
+
+.report-detail-feedback-references ul {
   display: grid;
   gap: var(--start-space-xs);
-  margin-top: var(--start-space-xs);
 }
 
 .report-detail-feedback-references li {
@@ -914,7 +932,7 @@
 
 .report-detail-feedback-references li > div {
   display: flex;
-  align-items: center;
+  align-items: baseline;
   justify-content: space-between;
   gap: var(--start-space-sm);
 }
@@ -924,7 +942,19 @@
   font-size: var(--start-text-ui-sm);
 }
 
-.report-detail-feedback-references code,
+.report-detail-feedback-references li span {
+  color: var(--start-color-text-muted);
+  font-size: var(--start-text-micro);
+  text-align: right;
+}
+
+.report-detail-feedback-references li p {
+  margin: var(--start-space-2xs) 0 0;
+  color: var(--start-color-ink-soft);
+  font-size: var(--start-text-xs);
+  line-height: 1.65;
+}
+
 .report-detail-runtime-list code {
   color: var(--start-color-text-muted);
   font-family: var(--start-font-mono);

@@ -1499,6 +1499,181 @@ RUNTIME_MIGRATIONS = (
         transaction_mode="transactional_with_idempotent_checkpointer_phase",
     ),
 )
+USER_MATERIALS_REQUIRED_COLUMNS_BY_SUFFIX = {
+    "_user_documents": frozenset(
+        {
+            "owner_principal_id",
+            "document_id",
+            "display_title",
+            "original_filename",
+            "media_type",
+            "size_bytes",
+            "public_status",
+            "internal_stage",
+            "enabled",
+            "allowed_usages",
+            "active_revision_id",
+            "safe_error_code",
+            "created_at",
+            "updated_at",
+            "deleted_at",
+        }
+    ),
+    "_user_document_revisions": frozenset(
+        {
+            "owner_principal_id",
+            "document_revision_id",
+            "document_id",
+            "revision",
+            "original_file_sha256",
+            "content_sha256",
+            "extracted_text_ref",
+            "parser_version",
+            "chunker_version",
+            "embedding_identity",
+            "original_content",
+            "extracted_text",
+            "created_at",
+        }
+    ),
+    "_user_document_chunks": frozenset(
+        {
+            "owner_principal_id",
+            "chunk_id",
+            "document_id",
+            "document_revision_id",
+            "position",
+            "title",
+            "section_label",
+            "content",
+            "content_sha256",
+            "embedding",
+            "embedding_identity",
+            "lexical_document",
+            "created_at",
+        }
+    ),
+}
+USER_MATERIALS_REQUIRED_INDEX_TOKENS_BY_SUFFIX = {
+    "_user_documents": (
+        frozenset({"unique", "owner_principal_id", "document_id"}),
+        frozenset({"owner_principal_id", "created_at"}),
+    ),
+    "_user_document_revisions": (
+        frozenset(
+            {
+                "unique",
+                "owner_principal_id",
+                "document_revision_id",
+            }
+        ),
+        frozenset(
+            {
+                "unique",
+                "owner_principal_id",
+                "document_id",
+                "revision",
+            }
+        ),
+        frozenset({"owner_principal_id", "document_id", "revision"}),
+    ),
+    "_user_document_chunks": (
+        frozenset({"unique", "owner_principal_id", "chunk_id"}),
+        frozenset(
+            {
+                "unique",
+                "owner_principal_id",
+                "document_revision_id",
+                "position",
+            }
+        ),
+        frozenset(
+            {
+                "owner_principal_id",
+                "document_revision_id",
+                "position",
+            }
+        ),
+        frozenset({"gin", "lexical_document"}),
+        frozenset({"hnsw", "embedding", "vector_cosine_ops"}),
+    ),
+}
+USER_MATERIALS_REQUIRED_CHECK_TOKENS_BY_SUFFIX = {
+    "_user_documents": (
+        frozenset({"size_bytes", ">", "0"}),
+    ),
+    "_user_document_revisions": (
+        frozenset({"revision", ">", "0"}),
+        frozenset(
+            {
+                "original_file_sha256~^[0-9a-f]{64}$",
+            }
+        ),
+        frozenset({"content_sha256~^[0-9a-f]{64}$"}),
+    ),
+    "_user_document_chunks": (
+        frozenset({"position", ">", "0"}),
+        frozenset({"content_sha256~^[0-9a-f]{64}$"}),
+    ),
+}
+USER_MATERIALS_REQUIRED_FOREIGN_KEY_TOKENS_BY_SUFFIX = {
+    "_user_documents": (
+        frozenset(
+            {
+                "foreign",
+                "key",
+                "owner_principal_id",
+                "document_id",
+                "active_revision_id",
+                "references",
+            }
+        ),
+    ),
+    "_user_document_revisions": (
+        frozenset(
+            {
+                "foreign",
+                "key",
+                "owner_principal_id",
+                "document_id",
+                "references",
+                "delete",
+                "cascade",
+            }
+        ),
+    ),
+    "_user_document_chunks": (
+        frozenset(
+            {
+                "foreign",
+                "key",
+                "owner_principal_id",
+                "document_id",
+                "document_revision_id",
+                "references",
+                "delete",
+                "cascade",
+            }
+        ),
+    ),
+}
+USER_MATERIALS_REQUIRED_NULLABLE_COLUMNS_BY_SUFFIX = {
+    "_user_documents": frozenset(
+        {
+            "internal_stage",
+            "active_revision_id",
+            "safe_error_code",
+            "deleted_at",
+        }
+    ),
+    "_user_document_chunks": frozenset({"section_label"}),
+}
+USER_MATERIALS_REQUIRED_STRICT_POSITIVE_COLUMNS_BY_SUFFIX = {
+    "_user_documents": frozenset({"size_bytes"}),
+    "_user_document_revisions": frozenset({"revision"}),
+    "_user_document_chunks": frozenset({"position"}),
+}
+
 LATEST_RUNTIME_MIGRATION = RUNTIME_MIGRATIONS[-1]
 
 
@@ -1568,6 +1743,60 @@ def required_strict_positive_columns_for_relation(
     )
 
 
+def required_user_materials_columns_for_relation(
+    name: str,
+) -> frozenset[str]:
+    return _required_columns_by_suffix(
+        name,
+        USER_MATERIALS_REQUIRED_COLUMNS_BY_SUFFIX,
+    )
+
+
+def required_user_materials_index_tokens_for_relation(
+    name: str,
+) -> tuple[frozenset[str], ...]:
+    return _required_tokens_by_suffix(
+        name,
+        USER_MATERIALS_REQUIRED_INDEX_TOKENS_BY_SUFFIX,
+    )
+
+
+def required_user_materials_check_tokens_for_relation(
+    name: str,
+) -> tuple[frozenset[str], ...]:
+    return _required_tokens_by_suffix(
+        name,
+        USER_MATERIALS_REQUIRED_CHECK_TOKENS_BY_SUFFIX,
+    )
+
+
+def required_user_materials_foreign_key_tokens_for_relation(
+    name: str,
+) -> tuple[frozenset[str], ...]:
+    return _required_tokens_by_suffix(
+        name,
+        USER_MATERIALS_REQUIRED_FOREIGN_KEY_TOKENS_BY_SUFFIX,
+    )
+
+
+def required_user_materials_nullable_columns_for_relation(
+    name: str,
+) -> frozenset[str]:
+    return _required_columns_by_suffix(
+        name,
+        USER_MATERIALS_REQUIRED_NULLABLE_COLUMNS_BY_SUFFIX,
+    )
+
+
+def required_user_materials_strict_positive_columns_for_relation(
+    name: str,
+) -> frozenset[str]:
+    return _required_columns_by_suffix(
+        name,
+        USER_MATERIALS_REQUIRED_STRICT_POSITIVE_COLUMNS_BY_SUFFIX,
+    )
+
+
 def _required_columns_by_suffix(
     name: str,
     requirements_by_suffix: dict[str, frozenset[str]],
@@ -1580,6 +1809,23 @@ def _required_columns_by_suffix(
         if name.endswith(suffix):
             return requirements
     return frozenset()
+
+
+def _required_tokens_by_suffix(
+    name: str,
+    requirements_by_suffix: dict[
+        str,
+        tuple[frozenset[str], ...],
+    ],
+) -> tuple[frozenset[str], ...]:
+    for suffix, requirements in sorted(
+        requirements_by_suffix.items(),
+        key=lambda item: len(item[0]),
+        reverse=True,
+    ):
+        if name.endswith(suffix):
+            return requirements
+    return ()
 
 
 def is_strict_positive_when_present_check(

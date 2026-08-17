@@ -8,6 +8,7 @@ import pytest
 
 import app.services.followup_prompts as followup_prompts
 
+from app.services.context_budget import FOLLOWUP_CONTEXT_POLICY
 from app.services.decision_store import DecisionContract
 from app.services.followup_prompts import (
     FOLLOWUP_DECISION_PROMPT_SHA256,
@@ -222,7 +223,9 @@ def test_structured_generation_provider_preserves_usage_and_binds_budget():
         ]
     )
 
-    assert model.bound == {"max_tokens": 120}
+    assert model.bound == {
+        "max_tokens": FOLLOWUP_CONTEXT_POLICY.max_output_tokens,
+    }
     assert "FOLLOWUP_DECISION_TARGET" in model.prompt
     assert result.text == "What failed during recovery?"
     assert result.input_tokens == 30

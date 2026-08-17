@@ -15,6 +15,7 @@ from app.runtime.config.models import (
     ProviderCredentialSettings,
     ReportGraphRuntimeSettings,
     TraceRuntimeSettings,
+    UserMaterialsRuntimeSettings,
     WorkerRuntimeSettings,
 )
 
@@ -100,6 +101,15 @@ def load_rag_console_runtime_settings(
         with use_environment(environ):
             return _load_rag_console_runtime_settings()
     return _load_rag_console_runtime_settings()
+
+
+def load_user_materials_runtime_settings(
+    environ: Mapping[str, str] | None = None,
+) -> UserMaterialsRuntimeSettings:
+    if environ is not None:
+        with use_environment(environ):
+            return _load_user_materials_runtime_settings()
+    return _load_user_materials_runtime_settings()
 
 
 def load_langgraph_strict_msgpack(
@@ -413,6 +423,18 @@ def _load_rag_console_runtime_settings() -> RagConsoleRuntimeSettings:
             env, "RAG_CORPUS_WRITE_ENABLED", False
         ),
         access_mode=access_mode,
+    )
+
+
+def _load_user_materials_runtime_settings() -> UserMaterialsRuntimeSettings:
+    env = process_environment()
+    return UserMaterialsRuntimeSettings(
+        enabled=_strict_bool(env, "USER_MATERIALS_ENABLED", False),
+        ingest_enabled=_strict_bool(
+            env,
+            "USER_MATERIALS_INGEST_ENABLED",
+            False,
+        ),
     )
 
 

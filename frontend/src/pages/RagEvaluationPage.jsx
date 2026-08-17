@@ -20,6 +20,7 @@ import {
   getRagNoEvidence,
   getRagPairedEvaluations,
 } from "../rag/ragApi";
+import { RAG_LAB_ROUTES } from "../rag/ragRoutes";
 import { useRagResource } from "../rag/useRagResource";
 import "../styles/pages/rag-console.css";
 
@@ -508,7 +509,7 @@ function EvaluationContent({ artifacts }) {
                     <td>
                       <a
                         className="rag-link-button"
-                        href={`/rag/retrieval?artifact=${encodeURIComponent(selected)}&case=${encodeURIComponent(item.case_id)}&mode=artifact_replay`}
+                        href={`${RAG_LAB_ROUTES.retrieval}?artifact=${encodeURIComponent(selected)}&case=${encodeURIComponent(item.case_id)}&mode=artifact_replay`}
                       >
                         在检索诊断中打开冻结回放
                       </a>

@@ -6,7 +6,7 @@
   "command_template": "python -m piptools compile --allow-unsafe --generate-hashes --resolver=backtracking --no-strip-extras --newline=lf --output-file={output_file} requirements.txt",
   "source_file": "requirements.txt",
   "source_digest_mode": "canonical_utf8_lf",
-  "source_sha256": "6c282fa5be58ea672d4289641ba18983a1cbbb80270ee8644992afa39e9dae7c",
+  "source_sha256": "1678310cf1d13596bd24f633ba0d554dd2f63893bc3fa1d25d81114673287d61",
   "tooling_file": "requirements-tooling.txt",
   "tooling_digest_mode": "canonical_utf8_lf",
   "tooling_sha256": "293b64fb64519e996ebcaa044a0a2ab6cff351d0f37b3d8dad9490b9d373e51b",
@@ -14,17 +14,17 @@
     "ubuntu_24_04_x64": {
       "file": "requirements-linux.lock.txt",
       "digest_mode": "canonical_utf8_lf",
-      "sha256": "b5ed423447832f8a113392b3fae57a9124fbbf5f8b4c601f96d7c91e28255a08"
+      "sha256": "ce29836d838f059286b074403292162abaf614ccaf344611217eb2488f7e54c5"
     },
     "windows_11_x64": {
       "file": "requirements-windows.lock.txt",
       "digest_mode": "canonical_utf8_lf",
-      "sha256": "16d8f801a0c1b010d7c58c69337403fb9ab0ffa78c83cb2c087961d6d6e090eb"
+      "sha256": "b4478c4c5214cb2b4ca1bbd5c59ebd1d696c2773f885d11568d0c2fb5587f90f"
     }
   },
   "legacy_windows_alias": {
     "file": "requirements.lock.txt",
     "digest_mode": "canonical_utf8_lf",
-    "sha256": "16d8f801a0c1b010d7c58c69337403fb9ab0ffa78c83cb2c087961d6d6e090eb"
+    "sha256": "b4478c4c5214cb2b4ca1bbd5c59ebd1d696c2773f885d11568d0c2fb5587f90f"
   }
 }

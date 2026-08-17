@@ -194,7 +194,7 @@ describe("InterviewPage recovery and browser storage", () => {
     render(<InterviewPage />);
 
     await waitFor(() => expect(resolveRecoveryEvaluations).toEqual(expect.any(Function)));
-    expect(document.body.dataset.interviewState).toBe("error");
+    await waitFor(() => expect(document.body.dataset.interviewState).toBe("error"));
     expect(screen.getByRole("textbox", { name: "你的回答" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "提交回答" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "跳过此题" })).toBeDisabled();
@@ -291,6 +291,128 @@ describe("InterviewPage recovery and browser storage", () => {
 
     expect(answer).toHaveValue("local-only answer");
     expect(document.body.dataset.interviewState).toBe("active");
+  });
+});
+
+describe("InterviewPage safe citation indicator", () => {
+  it("shows the indicator only for an actual available user-document citation", async () => {
+    getJson.mockImplementation((path) => path.endsWith("/question-evaluations")
+      ? Promise.resolve({
+        items: [{
+          question_id: "q1",
+          status: "completed",
+          feedback: {
+            knowledge_citations: [{
+              citation_id: "citation-user-private",
+              source_scope: "user_document",
+              document_safe_ref: "material-safe-ref-private",
+              display_title: "我的内部复盘",
+              location_label: "第 2 页",
+              excerpt: "不应在面试提示中展开的摘录",
+              usage: "feedback",
+              availability: "available",
+              chunk_id: "chunk-private",
+              owner: "principal-private",
+            }],
+          },
+        }],
+      })
+      : Promise.resolve(activeSnapshot));
+
+    render(<InterviewPage />);
+
+    expect(await screen.findByText("参考了你的资料")).toBeInTheDocument();
+    const ordinaryDom = document.body.innerHTML;
+    [
+      "citation-user-private",
+      "material-safe-ref-private",
+      "我的内部复盘",
+      "第 2 页",
+      "不应在面试提示中展开的摘录",
+      "chunk-private",
+      "principal-private",
+    ].forEach((value) => expect(ordinaryDom).not.toContain(value));
+  });
+
+  it("does not infer a reference from selected materials or scope", async () => {
+    getJson.mockImplementation((path) => path.endsWith("/question-evaluations")
+      ? Promise.resolve({ items: [] })
+      : Promise.resolve({
+        ...activeSnapshot,
+        knowledge_scope: {
+          document_ids: ["selected-document-not-referenced"],
+          frozen: true,
+        },
+        selected_materials: [{
+          document_safe_ref: "selected-material-safe-ref",
+          display_title: "仅被选择的资料",
+        }],
+      }));
+
+    render(<InterviewPage />);
+
+    await screen.findByRole("heading", { name: "如何设计幂等写入？" });
+    expect(screen.queryByText("参考了你的资料")).not.toBeInTheDocument();
+    expect(document.body.innerHTML).not.toContain("selected-document-not-referenced");
+    expect(document.body.innerHTML).not.toContain("selected-material-safe-ref");
+    expect(document.body.innerHTML).not.toContain("仅被选择的资料");
+  });
+
+  it("fails closed for system-only, deleted, and malformed citations", async () => {
+    getJson.mockImplementation((path) => path.endsWith("/question-evaluations")
+      ? Promise.resolve({
+        items: [{
+          question_id: "q1",
+          status: "completed",
+          feedback: {
+            knowledge_citations: [
+              {
+                citation_id: "citation-system-only",
+                source_scope: "system_knowledge",
+                document_safe_ref: null,
+                display_title: "系统知识标题",
+                usage: "feedback",
+                availability: "available",
+              },
+              {
+                citation_id: "citation-deleted-private",
+                source_scope: "user_document",
+                document_safe_ref: "deleted-material-private",
+                display_title: "已删除资料原标题",
+                location_label: "已删除位置",
+                excerpt: "已删除摘录",
+                usage: "feedback",
+                availability: "deleted",
+              },
+              {
+                source_scope: "user_document",
+                document_safe_ref: "malformed-material-private",
+                display_title: "缺少 citation_id",
+                usage: "feedback",
+                availability: "available",
+              },
+            ],
+          },
+        }],
+      })
+      : Promise.resolve(activeSnapshot));
+
+    render(<InterviewPage />);
+
+    await screen.findByRole("heading", { name: "如何设计幂等写入？" });
+    expect(screen.queryByText("参考了你的资料")).not.toBeInTheDocument();
+    const ordinaryDom = document.body.innerHTML;
+    [
+      "citation-system-only",
+      "系统知识标题",
+      "citation-deleted-private",
+      "deleted-material-private",
+      "已删除资料原标题",
+      "已删除位置",
+      "已删除摘录",
+      "malformed-material-private",
+      "缺少 citation_id",
+    ].forEach((value) => expect(ordinaryDom).not.toContain(value));
   });
 });
 

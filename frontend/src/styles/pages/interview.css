@@ -1156,6 +1156,19 @@
   line-height: 1.55;
 }
 
+.interview-app .context-review > .interview-citation-note {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--start-space-3xs);
+  width: fit-content;
+  padding: var(--start-space-3xs) var(--start-space-2xs);
+  border: var(--start-rule-thin) solid var(--interview-rule);
+  border-radius: var(--start-radius-round);
+  background: var(--interview-surface-accent);
+  color: var(--interview-action-hover);
+  font-weight: var(--start-font-weight-semibold);
+}
+
 .interview-app .review-count {
   color: var(--interview-action-hover);
   font-family: var(--start-font-display);

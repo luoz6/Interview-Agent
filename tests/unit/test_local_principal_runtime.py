@@ -9,7 +9,23 @@ from app.services.principal_identity import (
 )
 
 
-def test_runtime_uses_null_identity_by_default(monkeypatch):
+def test_runtime_uses_explicit_local_identity_by_default(monkeypatch):
+    monkeypatch.delenv("MEMORY_LOCAL_PRINCIPAL_ENABLED", raising=False)
+    monkeypatch.delenv("MEMORY_LOCAL_PRINCIPAL_ID", raising=False)
+    runtime.reset_runtime_for_tests()
+
+    resolver = runtime.get_principal_identity_resolver()
+
+    assert isinstance(resolver, ExplicitPrincipalIdentityResolver)
+    identity = resolver.resolve()
+    assert identity.deployment_id == "single-tenant-local"
+    assert identity.principal_id == "local-owner"
+    assert identity.assurance == "trusted_local"
+    runtime.reset_runtime_for_tests()
+
+
+def test_runtime_uses_null_identity_when_memory_is_explicitly_disabled(monkeypatch):
+    monkeypatch.setenv("MEMORY_LONG_TERM_MODE", "disabled")
     monkeypatch.delenv("MEMORY_LOCAL_PRINCIPAL_ENABLED", raising=False)
     monkeypatch.delenv("MEMORY_LOCAL_PRINCIPAL_ID", raising=False)
     runtime.reset_runtime_for_tests()

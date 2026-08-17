@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import json
+
+from app.domain.knowledge.evidence import SafeKnowledgeCitation
 from app.services.report import DimensionScores
 from app.services.report_contract import (
     CanonicalQuestionResult,
@@ -161,3 +164,68 @@ def test_assemble_interview_report_falls_back_to_short_critique_snippets():
     assert report.highlights == [
         "Needs concrete metrics, rollback handling, race-window mitigation, and produc..."
     ]
+
+
+def test_report_persists_safe_knowledge_citations_only_on_question_feedback():
+    report = assemble_interview_report(
+        session_id="s1",
+        question_results=[make_question_result(reference_chunk_ids=[])],
+        reference_lookup={},
+    )
+    citation = SafeKnowledgeCitation(
+        citation_id="citation-" + "a" * 32,
+        source_scope="user_document",
+        document_safe_ref="material-" + "b" * 32,
+        display_title="My interview notes",
+        location_label="Section 2",
+        excerpt="Use bounded retries and idempotency keys.",
+        usage="feedback",
+        availability="available",
+    )
+    feedback = report.feedbacks[0].model_copy(
+        update={"knowledge_citations": [citation]}
+    )
+    report = report.model_copy(update={"feedbacks": [feedback]})
+
+    payload = report.model_dump(mode="json")
+    serialized = json.dumps(payload, ensure_ascii=False, sort_keys=True)
+    citation_payload = payload["feedbacks"][0]["knowledge_citations"][0]
+
+    assert "knowledge_citations" not in payload
+    assert citation_payload == citation.model_dump(mode="json")
+    assert set(citation_payload) == {
+        "citation_id",
+        "source_scope",
+        "document_safe_ref",
+        "display_title",
+        "location_label",
+        "excerpt",
+        "usage",
+        "availability",
+    }
+    for forbidden_key in (
+        "owner_principal_id",
+        "document_revision_id",
+        "chunk_id",
+        "source_id",
+        "content_sha256",
+        "corpus_manifest_sha256",
+        "manifest",
+        "query",
+        "prompt",
+        "job_description",
+        "resume",
+        "trace",
+        "original_filename",
+        "filename",
+        "path",
+    ):
+        assert forbidden_key not in citation_payload
+    for forbidden_value in (
+        "principal-a",
+        "internal-user-chunk-id",
+        "00000000-0000-0000-0000-000000000011",
+        "private-notes.md",
+        "C:\\private\\notes.md",
+    ):
+        assert forbidden_value not in serialized

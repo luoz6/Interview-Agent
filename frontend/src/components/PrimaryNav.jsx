@@ -1,11 +1,4 @@
-import { PRODUCT_NAVIGATION } from "./navigation";
-
-function navClickHandler(item, onNavigate) {
-  return (event) => {
-    if (!onNavigate) return;
-    if (onNavigate(item.href, item) === false) event.preventDefault();
-  };
-}
+import { navigationClickHandler, PRODUCT_NAVIGATION } from "./navigation";
 
 export function PrimaryNav({ pathname = window.location.pathname, onNavigate }) {
   return (
@@ -15,7 +8,7 @@ export function PrimaryNav({ pathname = window.location.pathname, onNavigate }) 
           key={item.href}
           href={item.href}
           aria-current={item.match.includes(pathname) ? "page" : undefined}
-          onClick={navClickHandler(item, onNavigate)}
+          onClick={navigationClickHandler(item, onNavigate)}
         >
           {item.label}
         </a>

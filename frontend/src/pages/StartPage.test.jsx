@@ -1,11 +1,50 @@
 import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+const { useMaterialsMock } = vi.hoisted(() => ({
+  useMaterialsMock: vi.fn(),
+}));
+
+vi.mock("../materials/useMaterials", () => ({
+  useMaterials: useMaterialsMock,
+}));
+
 import { StartPage } from "./StartPage";
 
 const familyId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 const questionOne = "11111111-1111-4111-8111-111111111111";
 const questionTwo = "22222222-2222-4222-8222-222222222222";
+const readyMaterialId = "66666666-6666-4666-8666-666666666666";
+const processingMaterialId = "77777777-7777-4777-8777-777777777777";
+const failedMaterialId = "88888888-8888-4888-8888-888888888888";
+const disabledMaterialId = "99999999-9999-4999-8999-999999999999";
+const materialItems = [
+  {
+    documentId: readyMaterialId,
+    displayName: "Interview-Agent 项目设计.md",
+    status: "ready",
+    enabled: true,
+  },
+  {
+    documentId: processingMaterialId,
+    displayName: "Redis 学习笔记.txt",
+    status: "processing",
+    enabled: true,
+  },
+  {
+    documentId: failedMaterialId,
+    displayName: "Java 并发总结.md",
+    status: "failed",
+    enabled: true,
+  },
+  {
+    documentId: disabledMaterialId,
+    displayName: "旧版架构说明.md",
+    status: "disabled",
+    enabled: false,
+  },
+];
 const defaultConfiguration = {
   difficulty: "intermediate",
   target_duration_minutes: 30,
@@ -96,6 +135,11 @@ function revisionResponse(revision = 1, overrides = {}) {
       schema_version: "interview-plan-v2",
       title: "Backend interview plan",
       configuration_snapshot: defaultConfiguration,
+      knowledge_scope: {
+        schema_version: "interview-knowledge-scope-v1",
+        include_system_knowledge: true,
+        selected_documents: [],
+      },
       questions,
     },
     ...overrides,
@@ -128,6 +172,11 @@ describe("StartPage editable plan workflow", () => {
     window.sessionStorage.clear();
     fetchMock = vi.fn();
     vi.stubGlobal("fetch", fetchMock);
+    useMaterialsMock.mockReturnValue({
+      items: [],
+      availability: "ready",
+      refresh: vi.fn(),
+    });
     Object.defineProperty(navigator, "clipboard", {
       configurable: true,
       value: { writeText: vi.fn().mockResolvedValue(undefined) },
@@ -137,6 +186,357 @@ describe("StartPage editable plan workflow", () => {
   afterEach(() => {
     cleanup();
     vi.unstubAllGlobals();
+  });
+
+  it("shows every material state but only allows Ready and Enabled items", async () => {
+    const user = userEvent.setup();
+    useMaterialsMock.mockReturnValue({
+      items: materialItems,
+      availability: "ready",
+      refresh: vi.fn(),
+    });
+    render(<StartPage />);
+
+    await user.click(screen.getByRole("tab", { name: "就绪" }));
+
+    expect(screen.getByRole("checkbox", { name: /Interview-Agent 项目设计/ })).toBeEnabled();
+    expect(screen.getByRole("checkbox", { name: /Redis 学习笔记/ })).toBeDisabled();
+    expect(screen.getByRole("checkbox", { name: /Java 并发总结/ })).toBeDisabled();
+    expect(screen.getByRole("checkbox", { name: /旧版架构说明/ })).toBeDisabled();
+    expect(screen.getByText("正在提取内容并建立索引")).toBeInTheDocument();
+    expect(screen.getByText("可检查文件后重新处理")).toBeInTheDocument();
+    expect(screen.getByText("已停用，请先到“我的资料”启用")).toBeInTheDocument();
+    expect(screen.getByRole("checkbox", { name: /同时使用系统知识/ })).toBeChecked();
+  });
+
+  it("supports system-only and explicit-empty generation when Materials are unavailable", async () => {
+    const user = userEvent.setup();
+    let prepRevision = 0;
+    useMaterialsMock.mockReturnValue({
+      items: [],
+      availability: "unavailable",
+      refresh: vi.fn(),
+    });
+    fetchMock.mockImplementation((path, options) => {
+      if (path === "/api/runtime/principal-memory/status") {
+        return response({ mode: "disabled", global_enabled: false });
+      }
+      if (path === "/api/prep") {
+        prepRevision += 1;
+        const requestScope = JSON.parse(options.body).knowledge_scope;
+        const base = revisionResponse(prepRevision);
+        return response(revisionResponse(prepRevision, {
+          plan: {
+            ...base.plan,
+            knowledge_scope: {
+              schema_version: "interview-knowledge-scope-v1",
+              include_system_knowledge: requestScope.include_system_knowledge,
+              selected_documents: [],
+            },
+          },
+        }));
+      }
+      throw new Error(`Unexpected request: ${path}`);
+    });
+    render(<StartPage />);
+
+    await user.click(screen.getByRole("tab", { name: "就绪" }));
+    expect(screen.getByText(/个人资料功能当前未启用/)).toBeInTheDocument();
+    await user.type(screen.getByRole("textbox", { name: "岗位 JD" }), "Backend role");
+    await user.click(screen.getByRole("tab", { name: /候选人经历/ }));
+    await user.type(screen.getByRole("textbox", { name: "简历内容" }), "Backend resume");
+    await user.click(screen.getByRole("button", { name: "生成面试计划" }));
+    await screen.findByText("R1");
+
+    let prepCalls = fetchMock.mock.calls.filter(([path]) => path === "/api/prep");
+    expect(JSON.parse(prepCalls[0][1].body).knowledge_scope).toEqual({
+      include_system_knowledge: true,
+      selected_document_ids: [],
+    });
+
+    await user.click(screen.getByRole("tab", { name: "就绪" }));
+    await user.click(screen.getByRole("checkbox", { name: /同时使用系统知识/ }));
+    expect(screen.getByRole("button", { name: "开始本次面试" })).toBeDisabled();
+    await user.click(screen.getByRole("button", {
+      name: "应用资料范围并重新生成",
+    }));
+    await screen.findByText("R2");
+
+    prepCalls = fetchMock.mock.calls.filter(([path]) => path === "/api/prep");
+    expect(JSON.parse(prepCalls[1][1].body).knowledge_scope).toEqual({
+      include_system_knowledge: false,
+      selected_document_ids: [],
+    });
+    await user.click(screen.getByRole("tab", { name: "就绪" }));
+    expect(screen.getByText("未启用知识来源")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "开始本次面试" })).toBeEnabled();
+  });
+
+  it.each(["loading", "error", "unavailable"])(
+    "keeps a restored selected Scope fail closed while the Materials list is %s",
+    async (availability) => {
+      const base = revisionResponse(1);
+      const restored = revisionResponse(1, {
+        plan: {
+          ...base.plan,
+          knowledge_scope: {
+            schema_version: "interview-knowledge-scope-v1",
+            include_system_knowledge: true,
+            selected_documents: [{ document_id: readyMaterialId }],
+          },
+        },
+      });
+      window.localStorage.setItem("interview-agent:draft-id", "draft-material-scope");
+      useMaterialsMock.mockReturnValue({
+        items: materialItems,
+        availability,
+        refresh: vi.fn(),
+      });
+      fetchMock.mockImplementation((path) => {
+        if (path === "/api/interview-drafts/draft-material-scope") {
+          return response({
+            draft_id: "draft-material-scope",
+            durability: "memory",
+            job_description: "Restored backend role",
+            resume_text: "Restored backend resume",
+            job_tags: ["Backend"],
+            plan_status: "active",
+            plan_family_id: familyId,
+            latest_plan_revision_id: base.plan_revision_id,
+          });
+        }
+        if (path === `/api/interview-plans/${familyId}/revisions/${base.plan_revision_id}`) {
+          return response(restored);
+        }
+        if (path === "/api/runtime/principal-memory/status") {
+          return response({ mode: "disabled", global_enabled: false });
+        }
+        throw new Error(`Unexpected request: ${path}`);
+      });
+
+      render(<StartPage />);
+
+      expect(await screen.findByText(/草稿和对应的同一份计划修订已恢复/)).toBeInTheDocument();
+      const selectedMaterial = screen.getByRole("checkbox", {
+        name: /Interview-Agent 项目设计/,
+      });
+      await waitFor(() => expect(selectedMaterial).toBeChecked());
+      expect(selectedMaterial).toBeDisabled();
+      expect(screen.getByText(/已选范围中有资料当前不可用/)).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "开始本次面试" })).toBeDisabled();
+      expect(fetchMock.mock.calls.some(([path]) => path === "/api/interviews")).toBe(false);
+    },
+  );
+
+  it("submits only the public Scope request and shows the server-confirmed summary", async () => {
+    const user = userEvent.setup();
+    const base = revisionResponse(1);
+    useMaterialsMock.mockReturnValue({
+      items: materialItems,
+      availability: "ready",
+      refresh: vi.fn(),
+    });
+    fetchMock.mockImplementation((path) => {
+      if (path === "/api/runtime/principal-memory/status") {
+        return response({ mode: "disabled", global_enabled: false });
+      }
+      if (path === "/api/prep") {
+        return response(revisionResponse(1, {
+          plan: {
+            ...base.plan,
+            knowledge_scope: {
+              schema_version: "interview-knowledge-scope-v1",
+              include_system_knowledge: false,
+              selected_documents: [{ document_id: readyMaterialId }],
+            },
+          },
+        }));
+      }
+      throw new Error(`Unexpected request: ${path}`);
+    });
+    render(<StartPage />);
+
+    await user.click(screen.getByRole("tab", { name: "就绪" }));
+    await user.click(screen.getByRole("checkbox", { name: /Interview-Agent 项目设计/ }));
+    await user.click(screen.getByRole("checkbox", { name: /同时使用系统知识/ }));
+    await user.type(screen.getByRole("textbox", { name: "岗位 JD" }), "Backend role");
+    await user.click(screen.getByRole("tab", { name: /候选人经历/ }));
+    await user.type(screen.getByRole("textbox", { name: "简历内容" }), "Backend resume");
+    await user.click(screen.getByRole("button", { name: "生成面试计划" }));
+    await screen.findByText("R1");
+
+    const prepCall = fetchMock.mock.calls.find(([path]) => path === "/api/prep");
+    const requestBody = JSON.parse(prepCall[1].body);
+    expect(requestBody.knowledge_scope).toEqual({
+      include_system_knowledge: false,
+      selected_document_ids: [readyMaterialId],
+    });
+    expect(JSON.stringify(requestBody.knowledge_scope)).not.toMatch(
+      /revision|hash|owner|title|internal|embedding|path/i,
+    );
+
+    await user.click(screen.getByRole("tab", { name: "就绪" }));
+    expect(screen.getByText("服务端已确认")).toBeInTheDocument();
+    expect(screen.getByText("1 份个人资料，不使用系统知识")).toBeInTheDocument();
+    expect(screen.getAllByText("Interview-Agent 项目设计.md")).toHaveLength(2);
+
+    await user.click(screen.getByRole("checkbox", { name: /同时使用系统知识/ }));
+    expect(screen.getByText("资料范围已变更")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "开始本次面试" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "应用资料范围并重新生成" })).toBeEnabled();
+  });
+
+  it("keeps server Scope internals out of the rendered DOM", async () => {
+    const user = userEvent.setup();
+    const base = revisionResponse(1);
+    useMaterialsMock.mockReturnValue({
+      items: materialItems,
+      availability: "ready",
+      refresh: vi.fn(),
+    });
+    fetchMock.mockImplementationOnce(() => response(revisionResponse(1, {
+      plan: {
+        ...base.plan,
+        knowledge_scope: {
+          schema_version: "interview-knowledge-scope-v1",
+          include_system_knowledge: true,
+          selected_documents: [{
+            document_id: readyMaterialId,
+            owner_principal_id: "principal-secret",
+            document_revision_id: "revision-secret",
+            content_sha256: "content-hash-secret",
+            selection_sha256: "selection-hash-secret",
+            allowed_usages: ["question"],
+            created_at: "2026-08-15T08:30:00Z",
+          }],
+        },
+      },
+    })));
+    const { container } = render(<StartPage />);
+
+    await user.type(screen.getByRole("textbox", { name: "岗位 JD" }), "Backend role");
+    await user.click(screen.getByRole("tab", { name: /候选人经历/ }));
+    await user.type(screen.getByRole("textbox", { name: "简历内容" }), "Backend resume");
+    await user.click(screen.getByRole("button", { name: "生成面试计划" }));
+    await screen.findByText("R1");
+    await user.click(screen.getByRole("tab", { name: "就绪" }));
+
+    expect(container).toHaveTextContent("系统知识 + 1 份个人资料");
+    expect(container.textContent).not.toMatch(
+      /principal-secret|revision-secret|content-hash-secret|selection-hash-secret|allowed_usages|created_at/,
+    );
+  });
+
+  it("requires an explicit user action to remove a missing restored material", async () => {
+    const user = userEvent.setup();
+    const base = revisionResponse(1);
+    const restored = revisionResponse(1, {
+      plan: {
+        ...base.plan,
+        knowledge_scope: {
+          schema_version: "interview-knowledge-scope-v1",
+          include_system_knowledge: true,
+          selected_documents: [{ document_id: readyMaterialId }],
+        },
+      },
+    });
+    window.localStorage.setItem("interview-agent:draft-id", "draft-missing-material");
+    useMaterialsMock.mockReturnValue({
+      items: [],
+      availability: "ready",
+      refresh: vi.fn(),
+    });
+    fetchMock.mockImplementation((path) => {
+      if (path === "/api/interview-drafts/draft-missing-material") {
+        return response({
+          draft_id: "draft-missing-material",
+          durability: "memory",
+          job_description: "Restored backend role",
+          resume_text: "Restored backend resume",
+          job_tags: ["Backend"],
+          plan_status: "active",
+          plan_family_id: familyId,
+          latest_plan_revision_id: base.plan_revision_id,
+        });
+      }
+      if (path === `/api/interview-plans/${familyId}/revisions/${base.plan_revision_id}`) {
+        return response(restored);
+      }
+      if (path === "/api/runtime/principal-memory/status") {
+        return response({ mode: "disabled", global_enabled: false });
+      }
+      throw new Error(`Unexpected request: ${path}`);
+    });
+    render(<StartPage />);
+
+    expect(await screen.findByText(/草稿和对应的同一份计划修订已恢复/)).toBeInTheDocument();
+    expect(await screen.findByText(/已选范围中有资料当前不可用/)).toBeInTheDocument();
+    const start = screen.getByRole("button", { name: "开始本次面试" });
+    expect(start).toBeDisabled();
+    expect(screen.getByText("系统知识 + 1 份个人资料")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "只保留可用资料" }));
+    expect(screen.queryByText(/已选范围中有资料当前不可用/)).not.toBeInTheDocument();
+    expect(screen.getByText("资料范围已变更")).toBeInTheDocument();
+    expect(start).toBeDisabled();
+  });
+
+  it("keeps an unavailable confirmed item unselectable and can remove it safely", async () => {
+    const user = userEvent.setup();
+    const base = revisionResponse(1);
+    useMaterialsMock.mockReturnValue({
+      items: materialItems,
+      availability: "ready",
+      refresh: vi.fn(),
+    });
+    fetchMock.mockImplementationOnce(() => response(revisionResponse(1, {
+      plan: {
+        ...base.plan,
+        knowledge_scope: {
+          schema_version: "interview-knowledge-scope-v1",
+          include_system_knowledge: true,
+          selected_documents: [{ document_id: disabledMaterialId }],
+        },
+      },
+    })));
+    render(<StartPage />);
+    await user.type(screen.getByRole("textbox", { name: "岗位 JD" }), "Backend role");
+    await user.click(screen.getByRole("tab", { name: /候选人经历/ }));
+    await user.type(screen.getByRole("textbox", { name: "简历内容" }), "Backend resume");
+    await user.click(screen.getByRole("button", { name: "生成面试计划" }));
+    await screen.findByText("R1");
+    await user.click(screen.getByRole("tab", { name: "就绪" }));
+
+    const disabledChoice = screen.getByRole("checkbox", { name: /旧版架构说明/ });
+    expect(disabledChoice).toBeChecked();
+    expect(disabledChoice).toBeDisabled();
+    expect(screen.getByRole("button", { name: "开始本次面试" })).toBeDisabled();
+    await user.click(screen.getByRole("button", { name: "只保留可用资料" }));
+    expect(disabledChoice).not.toBeChecked();
+    expect(screen.getByText("资料范围已变更")).toBeInTheDocument();
+  });
+
+  it.each([
+    [404, "knowledge_scope_document_not_found"],
+    [409, "knowledge_scope_document_unavailable"],
+  ])("projects Scope Start errors safely for HTTP %s", async (statusCode, code) => {
+    const user = userEvent.setup();
+    render(<StartPage />);
+    await generatePlan(user, fetchMock);
+    fetchMock.mockImplementationOnce(() => response({
+      detail: {
+        code,
+        message: "secret principal-b ownership detail",
+      },
+    }, statusCode));
+
+    await user.click(screen.getByRole("button", { name: "开始本次面试" }));
+
+    expect(await screen.findByText(
+      "本次参考资料已失效或暂不可用。请重新确认资料范围并生成新计划。",
+    )).toBeInTheDocument();
+    expect(screen.queryByText(/principal-b ownership/)).not.toBeInTheDocument();
+    expect(screen.queryByText("计划已不是服务端最新版本。请查看服务端版本后再开始。")).not.toBeInTheDocument();
   });
 
   it("keeps the live generate action retryable after a request failure", async () => {

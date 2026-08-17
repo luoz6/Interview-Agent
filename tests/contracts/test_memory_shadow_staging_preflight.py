@@ -22,6 +22,9 @@ from tests.memory_shadow_staging_fixtures import (
 from tests.operational_shadow_fixtures import rc_payload
 
 
+DISABLED_LONG_TERM_ENV = {"MEMORY_LONG_TERM_MODE": "disabled"}
+
+
 def test_safe_prefix_is_strict_and_bounded():
     prefix = staging.make_staging_prefix()
 
@@ -33,7 +36,7 @@ def test_safe_prefix_is_strict_and_bounded():
 
 
 def test_static_preflight_passes_only_with_disabled_memory_modes():
-    config = load_effective_memory_config({})
+    config = load_effective_memory_config(DISABLED_LONG_TERM_ENV)
 
     result = staging.evaluate_preflight(
         declaration=_declaration(),
@@ -222,7 +225,7 @@ def test_live_preflight_requires_target_match_before_migration(
     result = staging.run_live_preflight(
         declaration=_declaration(),
         rc_evidence=_rc_evidence(),
-        environ={},
+        environ=DISABLED_LONG_TERM_ENV,
         dsn="secret-dsn",
         table_prefix=staging.make_staging_prefix(),
         scope_context_factory=mismatched_scope,
@@ -253,7 +256,7 @@ def test_live_preflight_reports_invalid_approval_configuration_as_stable_gate(
     result = staging.run_live_preflight(
         declaration=_declaration(),
         rc_evidence=_rc_evidence(),
-        environ={},
+        environ=DISABLED_LONG_TERM_ENV,
         dsn="secret-dsn",
         table_prefix=staging.make_staging_prefix(),
         scope_context_factory=invalid_scope,
@@ -273,7 +276,7 @@ def test_live_preflight_reports_missing_dsn_before_creating_scope():
     result = staging.run_live_preflight(
         declaration=_declaration(),
         rc_evidence=_rc_evidence(),
-        environ={},
+        environ=DISABLED_LONG_TERM_ENV,
         dsn="",
         table_prefix=staging.make_staging_prefix(),
         scope_context_factory=forbidden_scope,
@@ -312,7 +315,7 @@ def test_live_preflight_uses_owned_scope_cleanup_receipt(monkeypatch):
     result = staging.run_live_preflight(
         declaration=_declaration(),
         rc_evidence=_rc_evidence(),
-        environ={},
+        environ=DISABLED_LONG_TERM_ENV,
         dsn="secret-dsn",
         table_prefix=prefix,
         scope_context_factory=owned_scope,
@@ -324,7 +327,7 @@ def test_live_preflight_uses_owned_scope_cleanup_receipt(monkeypatch):
     assert scope_arguments == {
         "dsn": "secret-dsn",
         "scope_prefix": prefix,
-        "environ": {},
+        "environ": DISABLED_LONG_TERM_ENV,
     }
 
 
@@ -381,6 +384,7 @@ def test_cli_dry_run_never_connects(monkeypatch, tmp_path, capsys):
         "EVIDENCE_HMAC_SECRET_B64",
         base64.b64encode(secret).decode("ascii"),
     )
+    monkeypatch.setenv("MEMORY_LONG_TERM_MODE", "disabled")
     monkeypatch.setattr(
         staging,
         "run_live_preflight",

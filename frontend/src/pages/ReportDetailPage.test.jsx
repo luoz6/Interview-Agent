@@ -127,6 +127,7 @@ beforeEach(() => {
 afterEach(() => {
   cleanup();
   vi.useRealTimers();
+  vi.restoreAllMocks();
 });
 
 describe("ReportDetailPage candidate information architecture", () => {
@@ -219,6 +220,7 @@ describe("ReportDetailPage candidate information architecture", () => {
   });
 
   it("refreshes on visibility and aborts an in-flight update refresh on cleanup", async () => {
+    const addEventListenerSpy = vi.spyOn(document, "addEventListener");
     const updating = structuredClone(reportResponse);
     updating.active_artifact.payload.summary = "revision-two-visible";
     updating.latest_job = { job_id: "job-rescore-3", status: "running", job_kind: "rescore" };
@@ -236,6 +238,10 @@ describe("ReportDetailPage candidate information architecture", () => {
     });
     const { unmount } = render(<ReportDetailPage />);
     expect(await screen.findByText("revision-two-visible")).toBeInTheDocument();
+    await waitFor(() => expect(addEventListenerSpy).toHaveBeenCalledWith(
+      "visibilitychange",
+      expect.any(Function),
+    ));
 
     fireEvent(document, new Event("visibilitychange"));
     await waitFor(() => expect(refreshSignal).toBeInstanceOf(AbortSignal));
@@ -325,6 +331,137 @@ describe("ReportDetailPage candidate information architecture", () => {
     expect(screen.getAllByText("未评分").length).toBeGreaterThan(0);
     expect(screen.getAllByText("无有效覆盖").length).toBeGreaterThan(0);
     expect(screen.queryByText("部分评分")).not.toBeInTheDocument();
+  });
+
+  it("groups only actual safe citations and fully redacts deleted material", async () => {
+    const cited = structuredClone(reportResponse);
+    cited.active_artifact.payload.feedbacks[0].knowledge_citations = [
+      {
+        citation_id: "citation-user-internal",
+        source_scope: "user_document",
+        document_safe_ref: "material-safe-ref-internal",
+        display_title: "我的分布式系统笔记",
+        location_label: "第 4 节",
+        excerpt: "使用业务幂等键约束重复写入。",
+        usage: "feedback",
+        availability: "available",
+        owner: "principal-internal",
+        document_revision: "revision-internal",
+        document_hash: "hash-internal",
+        chunk_id: "chunk-internal",
+        source_id: "source-internal",
+        manifest: "manifest-internal",
+        query: "query-internal",
+        prompt: "prompt-internal",
+        job_description: "jd-internal",
+        resume: "resume-internal",
+        trace: "trace-internal",
+      },
+      {
+        citation_id: "citation-system-internal",
+        source_scope: "system_knowledge",
+        document_safe_ref: null,
+        display_title: "系统设计知识库",
+        location_label: "幂等写入",
+        excerpt: "重复请求应返回一致结果。",
+        usage: "feedback",
+        availability: "available",
+      },
+    ];
+    cited.active_artifact.payload.feedbacks[1].knowledge_citations = [{
+      citation_id: "citation-deleted-internal",
+      source_scope: "user_document",
+      document_safe_ref: "deleted-safe-ref-internal",
+      display_title: "已删除的私人笔记标题",
+      location_label: "旧位置标签",
+      excerpt: "已删除的私人摘录",
+      usage: "feedback",
+      availability: "deleted",
+      chunk_id: "deleted-chunk-internal",
+      owner: "deleted-owner-internal",
+    }];
+    getJson.mockImplementation((path) => {
+      if (path.endsWith("/report")) return Promise.resolve(cited);
+      if (path.endsWith("/reports")) return Promise.resolve({ items: [cited.active_artifact] });
+      return Promise.resolve({ items: [] });
+    });
+
+    render(<ReportDetailPage />);
+
+    expect(await screen.findByText("我的分布式系统笔记")).toBeInTheDocument();
+    expect(screen.getByText("系统设计知识库")).toBeInTheDocument();
+    expect(screen.getAllByRole("heading", { name: "我的资料" })).toHaveLength(2);
+    expect(screen.getByRole("heading", { name: "系统知识" })).toBeInTheDocument();
+    expect(screen.getByText("第 4 节")).toBeInTheDocument();
+    expect(screen.getByText("使用业务幂等键约束重复写入。")).toBeInTheDocument();
+    expect(screen.getByText("已删除资料")).toBeInTheDocument();
+
+    const ordinaryDom = document.body.innerHTML;
+    [
+      "citation-user-internal",
+      "material-safe-ref-internal",
+      "principal-internal",
+      "revision-internal",
+      "hash-internal",
+      "chunk-internal",
+      "source-internal",
+      "manifest-internal",
+      "query-internal",
+      "prompt-internal",
+      "jd-internal",
+      "resume-internal",
+      "trace-internal",
+      "citation-deleted-internal",
+      "deleted-safe-ref-internal",
+      "已删除的私人笔记标题",
+      "旧位置标签",
+      "已删除的私人摘录",
+      "deleted-chunk-internal",
+      "deleted-owner-internal",
+    ].forEach((value) => expect(ordinaryDom).not.toContain(value));
+  });
+
+  it("renders no source decoration when the report has no actual citation", async () => {
+    render(<ReportDetailPage />);
+
+    await screen.findByRole("heading", { name: "05 · 逐题证据与回答建议" });
+    expect(screen.queryByRole("heading", { name: "参考来源" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "我的资料" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "系统知识" })).not.toBeInTheDocument();
+    expect(screen.queryByText("本题没有可公开的知识引用")).not.toBeInTheDocument();
+    expect(screen.queryByText("公开知识引用清单")).not.toBeInTheDocument();
+    expect(screen.queryByText("来源")).not.toBeInTheDocument();
+  });
+
+  it("keeps a legacy report readable without exposing legacy reference IDs", async () => {
+    const legacy = {
+      session_id: "session-legacy",
+      overall_score: 76,
+      overall_dimension_scores: { depth: 76 },
+      summary: "历史报告仍可正常阅读。",
+      highlights: ["历史优势"],
+      feedbacks: [{
+        ...feedback("legacy-q1", "历史兼容题目", 76),
+        references: [{
+          chunk_id: "legacy-chunk-secret",
+          title: "旧知识片段标题",
+          excerpt: "旧知识片段摘录",
+        }],
+      }],
+    };
+    getJson.mockImplementation((path) => {
+      if (path.endsWith("/report")) return Promise.resolve(legacy);
+      return Promise.resolve({ items: [] });
+    });
+
+    render(<ReportDetailPage />);
+
+    expect(await screen.findByText("历史报告仍可正常阅读。")).toBeInTheDocument();
+    expect(screen.getByText("历史兼容题目")).toBeInTheDocument();
+    expect(screen.queryByText("legacy-chunk-secret")).not.toBeInTheDocument();
+    expect(screen.queryByText("旧知识片段标题")).not.toBeInTheDocument();
+    expect(screen.queryByText("旧知识片段摘录")).not.toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "参考来源" })).not.toBeInTheDocument();
   });
 
   it("downloads the active PDF by immutable report ID and revision", async () => {

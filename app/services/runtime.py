@@ -6,6 +6,7 @@ from uuid import uuid4
 
 from app.runtime.config import (
     load_knowledge_runtime_settings,
+    load_user_materials_runtime_settings,
     load_worker_runtime_settings,
 )
 from app.runtime.container import RuntimeContainer
@@ -136,6 +137,7 @@ def build_runtime_knowledge_repository(
     from app.adapters.knowledge import (
         ExactTermLexicalRetriever,
         RuntimeKnowledgeRepository,
+        SourceAwareKnowledgeRetriever,
     )
     from app.application.knowledge import (
         HybridKnowledgeRetrievalService,
@@ -171,14 +173,20 @@ def build_runtime_knowledge_repository(
         enabled=settings.evidence_gate_enabled,
         version=settings.evidence_gate_version,
     )
-    legacy = KnowledgeRetrievalService(
+    source_aware_retriever = SourceAwareKnowledgeRetriever(
         resolved,
+        ExactTermLexicalRetriever(resolved),
+        user_chunks_factory=get_user_document_chunk_repository,
+        embedding_provider=getattr(resolved, "embedding_provider", None),
+    )
+    legacy = KnowledgeRetrievalService(
+        source_aware_retriever,
         component_versions=component_versions,
         evidence_gate=evidence_gate,
     )
     hybrid = HybridKnowledgeRetrievalService(
-        resolved,
-        ExactTermLexicalRetriever(resolved),
+        source_aware_retriever,
+        source_aware_retriever,
         component_versions=component_versions,
         evidence_gate=evidence_gate,
     )
@@ -188,7 +196,14 @@ def build_runtime_knowledge_repository(
         configured_engine=settings.engine,
         trace_sink=KnowledgeTraceRecorder.from_env(),
     )
-    return RuntimeKnowledgeRepository(resolved, coordinator, settings)
+    return RuntimeKnowledgeRepository(
+        resolved,
+        coordinator,
+        settings,
+        session_store_factory=get_session_store,
+        principal_identity_resolver_factory=get_principal_identity_resolver,
+        materials_settings_factory=load_user_materials_runtime_settings,
+    )
 
 
 def get_runtime_knowledge_repository():
@@ -254,6 +269,101 @@ def get_principal_memory_consent_store():
             store = InMemoryPrincipalMemoryConsentStore()
         _runtime_container.set("principal_memory_consent_store", store)
     return store
+
+
+def get_user_document_store():
+    if get_runtime_store() != "postgres":
+        from app.adapters.memory.user_documents import InMemoryUserDocumentStore
+
+        factory = InMemoryUserDocumentStore
+    else:
+        from app.adapters.postgres.user_documents import (
+            PostgresUserDocumentStore,
+        )
+
+        factory = lambda: PostgresUserDocumentStore(
+            connection_provider=get_postgres_connection_domains().business,
+            table_prefix=get_runtime_table_prefix(),
+            schema_mode="validate",
+        )
+    return _runtime_container.get_or_create("user_document_store", factory)
+
+
+def get_user_document_chunk_repository():
+    if get_runtime_store() != "postgres":
+        from app.adapters.memory.user_documents import (
+            InMemoryUserDocumentChunkRepository,
+        )
+
+        factory = InMemoryUserDocumentChunkRepository
+    else:
+        from app.adapters.pgvector.user_document_repository import (
+            PgVectorUserDocumentChunkRepository,
+        )
+        from app.runtime.config.compatibility import get_embedding_settings
+
+        factory = lambda: PgVectorUserDocumentChunkRepository(
+            embedding_dimension=get_embedding_settings().dimension,
+            connection_provider=get_postgres_connection_domains().business,
+            table_prefix=get_runtime_table_prefix(),
+            schema_mode="validate",
+        )
+    return _runtime_container.get_or_create(
+        "user_document_chunk_repository",
+        factory,
+    )
+
+
+def get_user_document_service():
+    from app.application.materials.service import UserDocumentService
+
+    return _runtime_container.get_or_create(
+        "user_document_service",
+        lambda: UserDocumentService(store=get_user_document_store()),
+    )
+
+
+def get_interview_knowledge_scope_resolver():
+    from app.services.interview_knowledge_scope import (
+        InterviewKnowledgeScopeResolver,
+    )
+
+    return _runtime_container.get_or_create(
+        "interview_knowledge_scope_resolver",
+        lambda: InterviewKnowledgeScopeResolver(
+            store=get_user_document_store()
+        ),
+    )
+
+
+def get_user_document_ingestion_service():
+    from app.application.materials.ingestion_service import (
+        UserDocumentIngestionService,
+    )
+    from app.services.embedding_providers import build_embedding_provider
+
+    return _runtime_container.get_or_create(
+        "user_document_ingestion_service",
+        lambda: UserDocumentIngestionService(
+            store=get_user_document_store(),
+            chunks=get_user_document_chunk_repository(),
+            embedder=build_embedding_provider(),
+        ),
+    )
+
+
+def get_user_document_deletion_service():
+    from app.application.materials.deletion_service import (
+        UserDocumentDeletionService,
+    )
+
+    return _runtime_container.get_or_create(
+        "user_document_deletion_service",
+        lambda: UserDocumentDeletionService(
+            store=get_user_document_store(),
+            chunks=get_user_document_chunk_repository(),
+        ),
+    )
 
 
 def get_principal_memory_control_store():

@@ -1,7 +1,23 @@
 from typing import Literal
 
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from app.services.interview_plan_revision import PlanConfigurationSnapshot
+
+
+class PrepKnowledgeScopeRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    include_system_knowledge: bool = True
+    selected_document_ids: tuple[str, ...] = ()
+
+    @field_validator("selected_document_ids", mode="before")
+    @classmethod
+    def validate_selected_document_ids_shape(
+        cls, value: object
+    ) -> tuple[object, ...]:
+        if not isinstance(value, (list, tuple)):
+            raise ValueError("selected_document_ids must be a list or tuple")
+        return tuple(value)
 
 
 class PrepRequest(BaseModel):
@@ -11,6 +27,7 @@ class PrepRequest(BaseModel):
     resume_text: str = Field(min_length=1)
     draft_id: str | None = None
     configuration: PlanConfigurationSnapshot | None = None
+    knowledge_scope: PrepKnowledgeScopeRequest | None = None
 
     @field_validator("job_description", "resume_text")
     @classmethod
@@ -180,6 +197,7 @@ __all__ = [
     "AnswerRequest",
     "DraftRequest",
     "PracticePlanRequest",
+    "PrepKnowledgeScopeRequest",
     "PrepPlanPatchRequest",
     "PrepQuestionRegenerateRequest",
     "PrepRequest",

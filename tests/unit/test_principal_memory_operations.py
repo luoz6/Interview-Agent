@@ -176,7 +176,7 @@ def test_readiness_truth_table_is_fail_closed_and_uses_stable_gate_codes():
     assert set(blocked["gate_codes"]) <= LOCAL_MEMORY_OPERATION_GATE_CODES
 
     disabled = evaluate_local_memory_readiness(
-        config=load_effective_memory_config({}),
+        config=load_effective_memory_config({"MEMORY_LONG_TERM_MODE": "disabled"}),
         runtime_store="memory",
         migration_current=False,
         metrics_diagnostics={"data_complete": False},

@@ -3,17 +3,27 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from hashlib import sha256
 import json
-import re
 from time import perf_counter
 from typing import Literal
 from uuid import uuid4
 
-from app.domain.knowledge.evidence import BaseEvidenceBundle, EvidenceRef, QuestionEvidenceBinding
+from app.domain.knowledge.evidence import (
+    BaseEvidenceBundle,
+    EvidenceRef,
+    QuestionEvidenceBinding,
+    QuestionSourceScopeBinding,
+)
 from app.domain.knowledge.evidence_gate import RetrievalEvidenceGate
 from app.ports.runtime import KnowledgeRepository
 from app.services.knowledge_profile import CANONICAL_TAXONOMY
 from app.domain.knowledge.models import KnowledgeChunk, KnowledgeQuery
 from app.domain.knowledge.retrieval import RetrievalAvailability, RetrievalIntent
+from app.domain.knowledge.source_scope import KnowledgeSourceScope
+from app.domain.knowledge.user_material_lineage import (
+    SHA256_PATTERN,
+    declares_user_material,
+    has_valid_user_material_lineage,
+)
 from app.domain.knowledge.engine import RuntimeEngineExecution
 from app.services.prep import (
     InterviewPlan,
@@ -37,7 +47,6 @@ CONTENT_KIND_LABELS = {
     "mechanism": "机制",
     "knowledge": "知识",
 }
-SHA256_PATTERN = re.compile(r"^[a-f0-9]{64}$")
 
 
 @dataclass
@@ -78,6 +87,7 @@ def retrieve_grounding(
     *,
     prep_run_id: str | None = None,
     expected_manifest_sha256: str | None = None,
+    source_scope: KnowledgeSourceScope | None = None,
 ) -> GroundingResult:
     retrievals: list[QueryRetrieval] = []
     candidate_lookup: dict[str, GroundedCandidate] = {}
@@ -90,13 +100,18 @@ def retrieve_grounding(
         runtime_degraded_reason: str | None = None
         try:
             if prep_run_id and callable(getattr(repository, "search_runtime", None)):
+                runtime_kwargs = {
+                    "intent": RetrievalIntent.PREP,
+                    "job_tags": query.filters.get("tags", []),
+                    "source_types": query.source_types,
+                    "limit": query.top_k,
+                    "prep_run_id": prep_run_id,
+                }
+                if source_scope is not None:
+                    runtime_kwargs["source_scope"] = source_scope
                 outcome = repository.search_runtime(
                     query.query_text,
-                    intent=RetrievalIntent.PREP,
-                    job_tags=query.filters.get("tags", []),
-                    source_types=query.source_types,
-                    limit=query.top_k,
-                    prep_run_id=prep_run_id,
+                    **runtime_kwargs,
                 )
                 execution = outcome.execution
                 raw_chunks = outcome.result.selected_evidence
@@ -117,7 +132,7 @@ def retrieve_grounding(
                         overall_degraded_reason
                         or runtime_degraded_reason
                     )
-            else:
+            elif source_scope is None:
                 raw_chunks = repository.search(
                     query.query_text,
                     job_tags=query.filters.get("tags", []),
@@ -125,6 +140,8 @@ def retrieve_grounding(
                     limit=query.top_k,
                 )
                 runtime_result = None
+            else:
+                raise RuntimeError("source-aware retrieval is unavailable")
         except Exception:
             retrievals.append(
                 QueryRetrieval(
@@ -151,6 +168,23 @@ def retrieve_grounding(
                 continue
             content_hash = chunk.metadata.get("content_sha256")
             manifest_hash = chunk.metadata.get("corpus_manifest_sha256")
+            if declares_user_material(chunk):
+                if (
+                    not has_valid_user_material_lineage(chunk)
+                    or manifest_hash
+                ):
+                    query_degraded_reason = "invalid_knowledge_metadata"
+                    continue
+                trusted.append(chunk)
+                candidate = candidate_lookup.setdefault(
+                    chunk.chunk_id,
+                    GroundedCandidate(chunk=chunk),
+                )
+                if query.topic_id not in candidate.topic_ids:
+                    candidate.topic_ids.append(query.topic_id)
+                if query.canonical_tag not in candidate.canonical_tags:
+                    candidate.canonical_tags.append(query.canonical_tag)
+                continue
             if not isinstance(content_hash, str) or not SHA256_PATTERN.fullmatch(
                 content_hash
             ):
@@ -243,6 +277,7 @@ def supplement_question_grounding(
     result: GroundingResult,
     repository: KnowledgeRepository,
     prep_run_id: str | None = None,
+    source_scope: KnowledgeSourceScope | None = None,
 ) -> GroundingResult:
     """Retrieve only for questions that the role-level candidate pool cannot bind."""
 
@@ -262,6 +297,7 @@ def supplement_question_grounding(
         repository,
         prep_run_id=prep_run_id,
         expected_manifest_sha256=result.corpus_manifest_sha256 or None,
+        source_scope=source_scope,
     )
     return _merge_grounding_results(result, supplemental)
 
@@ -286,6 +322,7 @@ def attach_grounded_prep_context(
     role_profile: RoleProfile,
     result: GroundingResult,
     prep_run_id: str | None = None,
+    source_scope: KnowledgeSourceScope | None = None,
 ) -> InterviewPlan:
     evidence_refs = [
         KnowledgeEvidenceRef(
@@ -296,7 +333,7 @@ def attach_grounded_prep_context(
             score=candidate.chunk.score,
             content_sha256=str(candidate.chunk.metadata["content_sha256"]),
             corpus_manifest_sha256=str(
-                candidate.chunk.metadata["corpus_manifest_sha256"]
+                candidate.chunk.metadata.get("corpus_manifest_sha256") or ""
             ),
             candidate_summary=_candidate_summary(candidate.chunk),
         )
@@ -314,6 +351,7 @@ def attach_grounded_prep_context(
         result.candidates,
         base_bundle,
         result.status,
+        source_scope=source_scope,
     )
     snapshot = KnowledgeBindingSnapshot(
         prep_run_id=resolved_prep_run_id,
@@ -629,6 +667,8 @@ def _question_evidence_bindings(
     candidates: list[GroundedCandidate],
     bundle: BaseEvidenceBundle,
     status: RetrievalStatus,
+    *,
+    source_scope: KnowledgeSourceScope | None = None,
 ) -> list[QuestionEvidenceBinding]:
     chunk_lookup = {
         candidate.chunk.chunk_id: candidate.chunk for candidate in candidates
@@ -651,10 +691,34 @@ def _question_evidence_bindings(
                 question_id=hint.question_id,
                 selected_evidence_ids=tuple(hint.evidence_ids),
                 selection_version="question-evidence-selection-v1",
+                source_scope_binding=_question_source_scope_binding(source_scope),
                 decision=gate.decide_selection(availability, selected),
             )
         )
     return bindings
+
+
+def _question_source_scope_binding(
+    source_scope: KnowledgeSourceScope | None,
+) -> QuestionSourceScopeBinding | None:
+    if source_scope is None:
+        return None
+    if source_scope.usage != "question":
+        raise ValueError("question binding requires a question source scope")
+    has_system = source_scope.include_system_knowledge
+    has_user = bool(source_scope.selected_documents)
+    if has_system and has_user:
+        scope_kind = "mixed"
+    elif has_system:
+        scope_kind = "system_only"
+    elif has_user:
+        scope_kind = "user_only"
+    else:
+        scope_kind = "explicit_empty"
+    return QuestionSourceScopeBinding(
+        scope_kind=scope_kind,
+        source_scope_sha256=source_scope.source_scope_sha256,
+    )
 
 
 def _stable_sha256(value) -> str:

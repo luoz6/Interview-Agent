@@ -5,27 +5,28 @@ import {
   MagnifyingGlass,
   Pulse,
 } from "@phosphor-icons/react";
+import { RAG_LAB_ROUTES } from "../../rag/ragRoutes";
 import { AppShell } from "../AppShell";
 
 const links = [
-  { href: "/rag", label: "运行概览", Icon: Pulse },
-  { href: "/rag/retrieval", label: "检索诊断", Icon: MagnifyingGlass },
-  { href: "/rag/evaluation", label: "评测看板", Icon: ChartBar },
-  { href: "/rag/evidence-trace", label: "证据链路", Icon: GitBranch },
-  { href: "/rag/corpus", label: "知识语料", Icon: Database },
+  { href: RAG_LAB_ROUTES.overview, label: "运行概览", Icon: Pulse },
+  { href: RAG_LAB_ROUTES.retrieval, label: "检索诊断", Icon: MagnifyingGlass },
+  { href: RAG_LAB_ROUTES.evaluation, label: "评测看板", Icon: ChartBar },
+  { href: RAG_LAB_ROUTES.evidenceTrace, label: "证据链路", Icon: GitBranch },
+  { href: RAG_LAB_ROUTES.corpus, label: "知识语料", Icon: Database },
 ];
 
 export function RagConsoleShell({ children, statusLabel = "诊断控制台", statusTone = "ready" }) {
   const path = window.location.pathname;
-  return <AppShell className="rag-app" brandSubtitle="RAG 工程控制台" statusLabel={statusLabel} statusTone={statusTone}>
+  return <AppShell className="rag-app" brandSubtitle="AI 技术实验室" statusLabel={statusLabel} statusTone={statusTone}>
     <main id="main-content" className="rag-main" tabIndex="-1">
       <div className="rag-workspace">
         <header className="rag-console-nav">
           <div className="rag-console-context">
             <span aria-hidden="true"><Pulse size={19} weight="bold" /></span>
-            <div><strong>检索工程控制台</strong><small>只读诊断 · 默认关闭</small></div>
+            <div><strong>AI 技术实验室</strong><small>只读诊断 · 默认关闭</small></div>
           </div>
-          <nav aria-label="RAG 控制台导航">
+          <nav aria-label="AI 技术实验室导航">
             {links.map(({ href, label, Icon }) => {
               const current = path === href;
               return <a key={href} href={href} aria-current={current ? "page" : undefined}>

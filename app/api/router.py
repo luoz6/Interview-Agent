@@ -5,6 +5,7 @@ from fastapi import APIRouter
 from app.api.deletion.routes import router as deletion_router
 from app.api.interview.routes import router as interview_router
 from app.api.memory.routes import router as memory_router
+from app.api.materials.routes import router as materials_router
 from app.api.plans.routes import router as plans_router
 from app.api.prep.routes import router as prep_router
 from app.api.reports.routes import router as reports_router
@@ -19,6 +20,7 @@ router.include_router(plans_router)
 router.include_router(interview_router)
 router.include_router(deletion_router)
 router.include_router(memory_router)
+router.include_router(materials_router)
 router.include_router(reports_router)
 router.include_router(rag_router)
 

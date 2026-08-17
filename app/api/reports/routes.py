@@ -11,6 +11,9 @@ from app.api.shared.models import PracticePlanRequest, RescoreReportRequest
 from app.runtime.config import load_api_runtime_settings
 from app.runtime.config.compatibility import get_report_artifact_read_mode
 from app.services.postgres_connections import PostgresSchemaNotReady
+from app.services.knowledge_citations import (
+    sanitize_report_knowledge_citations_for_read,
+)
 from app.services.practice_plans import PracticePlanError, PracticePlanService
 from app.services.report_artifact_store import (
     ReportArtifactConflict,
@@ -31,6 +34,20 @@ get_report_job_queue = dependencies.get_report_job_queue
 get_report_job_store = dependencies.get_report_job_store
 get_report_artifact_store = dependencies.get_report_artifact_store
 get_session_store = dependencies.get_session_store
+get_user_document_store = dependencies.get_user_document_store
+
+
+def get_report_user_document_store(request: Request):
+    """Resolve optional citation storage without widening report outages."""
+
+    override = request.app.dependency_overrides.get(get_user_document_store)
+    try:
+        return override() if override is not None else get_user_document_store()
+    except Exception:
+        # The read-time sanitizer treats an unavailable store exactly like an
+        # unverifiable/deleted document. Reports without user citations remain
+        # readable, and reports with them fail closed at the field boundary.
+        return None
 
 
 @router.get("/reports")
@@ -81,6 +98,7 @@ def get_interview_report(
     session_id: str,
     request: Request,
     store: InterviewSessionStore = Depends(dependencies.get_session_store),
+    user_document_store=Depends(get_report_user_document_store),
 ):
     try:
         state = store.get(session_id)
@@ -104,6 +122,8 @@ def get_interview_report(
                 active_artifact,
                 active=True,
                 latest_job=latest_job,
+                session_state=state,
+                user_document_store=user_document_store,
             ),
             "latest_job": _report_job_v2_to_dict(latest_job),
         }
@@ -140,14 +160,19 @@ def get_interview_report(
         if hasattr(store, "list_question_evaluations")
         else []
     )
+    public_report = sanitize_report_knowledge_citations_for_read(
+        record.report,
+        session_state=state,
+        user_document_store=user_document_store,
+    )
     reliability = ReportReliabilityProjector().project(
         state,
-        record.report,
+        public_report,
         evaluations,
         report_path=_public_report_path(record),
     )
     return {
-        **record.report.model_dump(),
+        **public_report.model_dump(),
         "reliability": reliability.model_dump(),
     }
 
@@ -222,6 +247,7 @@ def download_interview_report_pdf(
     session_id: str,
     request: Request,
     store: InterviewSessionStore = Depends(dependencies.get_session_store),
+    user_document_store=Depends(get_report_user_document_store),
 ):
     try:
         state = store.get(session_id)
@@ -239,7 +265,11 @@ def download_interview_report_pdf(
     ):
         active_artifact, _ = _active_report_view(artifact_store, session_id)
         if active_artifact is not None:
-            return _report_artifact_pdf_response(active_artifact)
+            return _report_artifact_pdf_response(
+                active_artifact,
+                session_state=state,
+                user_document_store=user_document_store,
+            )
 
     record = store.get_report_record(session_id)
     if record is None or record.status == "processing":
@@ -252,7 +282,12 @@ def download_interview_report_pdf(
             ),
         )
 
-    pdf_bytes = build_report_pdf(record.report)
+    public_report = sanitize_report_knowledge_citations_for_read(
+        record.report,
+        session_state=state,
+        user_document_store=user_document_store,
+    )
+    pdf_bytes = build_report_pdf(public_report)
     filename = f'interview-report-{session_id}.pdf'
     return Response(
         content=pdf_bytes,
@@ -266,6 +301,7 @@ def list_interview_report_artifacts(
     session_id: str,
     store: InterviewSessionStore = Depends(dependencies.get_session_store),
     artifact_store=Depends(dependencies.get_report_artifact_store),
+    user_document_store=Depends(get_report_user_document_store),
 ):
     try:
         state = store.get(session_id)
@@ -276,7 +312,12 @@ def list_interview_report_artifacts(
     active_id = head.active_report_id
     return {
         "items": [
-            _report_artifact_to_dict(item, active=item.report_id == active_id)
+            _report_artifact_to_dict(
+                item,
+                active=item.report_id == active_id,
+                session_state=state,
+                user_document_store=user_document_store,
+            )
             for item in artifact_store.list_artifacts(session_id)
         ],
         "active_report_id": active_id,
@@ -308,14 +349,19 @@ def download_report_artifact_pdf(
     session_id: str,
     store: InterviewSessionStore = Depends(dependencies.get_session_store),
     artifact_store=Depends(dependencies.get_report_artifact_store),
+    user_document_store=Depends(get_report_user_document_store),
 ):
-    artifact = _session_bound_report_artifact(
+    artifact, state = _session_bound_report_artifact(
         session_id=session_id,
         report_id=report_id,
         store=store,
         artifact_store=artifact_store,
     )
-    return _report_artifact_pdf_response(artifact)
+    return _report_artifact_pdf_response(
+        artifact,
+        session_state=state,
+        user_document_store=user_document_store,
+    )
 
 
 @router.get("/reports/{report_id}")
@@ -324,14 +370,19 @@ def get_report_artifact(
     session_id: str,
     store: InterviewSessionStore = Depends(dependencies.get_session_store),
     artifact_store=Depends(dependencies.get_report_artifact_store),
+    user_document_store=Depends(get_report_user_document_store),
 ):
-    artifact = _session_bound_report_artifact(
+    artifact, state = _session_bound_report_artifact(
         session_id=session_id,
         report_id=report_id,
         store=store,
         artifact_store=artifact_store,
     )
-    return _report_artifact_to_dict(artifact)
+    return _report_artifact_to_dict(
+        artifact,
+        session_state=state,
+        user_document_store=user_document_store,
+    )
 
 
 @router.post("/interviews/{session_id}/report/rescore", status_code=202)
@@ -622,12 +673,19 @@ def _report_artifact_to_dict(
     *,
     active: bool = False,
     latest_job=None,
+    session_state,
+    user_document_store,
 ) -> dict:
     result = compose_report_view(
         artifact,
         latest_job=latest_job,
         active=active,
     ).model_dump(mode="json")
+    result["payload"] = sanitize_report_knowledge_citations_for_read(
+        result["payload"],
+        session_state=session_state,
+        user_document_store=user_document_store,
+    )
     if result.get("latest_job") is not None:
         result["latest_job"]["error_code"] = _public_artifact_error_code(
             result["latest_job"].get("error_code")
@@ -661,7 +719,12 @@ def _public_artifact_error_code(raw_code: object) -> str | None:
     }.get(code, "report_generation_failed")
 
 
-def _report_artifact_pdf_response(artifact):
+def _report_artifact_pdf_response(
+    artifact,
+    *,
+    session_state,
+    user_document_store,
+):
     from app.services.report import InterviewReport
 
     try:
@@ -671,8 +734,13 @@ def _report_artifact_pdf_response(artifact):
             status_code=409,
             detail="report artifact is not renderable as the legacy PDF schema",
         ) from exc
-    pdf_bytes = build_report_pdf(
+    public_report = sanitize_report_knowledge_citations_for_read(
         report,
+        session_state=session_state,
+        user_document_store=user_document_store,
+    )
+    pdf_bytes = build_report_pdf(
+        public_report,
         report_id=artifact.report_id,
         revision=artifact.revision,
         created_at=(
@@ -713,7 +781,7 @@ def _session_bound_report_artifact(
             status_code=404,
             detail="report artifact not found for session",
         )
-    return artifact
+    return artifact, state
 
 
 def _rescore_job_payload(session_id: str, job) -> dict:

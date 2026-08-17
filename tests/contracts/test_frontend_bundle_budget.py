@@ -24,6 +24,8 @@ def _write_bundle_fixture(root: Path, scenario: str) -> None:
         "src/pages/ReportsPage.jsx",
         "src/pages/HelpPage.jsx",
         "src/pages/MemoryCenterPage.jsx",
+        "src/pages/MaterialsPage.jsx",
+        "src/pages/RagConsolePage.jsx",
     )
     manifest = {
         "src/main.jsx": {"file": "assets/main.js", "isEntry": True},

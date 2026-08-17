@@ -995,6 +995,7 @@ def _capture_real_followup_prompt(monkeypatch, context, *, context_runtime=None)
 
     assert chunks == ["bounded follow-up"]
     assert len(chat.prompts) == 1
+    assert chat.max_tokens == [FOLLOWUP_CONTEXT_POLICY.max_output_tokens]
     assert chat.prompts[0] == _build_followup_prompt(fitted)
     return chat.prompts[0], fitted, llm
 
@@ -1207,7 +1208,13 @@ def test_compression_mode_pins_real_calls_and_final_provider_input(
         "shadow": ContextCompressionGates(shadow_enabled=True),
         "consume": ContextCompressionGates(interview_enabled=True),
     }[mode]
-    context_runtime = _lossy_context_runtime()
+    context_runtime = replace(
+        _lossy_context_runtime(),
+        model_profile=replace(
+            _lossy_context_runtime().model_profile,
+            context_window_tokens=908,
+        ),
+    )
     agent = CountingConversationCompressor()
     coordinator = _conversation_coordinator(
         gates=gates,
@@ -2028,7 +2035,7 @@ def test_durable_context_uses_same_safe_answer_gap_helper():
     context = _build_examiner_context(
         state,
         InMemoryKnowledgeRepository([chunk]),
-        FollowupGapService(UnitResolver()),
+        followup_gap_service=FollowupGapService(UnitResolver()),
     )
 
     gap = next(item for item in context if item["role"] == "knowledge_gap")

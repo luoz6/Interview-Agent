@@ -650,7 +650,181 @@
   opacity: .72;
 }
 
+.start-material-scope {
+  display: grid;
+  gap: var(--start-space-xs);
+  padding: var(--start-space-sm);
+  border: var(--start-rule-thin) solid var(--start-color-rule);
+  border-radius: var(--start-radius-control);
+  background: var(--start-color-surface);
+}
+
+.start-material-scope > header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--start-space-sm);
+}
+
+.start-material-scope > header > div,
+.start-material-option-copy,
+.start-material-confirmed > div {
+  display: grid;
+  gap: var(--start-space-3xs);
+  min-width: 0;
+}
+
+.start-material-scope > header strong,
+.start-material-system-choice strong,
+.start-material-confirmed strong {
+  color: var(--start-color-ink);
+  font-size: var(--start-text-xs);
+}
+
+.start-material-scope > header span,
+.start-material-scope-intro,
+.start-material-system-choice small,
+.start-material-confirmation-note {
+  color: var(--start-color-text-muted);
+  font-size: var(--start-text-micro);
+  line-height: 1.55;
+}
+
+.start-material-scope > header a {
+  flex: 0 0 auto;
+  min-height: var(--start-control-height-touch);
+  padding: .7rem .15rem;
+  color: var(--start-color-action-hover);
+  font-size: var(--start-text-xs);
+  font-weight: 700;
+  text-underline-offset: .18rem;
+}
+
+.start-material-scope-intro,
+.start-material-confirmation-note { margin: 0; }
+
+.start-material-system-choice,
+.start-material-options label {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: var(--start-space-xs);
+  align-items: center;
+  min-height: var(--start-control-height-touch);
+  cursor: pointer;
+}
+
+.start-material-system-choice {
+  padding: var(--start-space-xs);
+  border: var(--start-rule-thin) solid var(--start-color-rule);
+  border-radius: var(--start-radius-small);
+  background: var(--start-color-surface-secondary);
+}
+
+.start-material-system-choice:has(input:disabled) {
+  border-color: var(--start-button-disabled-border);
+  background: var(--start-button-disabled-bg);
+  color: var(--start-button-disabled-text);
+  cursor: not-allowed;
+}
+
+.start-material-system-choice input,
+.start-material-options input {
+  width: 1rem;
+  height: 1rem;
+  margin: 0;
+  accent-color: var(--start-color-action);
+}
+
+.start-material-system-choice > span { display: grid; gap: .1rem; }
+
+.start-material-scope-state,
+.start-material-scope-warning,
+.start-material-confirmed {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: var(--start-space-xs);
+  align-items: center;
+  min-height: var(--start-control-height-touch);
+  padding: var(--start-space-xs);
+  border: var(--start-rule-thin) solid var(--start-color-rule);
+  border-radius: var(--start-radius-small);
+  color: var(--start-color-ink-soft);
+  font-size: var(--start-text-xs);
+  line-height: 1.45;
+}
+
+.start-material-scope-state > svg,
+.start-material-confirmed > svg { color: var(--start-color-info); }
+.start-material-scope-state[data-tone="warning"],
+.start-material-scope-warning { border-color: var(--start-color-warning); background: var(--start-color-warning-soft); }
+.start-material-scope-warning > svg { color: var(--start-color-warning); }
+
+.start-material-scope-state button,
+.start-material-scope-warning button {
+  min-height: var(--start-control-height-touch);
+  border: 0;
+  background: transparent;
+  color: var(--start-color-action-hover);
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.start-material-options {
+  max-height: 18rem;
+  overflow: auto;
+  margin: 0;
+  padding: 0;
+  border: var(--start-rule-thin) solid var(--start-color-rule);
+  border-radius: var(--start-radius-small);
+  list-style: none;
+}
+
+.start-material-options li + li { border-top: var(--start-rule-thin) solid var(--start-color-rule); }
+.start-material-options label { padding: var(--start-space-xs); }
+.start-material-options li[data-selectable="false"] { background: var(--start-color-canvas); }
+.start-material-options li[data-selectable="false"] label { cursor: not-allowed; }
+.start-material-option-copy strong { overflow-wrap: anywhere; color: var(--start-color-ink-soft); font-size: var(--start-text-xs); }
+.start-material-option-copy small { color: var(--start-color-text-muted); font-size: var(--start-text-micro); line-height: 1.4; }
+
+.start-material-option-status {
+  padding: .2rem .45rem;
+  border-radius: var(--start-radius-round);
+  background: var(--start-color-canvas);
+  color: var(--start-color-text-muted);
+  font-size: var(--start-text-micro);
+  font-weight: 750;
+  white-space: nowrap;
+}
+
+.start-material-option-status[data-tone="ready"] { background: var(--start-color-success-soft); color: var(--start-color-success); }
+.start-material-option-status[data-tone="processing"] { background: var(--start-color-info-soft); color: var(--start-color-info); }
+.start-material-option-status[data-tone="failed"] { background: var(--start-color-danger-soft); color: var(--start-color-danger); }
+
+.start-material-confirmed {
+  grid-template-columns: auto minmax(0, 1fr);
+  border-color: var(--start-color-success);
+  background: var(--start-color-success-soft);
+}
+
+.start-material-confirmed > svg { color: var(--start-color-success); }
+.start-material-confirmed span,
+.start-material-confirmed small { color: var(--start-color-ink-soft); font-size: var(--start-text-micro); line-height: 1.45; }
+.start-material-confirmed[data-stale="true"] { border-color: var(--start-color-warning); background: var(--start-color-warning-soft); }
+.start-material-confirmed[data-stale="true"] > svg { color: var(--start-color-warning); }
+
+.start-material-scope input:focus-visible,
+.start-material-scope button:focus-visible,
+.start-material-scope a:focus-visible {
+  outline: var(--start-rule-focus) solid var(--start-color-focus);
+  outline-offset: 2px;
+}
+
 @media (hover: hover) {
+  .start-material-options li[data-selectable="true"]:hover { background: var(--start-color-surface-secondary); }
+  .start-material-scope-state button:hover,
+  .start-material-scope-warning button:hover,
+  .start-material-scope > header a:hover { color: var(--start-color-action-active); }
   .start-plan-focus-control:hover:not(:has(input:disabled)) {
     background: var(--start-color-surface-secondary);
   }
@@ -763,6 +937,15 @@
   .start-prep-evidence-canvas { padding: var(--start-space-xs); }
   .start-prep-evidence-canvas > div { padding: var(--start-space-sm); }
   .start-prep-inspector { min-height: 31.25rem; }
+  .start-material-scope > header,
+  .start-material-scope-state,
+  .start-material-scope-warning { grid-template-columns: minmax(0, 1fr); }
+  .start-material-scope > header { display: grid; }
+  .start-material-scope > header a,
+  .start-material-scope-state button,
+  .start-material-scope-warning button { justify-self: start; }
+  .start-material-options label { grid-template-columns: auto minmax(0, 1fr); }
+  .start-material-option-status { grid-column: 2; justify-self: start; }
 
   .start-plan-editor { padding: var(--start-space-xs); }
 

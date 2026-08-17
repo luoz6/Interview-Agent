@@ -3,6 +3,8 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field, model_validator
 
+from app.domain.knowledge.evidence import SafeKnowledgeCitation
+
 
 REPORT_SCHEMA_VERSION_V1 = "report-schema-v1"
 REPORT_SCHEMA_VERSION_V2 = "report-schema-v2"
@@ -214,6 +216,7 @@ class InterviewFeedback(BaseModel):
     example_rewrite: str | None = Field(default=None, max_length=4000)
     example_rewrite_evidence_refs: list[str] = Field(default_factory=list)
     references: list[FeedbackReference]
+    knowledge_citations: list[SafeKnowledgeCitation] = Field(default_factory=list)
 
     @model_validator(mode="after")
     def validate_evaluation_state(self) -> "InterviewFeedback":

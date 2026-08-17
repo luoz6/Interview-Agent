@@ -177,6 +177,14 @@ export async function postJson(path, payload = {}, options = {}) {
   }));
 }
 
+export async function postForm(path, formData, options = {}) {
+  return parseResponse(await request(path, {
+    ...options,
+    method: "POST",
+    body: formData,
+  }));
+}
+
 export async function patchJson(path, payload = {}, options = {}) {
   return parseResponse(await request(path, {
     ...options,

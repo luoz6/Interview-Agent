@@ -1,4 +1,5 @@
 fastapi>=0.111.0
+python-multipart>=0.0.9
 uvicorn[standard]>=0.30.0
 # Keep both platform-specific resolver inputs explicit in one reviewed source.
 colorama>=0.4.6; sys_platform == "win32"

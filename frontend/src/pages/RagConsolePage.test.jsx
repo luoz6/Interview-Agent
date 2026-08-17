@@ -211,7 +211,7 @@ describe("RAG console diagnostics", () => {
       expect(payload.hybrid_fusion_mode).toBe("query_aware_weighted_rrf");
       return response(inspection);
     });
-    window.history.replaceState({}, "", "/rag/retrieval");
+    window.history.replaceState({}, "", "/rag/lab/retrieval");
     render(<RagRetrievalPage />);
     expect(screen.queryByLabelText("融合模式")).not.toBeInTheDocument();
     await user.type(screen.getByRole("textbox", { name: "诊断问题" }), "private Redis query");
@@ -269,7 +269,7 @@ describe("RAG console diagnostics", () => {
       expect(payload.rrf_k).toBeUndefined();
       return response(fixedInspection);
     });
-    window.history.replaceState({}, "", "/rag/retrieval");
+    window.history.replaceState({}, "", "/rag/lab/retrieval");
     render(<RagRetrievalPage />);
 
     await user.type(screen.getByRole("textbox", { name: "诊断问题" }), "fixed demo");
@@ -288,7 +288,7 @@ describe("RAG console diagnostics", () => {
     fetch.mockImplementationOnce((_url, options) => new Promise((_resolve, reject) => {
       options.signal.addEventListener("abort", () => reject(new DOMException("aborted", "AbortError")));
     }));
-    window.history.replaceState({}, "", "/rag/retrieval");
+    window.history.replaceState({}, "", "/rag/lab/retrieval");
     render(<RagRetrievalPage />);
     await user.type(screen.getByRole("textbox", { name: "诊断问题" }), "ephemeral query");
     await user.selectOptions(screen.getByLabelText("诊断方式"), "single");
@@ -310,7 +310,7 @@ describe("RAG console diagnostics", () => {
       expect(options.signal).toBeInstanceOf(AbortSignal);
       return response(comparison);
     });
-    window.history.replaceState({}, "", "/rag/retrieval");
+    window.history.replaceState({}, "", "/rag/lab/retrieval");
     render(<RagRetrievalPage />);
     expect(screen.queryByLabelText("融合模式")).not.toBeInTheDocument();
     await user.type(screen.getByRole("textbox", { name: "诊断问题" }), "private compare query");
@@ -342,7 +342,7 @@ describe("RAG console diagnostics", () => {
         fusion_summary: {},
       });
     });
-    window.history.replaceState({}, "", "/rag/retrieval");
+    window.history.replaceState({}, "", "/rag/lab/retrieval");
     render(<RagRetrievalPage />);
 
     await user.selectOptions(screen.getByLabelText("诊断方式"), "single");
@@ -369,7 +369,7 @@ describe("RAG console diagnostics", () => {
       expect(url).toBe("/api/rag/inspections/compare");
       options.signal.addEventListener("abort", () => reject(new DOMException("aborted", "AbortError")));
     }));
-    window.history.replaceState({}, "", "/rag/retrieval");
+    window.history.replaceState({}, "", "/rag/lab/retrieval");
     render(<RagRetrievalPage />);
     await user.type(screen.getByRole("textbox", { name: "诊断问题" }), "ephemeral compare query");
     await user.click(screen.getByRole("button", { name: "比较两种引擎" }));
@@ -395,7 +395,7 @@ describe("RAG console diagnostics", () => {
     window.history.replaceState(
       {},
       "",
-      `/rag/retrieval?artifact=${"a".repeat(64)}&case=full-snapshot-case`,
+      `/rag/lab/retrieval?artifact=${"a".repeat(64)}&case=full-snapshot-case`,
     );
 
     render(<RagRetrievalPage />);
@@ -438,7 +438,7 @@ describe("RAG console diagnostics", () => {
       stages: [{ stage: "followup_decision", recording_status: "not_recorded", record_id: null, parent_record_id: null, evidence_ids: [], corpus_manifest_sha256: "", decision: null, created_at: null, note: "No persisted record is available; no value was inferred." }],
       safe_boundary: ["raw_query_excluded", "chain_of_thought_excluded"],
     }));
-    window.history.replaceState({}, "", "/rag/evidence-trace");
+    window.history.replaceState({}, "", "/rag/lab/evidence-trace");
     render(<RagEvidenceTracePage />);
     await user.type(screen.getByRole("textbox", { name: "不透明会话 / Trace ID" }), "session-1");
     await user.click(screen.getByRole("button", { name: "查询证据链" }));
@@ -460,7 +460,7 @@ describe("RAG console diagnostics", () => {
       ] },
       [`/api/rag/evaluations/${tuning.artifact_sha256}/no-evidence`]: { correct_evidence: 67, false_abstention: 0, false_evidence: 8, correct_abstention: 0, total_case_count: 75, expected_no_evidence_count: 8, abstention_count: 0, no_evidence_prevalence: 8 / 75, abstention_rate: 0, precision: 0, recall: 0, f1: 0, false_abstention_case_ids: [], false_evidence_case_ids: ["negative-case"], correct_abstention_case_ids: [], reason_code_breakdown: { exact_lexical_evidence_missing: 8 } },
     });
-    window.history.replaceState({}, "", "/rag/evaluation");
+    window.history.replaceState({}, "", "/rag/lab/evaluation");
     render(<RagEvaluationPage />);
 
     const identity = await screen.findByText("冻结执行身份");
@@ -696,7 +696,32 @@ describe("RAG console diagnostics", () => {
     expect(screen.getByText("Curated / Machine-assisted")).toBeInTheDocument();
     expect(screen.getByText(/不能证明 Hybrid 已整体优于 Legacy/)).toBeInTheDocument();
     expect(screen.getByText(/不包含生产 Shadow、Canary、Promotion/)).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "打开检索诊断" })).toHaveAttribute("href", "/rag/retrieval");
+    expect(screen.getByRole("link", { name: "打开检索诊断" })).toHaveAttribute("href", "/rag/lab/retrieval");
     expect(screen.queryByText(/允许发布|暂不允许发布/)).not.toBeInTheDocument();
+  });
+
+  it("normalizes the live rag-overview-v1 contract without crashing", async () => {
+    routeFetch({
+      "/api/rag/overview": {
+        schema_version: "rag-overview-v1",
+        formal_engine: "legacy",
+        candidate_engine: "hybrid-v2",
+        remote_reranker_enabled: false,
+        evidence_gate_enabled: true,
+        corpus: { version: "memory-p1-zh-v4", manifest_sha256: "b".repeat(64), chunk_count: 31 },
+        embedding: { provider: "siliconflow", model: "BAAI/bge-m3", revision: "v4", dimension: 1024 },
+        profiles: [{ profile_id: "prep", profile_version: "hybrid-v1", semantic_enabled: true, lexical_enabled: true, fusion_strategy: "weighted_rrf", semantic_weight: 1, lexical_weight: 1, fusion_candidate_limit: 15, evidence_limit: 8, total_timeout_ms: 1500 }],
+        component_versions: { retrieval: "hybrid-v2", fusion: "weighted-rrf-v1", reranker: "deterministic-v1" },
+        promotion: { allowed: false, blockers: [{ code: "HYBRID_NOT_BETTER_THAN_LEGACY", severity: "hard_stop" }] },
+        release_evidence: { annotation_status: "machine_preannotation", human_annotator_count: 0, independent_evidence_eligible: false, holdout_status: "historical_diagnostic", formal_sealed_holdout_available: false },
+      },
+    });
+
+    render(<RagOverviewPage />);
+
+    expect(await screen.findByText("legacy / hybrid-v2")).toBeInTheDocument();
+    expect(screen.getByText("memory-p1-zh-v4")).toBeInTheDocument();
+    expect(screen.getByText("机器预标注")).toBeInTheDocument();
+    expect(screen.getByText(/不能证明 Hybrid 已整体优于 Legacy/)).toBeInTheDocument();
   });
 });

@@ -274,6 +274,7 @@ def report_snapshot(report: InterviewReport) -> dict:
                 "missing_technical_points",
                 "example_rewrite",
                 "example_rewrite_evidence_refs",
+                "knowledge_citations",
             }
         ),
         "reference_ids": [reference.chunk_id for reference in feedback.references],

@@ -67,6 +67,27 @@ function formatDuration(seconds) {
   return `${minutes}:${String(total % 60).padStart(2, "0")}`;
 }
 
+function hasAvailableUserCitation(evaluations) {
+  if (!Array.isArray(evaluations)) return false;
+  return evaluations.some((evaluation) => (
+    evaluation?.status === "completed"
+    && Array.isArray(evaluation.feedback?.knowledge_citations)
+    && evaluation.feedback.knowledge_citations.some((citation) => (
+      citation
+      && typeof citation === "object"
+      && citation.source_scope === "user_document"
+      && citation.availability === "available"
+      && citation.usage === "feedback"
+      && typeof citation.citation_id === "string"
+      && Boolean(citation.citation_id.trim())
+      && typeof citation.document_safe_ref === "string"
+      && Boolean(citation.document_safe_ref.trim())
+      && typeof citation.display_title === "string"
+      && Boolean(citation.display_title.trim())
+    ))
+  ));
+}
+
 function draftKey(sessionId, questionId) {
   return `interview-agent:answer:${sessionId}:${questionId || "unknown"}`;
 }
@@ -209,6 +230,7 @@ export function InterviewPage({ navigateToReportProcessing = defaultReportProces
   const [answerError, setAnswerError] = useState(null);
   const [focusMode, setFocusMode] = useState(false);
   const [reviewCount, setReviewCount] = useState(0);
+  const [referencedUserMaterials, setReferencedUserMaterials] = useState(false);
   const [announceAssistanceNotice, setAnnounceAssistanceNotice] = useState(false);
   const [skipArmed, setSkipArmed] = useState(false);
   const [dialog, setDialog] = useState(null);
@@ -263,7 +285,9 @@ export function InterviewPage({ navigateToReportProcessing = defaultReportProces
     });
     throwIfAborted(signal);
     if (deferActivation) commitSnapshot();
-    setReviewCount((evaluations.items || []).filter((item) => ["completed", "failed"].includes(item.status)).length);
+    const evaluationItems = Array.isArray(evaluations?.items) ? evaluations.items : [];
+    setReviewCount(evaluationItems.filter((item) => ["completed", "failed"].includes(item.status)).length);
+    setReferencedUserMaterials(hasAvailableUserCitation(evaluationItems));
     return data;
   }, [navigateToReportProcessing, sessionId]);
 
@@ -815,6 +839,7 @@ export function InterviewPage({ navigateToReportProcessing = defaultReportProces
               <section className="context-panel context-review">
                 <header><span>已关闭题评审</span><strong className="review-count" key={`review-${reviewCount}-${completedQuestions}`}>{reviewCount} / {completedQuestions}</strong></header>
                 <p>{completedQuestions ? "回答或跳过后异步评审，不阻塞下一轮作答。" : "关闭第一题后开始记录评审状态。"}</p>
+                {referencedUserMaterials ? <p className="interview-citation-note"><ShieldCheck size={14} weight="duotone" aria-hidden="true" /><span>参考了你的资料</span></p> : null}
               </section>
               <section className="context-panel context-session">
                 <header><span>会话事实</span><h3>恢复依据</h3></header>

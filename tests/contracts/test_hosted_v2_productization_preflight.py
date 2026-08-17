@@ -189,13 +189,16 @@ def test_record_path_must_resolve_outside_the_repository(tmp_path: Path) -> None
     )
 
 
-def test_live_repository_snapshot_is_still_safe_and_unapproved() -> None:
+def test_live_repository_snapshot_keeps_local_v1_out_of_hosted_promotion() -> None:
     snapshot = repository_snapshot()
 
     assert snapshot == {
         "execution_baseline_frozen": True,
         "plan_revision_revised": True,
-        "safe_defaults": True,
+        "safe_defaults": False,
         "production_unauthorized": True,
         "configuration_changed": False,
     }
+    with pytest.raises(ProductizationPreflightBlocked) as raised:
+        evaluate(repository=snapshot)
+    assert raised.value.codes == ("SAFE_DEFAULTS_CHANGED",)

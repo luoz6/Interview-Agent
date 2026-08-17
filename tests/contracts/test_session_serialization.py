@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from datetime import datetime, timezone
+
 import pytest
 
 from app.domain.knowledge.evidence import (
@@ -11,6 +13,8 @@ from app.domain.knowledge.evidence import (
     EvidenceSufficiency,
     QuestionEvidenceBinding,
 )
+from app.domain.knowledge.source_scope import SelectedUserDocumentRevision
+from app.application.interview.session_snapshot import SessionSnapshotProjector
 from app.adapters.postgres.row_mappers import (
     MessageRowMapper,
     QuestionEvaluationRowMapper,
@@ -37,7 +41,10 @@ from app.services.report import (
     ReportProgress,
     ReportRecord,
 )
-from app.services.interview_plan_revision import v2_plan_to_legacy
+from app.services.interview_plan_revision import (
+    build_interview_knowledge_scope_snapshot,
+    v2_plan_to_legacy,
+)
 from app.services.interview_plan_revision_store import (
     InMemoryInterviewPlanRevisionStore,
 )
@@ -281,6 +288,67 @@ def test_revision_plan_binding_round_trips_without_reading_latest_revision():
     assert restored["revision"] == 1
     assert restored["plan_sha256"] == initial.plan_sha256
     assert restored["plan_snapshot"] == initial.plan.model_dump(mode="json")
+
+
+def test_scoped_session_binding_round_trips_internal_owner_and_safe_public_scope():
+    owner = "principal-a"
+    scope = build_interview_knowledge_scope_snapshot(
+        include_system_knowledge=False,
+        selected_documents=(
+            SelectedUserDocumentRevision(
+                document_id="00000000-0000-0000-0000-000000000001",
+                document_revision_id="00000000-0000-0000-0000-000000000011",
+                content_sha256="a" * 64,
+                allowed_usages=("question", "feedback"),
+            ),
+        ),
+        created_at=datetime(2026, 8, 15, tzinfo=timezone.utc),
+    )
+    scoped_plan = revision_plan().model_copy(update={"knowledge_scope": scope})
+    revision_store = InMemoryInterviewPlanRevisionStore()
+    initial = revision_store.create_initial(
+        source_payload=source(),
+        plan=scoped_plan,
+        retention_policy="test-v1",
+        generator_version="plan-generator-v2-test",
+    )
+    state = build_initial_state(
+        session_id="scoped-revision-session",
+        plan=v2_plan_to_legacy(initial.plan),
+        job_description="Backend role",
+        resume_text="Backend resume",
+        job_tags=["backend"],
+        plan_binding=session_plan_binding_from_revision(
+            initial,
+            owner_principal_id=owner,
+        ),
+    )
+    row = SessionRowMapper.to_row(state)
+    messages = [
+        MessageRowMapper.to_row("scoped-revision-session", index + 1, message)
+        for index, message in enumerate(state["messages"])
+    ]
+
+    restored = SessionRowMapper.from_rows(row, messages)
+    public = SessionSnapshotProjector().project(restored)
+
+    assert restored["owner_principal_id"] == owner
+    assert restored["plan_snapshot"]["knowledge_scope"] == scope.model_dump(
+        mode="json"
+    )
+    assert public["plan_snapshot"]["knowledge_scope"] == {
+        "schema_version": "interview-knowledge-scope-v1",
+        "include_system_knowledge": False,
+        "selected_documents": [
+            {"document_id": "00000000-0000-0000-0000-000000000001"}
+        ],
+    }
+    assert "owner_principal_id" not in str(public)
+    assert "document_revision_id" not in str(public["plan_snapshot"])
+    assert "content_sha256" not in str(public["plan_snapshot"]["knowledge_scope"])
+    assert "selection_sha256" not in str(public["plan_snapshot"])
+    assert "allowed_usages" not in str(public["plan_snapshot"])
+    assert "created_at" not in str(public["plan_snapshot"])
 
 
 def test_memory_policy_round_trip_and_old_v2_backfill_are_stable():

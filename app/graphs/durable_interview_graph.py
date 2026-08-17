@@ -13,6 +13,7 @@ from langgraph.types import interrupt
 
 from app.agents.examiner import fallback_followup
 from app.graphs.durable_interview_state import DurableInterviewState
+from app.graphs.interview_state import latest_candidate_answer_for_question
 from app.services.agent_runtime import AgentExecutionContext
 from app.services.interview_generation_store import ChunkCoalescer
 from app.services.interview_generation_store import GenerationAlreadyCompleted
@@ -1512,7 +1513,10 @@ def _build_examiner_context_plan(
     if resolution.retrieval_path == "bound_evidence_ids":
         evidence_messages = append_followup_gap_message(
             resolution.messages,
-            candidate_answer=_latest_candidate_answer(state, question["id"]),
+            candidate_answer=latest_candidate_answer_for_question(
+                state,
+                question["id"],
+            ),
             bound_references=resolution.references,
             service=followup_gap_service,
         )

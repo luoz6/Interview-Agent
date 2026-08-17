@@ -10,6 +10,7 @@ from app.graphs.interview_state import (
     build_initial_state,
     count_candidate_answers_for_question,
     get_current_question,
+    latest_candidate_answer_for_question,
     MemoryPolicyVersion,
 )
 from app.services.llm import InterviewLLM
@@ -445,7 +446,7 @@ def _build_followup_context(
     resolution = resolver.resolve(state["plan"], question_id)
     evidence_messages = append_followup_gap_message(
         resolution.messages,
-        candidate_answer=_latest_candidate_answer(state, question_id),
+        candidate_answer=latest_candidate_answer_for_question(state, question_id),
         bound_references=resolution.references,
         service=followup_gap_service,
     )
@@ -476,18 +477,6 @@ def _build_followup_context(
         model=model,
     )
     return context
-
-
-def _latest_candidate_answer(state: InterviewState, question_id: str) -> str:
-    return next(
-        (
-            str(message.get("content") or "")
-            for message in reversed(state["messages"])
-            if message.get("role") == "candidate"
-            and message.get("question_id") == question_id
-        ),
-        "",
-    )
 
 
 def _examiner_execution_context(

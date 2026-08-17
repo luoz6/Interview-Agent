@@ -53,10 +53,16 @@ def isolated_deletion_fence(monkeypatch):
     )
 
 
-def test_principal_memory_api_is_hidden_by_default(monkeypatch):
-    monkeypatch.delenv(
-        "MEMORY_TRUSTED_LOCAL_PRINCIPAL_MEMORY_API_ENABLED", raising=False
-    )
+def test_principal_memory_api_is_hidden_when_explicitly_disabled(monkeypatch):
+    monkeypatch.setenv("MEMORY_LONG_TERM_MODE", "disabled")
+    for name in (
+        "MEMORY_TRUSTED_LOCAL_PRINCIPAL_MEMORY_API_ENABLED",
+        "MEMORY_LOCAL_PRINCIPAL_ENABLED",
+        "MEMORY_LONG_TERM_WRITE_SHADOW_ENABLED",
+        "MEMORY_LONG_TERM_READ_SHADOW_ENABLED",
+        "MEMORY_LONG_TERM_LOCAL_CONSUMPTION_ENABLED",
+    ):
+        monkeypatch.delenv(name, raising=False)
     assert local_client().get("/api/runtime/principal-memory/facts").status_code == 404
     client = local_client()
     for method, path, payload in (

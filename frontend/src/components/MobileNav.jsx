@@ -1,7 +1,5 @@
 import { FileText, PlayCircle, Question } from "@phosphor-icons/react";
-import { PRODUCT_NAVIGATION } from "./navigation";
-
-const NAV_ICONS = { prep: PlayCircle, reports: FileText, memory: FileText, rag: FileText, help: Question };
+import { navigationClickHandler, PRODUCT_NAVIGATION } from "./navigation";
 
 export function MobileNav({ pathname = window.location.pathname, onNavigate }) {
   return (
@@ -9,18 +7,18 @@ export function MobileNav({ pathname = window.location.pathname, onNavigate }) {
       <div className="mobile-nav-inner">
         {PRODUCT_NAVIGATION.map((item) => {
           const current = item.match.includes(pathname);
-          const Icon = NAV_ICONS[item.icon] || PlayCircle;
+          const Icon = item.href === "/prep"
+            ? PlayCircle
+            : item.href === "/help" ? Question : FileText;
           return (
             <a
               key={item.href}
               href={item.href}
               aria-current={current ? "page" : undefined}
-              onClick={(event) => {
-                if (onNavigate?.(item.href, item) === false) event.preventDefault();
-              }}
+              onClick={navigationClickHandler(item, onNavigate)}
             >
               <Icon size={20} weight={current ? "fill" : "bold"} aria-hidden="true" focusable="false" />
-              <span>{item.mobileLabel}</span>
+              <span>{item.label}</span>
             </a>
           );
         })}

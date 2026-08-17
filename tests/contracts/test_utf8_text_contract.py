@@ -67,7 +67,7 @@ EXPECTED_PHRASES = {
     "frontend/src/pages/ReportDetailPage.jsx": (
         "结构化面评报告",
         "逐题反馈",
-        "证据引用",
+        "参考来源",
         "下载 PDF",
     ),
     "frontend/src/pages/ReportsPage.jsx": (

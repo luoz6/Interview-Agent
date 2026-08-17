@@ -23,6 +23,9 @@ from app.application.interview.interview_start import (
 from app.api.shared import dependencies
 from app.api.shared.dependencies import get_draft_store, get_prep_plan_store
 from app.api.shared.errors import raise_if_deleting as _raise_if_deleting
+from app.api.shared.errors import (
+    raise_interview_knowledge_scope_error as _raise_interview_knowledge_scope_error,
+)
 from app.api.shared.errors import raise_prep_plan_error as _raise_prep_plan_error
 from app.api.shared.errors import (
     raise_session_deleting_error as _raise_session_deleting_error,
@@ -40,6 +43,7 @@ from app.domain.interview.drafts import DraftWriteConflict
 from app.domain.interview.errors import SessionDeletingError, SessionVersionConflict
 from app.services.agent_runtime import correlation_id_from_plan
 from app.services.interview_launch import InterviewLaunchCoordinator
+from app.services.interview_knowledge_scope import InterviewKnowledgeScopeError
 from app.services.interview_plan_revision import v2_plan_to_legacy
 from app.services.interview_plan_revision_store import (
     PlanRevisionNotFound,
@@ -278,6 +282,15 @@ def start_interview(
     principal_identity_resolver=Depends(
         dependencies.get_request_principal_identity_resolver
     ),
+    scope_resolver_factory=Depends(
+        dependencies.get_interview_knowledge_scope_resolver_factory
+    ),
+    scope_principal_identity_resolver=Depends(
+        dependencies.get_principal_identity_resolver
+    ),
+    materials_settings=Depends(
+        dependencies.get_user_materials_runtime_settings
+    ),
 ):
     if payload.plan_revision_id is not None:
         if start_service is None:
@@ -292,6 +305,11 @@ def start_interview(
                 revision_store,
                 principal_memory_control_store=principal_memory_control_store,
                 principal_identity_resolver=principal_identity_resolver,
+                scope_resolver_factory=scope_resolver_factory,
+                scope_principal_identity_resolver=(
+                    scope_principal_identity_resolver
+                ),
+                materials_settings=materials_settings,
             )
 
     if payload.plan_id is not None:
@@ -338,6 +356,9 @@ def _start_interview_locked(
     *,
     principal_memory_control_store=None,
     principal_identity_resolver=None,
+    scope_resolver_factory=None,
+    scope_principal_identity_resolver=None,
+    materials_settings=None,
 ):
     choice_binder = PrincipalMemorySessionChoiceBinder(
         identity_resolver=principal_identity_resolver,
@@ -347,10 +368,6 @@ def _start_interview_locked(
     try:
         revision_store.reconcile_session_source_references()
         revision = revision_store.get_by_id(payload.plan_revision_id)
-        plan_binding = session_plan_binding_from_revision(
-            revision,
-            principal_memory_mode=payload.principal_memory_mode,
-        )
         session_id = _session_id_for_start_request(
             revision.plan_family_id,
             payload.request_id,
@@ -358,7 +375,11 @@ def _start_interview_locked(
         turn = _load_session_start_replay(
             store,
             session_id,
-            plan_binding,
+            revision,
+            principal_memory_mode=payload.principal_memory_mode,
+            scope_principal_identity_resolver=(
+                scope_principal_identity_resolver
+            ),
             expected_revision=payload.expected_revision,
             plan_sha256=payload.plan_sha256,
         )
@@ -396,6 +417,22 @@ def _start_interview_locked(
                 detail="plan source unavailable",
             )
         source_payload = source.protected_payload
+        scope_owner_principal_id = (
+            _validate_interview_knowledge_scope_for_start(
+                revision.plan.knowledge_scope,
+                owner_principal_id=source_payload.owner_principal_id,
+                scope_resolver_factory=scope_resolver_factory,
+                scope_principal_identity_resolver=(
+                    scope_principal_identity_resolver
+                ),
+                materials_settings=materials_settings,
+            )
+        )
+        plan_binding = session_plan_binding_from_revision(
+            revision,
+            principal_memory_mode=payload.principal_memory_mode,
+            owner_principal_id=scope_owner_principal_id,
+        )
         plan = v2_plan_to_legacy(revision.plan)
         revision_store.add_source_reference(
             revision.source_id,
@@ -432,7 +469,11 @@ def _start_interview_locked(
             turn = _load_session_start_replay(
                 store,
                 session_id,
-                plan_binding,
+                revision,
+                principal_memory_mode=payload.principal_memory_mode,
+                scope_principal_identity_resolver=(
+                    scope_principal_identity_resolver
+                ),
                 expected_revision=payload.expected_revision,
                 plan_sha256=payload.plan_sha256,
             )
@@ -459,6 +500,53 @@ def _start_interview_locked(
     return _turn_to_dict(turn)
 
 
+def _validate_interview_knowledge_scope_for_start(
+    knowledge_scope,
+    *,
+    owner_principal_id,
+    scope_resolver_factory,
+    scope_principal_identity_resolver,
+    materials_settings,
+) -> str | None:
+    if knowledge_scope.created_at is None:
+        return None
+    try:
+        identity = (
+            scope_principal_identity_resolver.resolve()
+            if scope_principal_identity_resolver is not None
+            else None
+        )
+        if (
+            owner_principal_id is None
+            or identity is None
+            or identity.principal_id != owner_principal_id
+        ):
+            raise InterviewKnowledgeScopeError(
+                "knowledge_scope_document_unavailable"
+            )
+        if knowledge_scope.selected_documents:
+            if (
+                materials_settings is None
+                or not materials_settings.enabled
+                or scope_resolver_factory is None
+            ):
+                raise InterviewKnowledgeScopeError(
+                    "knowledge_scope_document_unavailable"
+                )
+            scope_resolver = scope_resolver_factory()
+            if scope_resolver is None:
+                raise InterviewKnowledgeScopeError(
+                    "knowledge_scope_document_unavailable"
+                )
+            scope_resolver.validate_snapshot(
+                owner_principal_id=owner_principal_id,
+                snapshot=knowledge_scope,
+            )
+        return owner_principal_id
+    except InterviewKnowledgeScopeError as exc:
+        _raise_interview_knowledge_scope_error(exc)
+
+
 class SessionStartRequestConflict(Exception):
     pass
 
@@ -478,8 +566,10 @@ def _session_id_for_start_request(
 def _load_session_start_replay(
     store,
     session_id: str,
-    plan_binding,
+    revision,
     *,
+    principal_memory_mode: str,
+    scope_principal_identity_resolver,
     expected_revision: int,
     plan_sha256: str,
 ):
@@ -490,12 +580,43 @@ def _load_session_start_replay(
             return None
         raise
     existing_binding = session_plan_binding_from_state(state)
+    expected_binding = session_plan_binding_from_revision(
+        revision,
+        principal_memory_mode=principal_memory_mode,
+        owner_principal_id=existing_binding.owner_principal_id,
+    )
     if (
-        existing_binding != plan_binding
+        existing_binding != expected_binding
         or existing_binding.revision != expected_revision
         or existing_binding.plan_sha256 != plan_sha256
     ):
         raise SessionStartRequestConflict()
+    frozen_scope = existing_binding.plan_snapshot.get("knowledge_scope")
+    if (
+        isinstance(frozen_scope, dict)
+        and frozen_scope.get("created_at") is not None
+        and existing_binding.owner_principal_id is None
+    ):
+        _raise_interview_knowledge_scope_error(
+            InterviewKnowledgeScopeError(
+                "knowledge_scope_document_unavailable"
+            )
+        )
+    if existing_binding.owner_principal_id is not None:
+        identity = (
+            scope_principal_identity_resolver.resolve()
+            if scope_principal_identity_resolver is not None
+            else None
+        )
+        if (
+            identity is None
+            or identity.principal_id != existing_binding.owner_principal_id
+        ):
+            _raise_interview_knowledge_scope_error(
+                InterviewKnowledgeScopeError(
+                    "knowledge_scope_document_unavailable"
+                )
+            )
     return store._to_turn(state, follow_up=None)
 
 

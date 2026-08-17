@@ -306,9 +306,9 @@ def test_readiness_payload_contains_only_safe_effective_modes():
         "dynamic_target_floor_tokens": 256,
         "dynamic_target_source_ratio_basis_points": 2_500,
         "dynamic_target_allowed_tokens": [256, 512, 1_024, 1_536, 2_000],
-        "long_term_mode": "disabled",
-        "local_principal_enabled": False,
-        "local_consumption_enabled": False,
+        "long_term_mode": "local_consume",
+        "local_principal_enabled": True,
+        "local_consumption_enabled": True,
         "interview_graph_version": "langgraph-v1",
         "interview_graph_rollout_percent": 0,
         "legacy_environment_used": False,
@@ -405,20 +405,26 @@ def test_question_memory_consumption_readiness_accepts_reviewed_p1_manifest():
     assert payload["reason"] is None
 
 
-def test_long_term_memory_defaults_disabled_and_consume_fails_closed():
+def test_long_term_memory_defaults_to_loopback_local_consume_and_legacy_consume_fails():
     config = load_effective_memory_config({})
-    assert config.long_term.mode == "disabled"
-    assert config.long_term.write_shadow_enabled is False
-    assert config.long_term.read_shadow_enabled is False
-    assert config.long_term.trusted_local_api_enabled is False
-    assert config.long_term.local_principal_enabled is False
+    assert config.long_term.mode == "local_consume"
+    assert config.long_term.write_shadow_enabled is True
+    assert config.long_term.read_shadow_enabled is True
+    assert config.long_term.trusted_local_api_enabled is True
+    assert config.long_term.local_principal_enabled is True
     assert config.long_term.local_principal_id == "local-owner"
-    assert config.long_term.local_consumption_enabled is False
+    assert config.long_term.local_consumption_enabled is True
     assert config.long_term.proposal_retention_days == 7
     assert config.long_term.active_fact_default_days == 180
 
     with pytest.raises(ValueError, match="cannot be downgraded"):
         load_effective_memory_config({"MEMORY_LONG_TERM_MODE": "consume"})
+
+    disabled = load_effective_memory_config({"MEMORY_LONG_TERM_MODE": "disabled"})
+    assert disabled.long_term.mode == "disabled"
+    assert disabled.long_term.local_principal_enabled is False
+    assert disabled.long_term.trusted_local_api_enabled is False
+    assert disabled.long_term.local_consumption_enabled is False
 
 
 def test_local_consume_requires_every_static_local_gate():

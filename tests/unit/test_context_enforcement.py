@@ -2,8 +2,16 @@ from types import SimpleNamespace
 
 import pytest
 
-from app.services.context_budget import ContextBudgetExceeded
-from app.services.llm import LLMConfig, OpenAIInterviewLLM
+from app.services.context_budget import (
+    ContextBudgetExceeded,
+    ContextBudgetResolver,
+    FOLLOWUP_CONTEXT_POLICY,
+)
+from app.services.llm import (
+    LLMConfig,
+    OpenAIInterviewLLM,
+    _build_followup_prompt,
+)
 
 
 class CountingChatModel:
@@ -33,12 +41,27 @@ def make_llm(chat_model, *, context_window_tokens=700):
 def test_followup_enforcement_rejects_before_provider_call(monkeypatch):
     monkeypatch.setenv("CONTEXT_BUDGET_INTERVIEW_ENFORCEMENT", "true")
     chat_model = CountingChatModel()
-    llm = make_llm(chat_model)
+    context = [{"role": "candidate", "content": "x"}]
+    calibration = make_llm(chat_model)
+    prompt_tokens = calibration.token_estimator.estimator.estimate_text(
+        _build_followup_prompt(context),
+        model=calibration.model_profile.model,
+    )
+    llm = make_llm(
+        chat_model,
+        context_window_tokens=(
+            FOLLOWUP_CONTEXT_POLICY.max_output_tokens + prompt_tokens - 1
+        ),
+    )
+    budget = ContextBudgetResolver().resolve(
+        profile=llm.model_profile,
+        policy=FOLLOWUP_CONTEXT_POLICY,
+    )
+
+    assert budget.available_input_tokens == prompt_tokens - 1
 
     with pytest.raises(ContextBudgetExceeded):
-        llm.generate_followup(
-            [{"role": "candidate", "content": "x" * 1_000}]
-        )
+        llm.generate_followup(context)
 
     assert chat_model.calls == 0
 

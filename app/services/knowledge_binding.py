@@ -60,11 +60,16 @@ class KnowledgeBindingResolver:
         binding_payload = context.question_bindings.get(question_id or "")
         if binding_payload is not None:
             binding = parse_question_knowledge_binding(binding_payload)
+            question_binding_id = _authoritative_question_binding_id(
+                context,
+                question_id,
+            )
             if binding.status != "valid":
                 return self._degraded(
                     plan,
                     question_id,
                     binding.reason_code,
+                    question_binding_id=question_binding_id,
                 )
             resolution = self.resolve_bound_evidence(
                 evidence_ids=list(binding.evidence_ids),
@@ -76,6 +81,7 @@ class KnowledgeBindingResolver:
                     plan,
                     question_id,
                     resolution.degraded_reason or "knowledge_unavailable",
+                    question_binding_id=question_binding_id,
                 )
             guidance = build_question_prep_context_messages(plan, question_id)
             return self._remember(
@@ -84,6 +90,7 @@ class KnowledgeBindingResolver:
                     evidence_ids=resolution.evidence_ids,
                     references=resolution.references,
                     retrieval_path="bound_evidence_ids",
+                    question_binding_id=question_binding_id,
                 )
             )
 
@@ -306,3 +313,21 @@ def _chunk_value(chunk: Any, key: str):
     if isinstance(chunk, dict):
         return chunk.get(key)
     return getattr(chunk, key, None)
+
+
+def _authoritative_question_binding_id(
+    context,
+    question_id: str | None,
+) -> str | None:
+    snapshot = context.binding_snapshot
+    if snapshot is None:
+        return None
+    binding = next(
+        (
+            item
+            for item in snapshot.question_evidence_bindings
+            if item.question_id == question_id
+        ),
+        None,
+    )
+    return binding.binding_id if binding is not None else None

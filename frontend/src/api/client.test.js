@@ -3,6 +3,7 @@ import {
   clearStableRequestId,
   getJson,
   HttpError,
+  postForm,
   postJson,
   stableRequestId,
 } from "./client";
@@ -50,6 +51,30 @@ describe("JSON response parsing", () => {
     await expect(getJson("/api/interview-plans/example")).resolves.toEqual({ revision: 3 });
     expect(response.text).toHaveBeenCalledTimes(1);
     expect(response.json).not.toHaveBeenCalled();
+  });
+});
+
+describe("multipart requests", () => {
+  it("posts FormData without overriding the browser multipart boundary", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 201,
+      json: vi.fn().mockResolvedValue({ document_id: "document-1" }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const formData = new FormData();
+    formData.append("display_name", "系统设计笔记");
+
+    await expect(postForm("/api/materials", formData)).resolves.toEqual({
+      document_id: "document-1",
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/materials",
+      expect.objectContaining({ method: "POST", body: formData }),
+    );
+    const options = fetchMock.mock.calls[0][1];
+    expect(options.headers).toBeUndefined();
   });
 });
 

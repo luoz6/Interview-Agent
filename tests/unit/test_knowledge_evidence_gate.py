@@ -48,6 +48,26 @@ def _chunk(content="owner token atomic compare-and-delete", metadata=None):
     )
 
 
+def _user_material_chunk(*, source_type="user_material", metadata=None):
+    valid_metadata = {
+        "knowledge_source": "user_material",
+        "document_id": "00000000-0000-0000-0000-000000000001",
+        "document_revision_id": "00000000-0000-0000-0000-000000000011",
+        "content_sha256": "a" * 64,
+        "document_content_sha256": "b" * 64,
+    }
+    return KnowledgeChunk(
+        chunk_id="user-material-redis",
+        title="User Redis notes",
+        content="Redis consistency notes",
+        source_type=source_type,
+        domain="user_material",
+        tags=[],
+        metadata=valid_metadata if metadata is None else metadata,
+        score=0.9,
+    )
+
+
 def _result(availability=RetrievalAvailability.AVAILABLE, chunks=None):
     chunks = [] if chunks is None else chunks
     return RetrievalResult(
@@ -157,6 +177,110 @@ def test_retrieval_gate_accepts_hash_and_single_corpus_binding():
     assert decision.availability == EvidenceAvailability.AVAILABLE
     assert decision.sufficiency == EvidenceSufficiency.NOT_EVALUATED
     assert decision.evaluation_confidence == EvaluationConfidence.NOT_SCORABLE
+
+
+def test_retrieval_gate_allows_manifestless_valid_user_material_lineage():
+    decision = RetrievalEvidenceGate().decide(
+        _result(
+            RetrievalAvailability.AVAILABLE,
+            [_user_material_chunk()],
+        )
+    )
+
+    assert decision.availability == EvidenceAvailability.AVAILABLE
+    assert decision.sufficiency == EvidenceSufficiency.NOT_EVALUATED
+    assert decision.reason_codes == ()
+
+
+@pytest.mark.parametrize(
+    ("source_type", "metadata"),
+    [
+        (
+            "user_material",
+            {
+                "document_id": "00000000-0000-0000-0000-000000000001",
+                "document_revision_id": "00000000-0000-0000-0000-000000000011",
+                "content_sha256": "a" * 64,
+                "document_content_sha256": "b" * 64,
+            },
+        ),
+        (
+            "theory",
+            {
+                "knowledge_source": "user_material",
+                "document_id": "00000000-0000-0000-0000-000000000001",
+                "document_revision_id": "00000000-0000-0000-0000-000000000011",
+                "content_sha256": "a" * 64,
+                "document_content_sha256": "b" * 64,
+            },
+        ),
+        (
+            "user_material",
+            {
+                "knowledge_source": "user_material",
+                "document_id": "not-a-uuid",
+                "document_revision_id": "00000000-0000-0000-0000-000000000011",
+                "content_sha256": "a" * 64,
+                "document_content_sha256": "b" * 64,
+            },
+        ),
+        (
+            "user_material",
+            {
+                "knowledge_source": "user_material",
+                "document_id": "00000000-0000-0000-0000-000000000001",
+                "document_revision_id": "not-a-uuid",
+                "content_sha256": "a" * 64,
+                "document_content_sha256": "b" * 64,
+            },
+        ),
+        (
+            "user_material",
+            {
+                "knowledge_source": "user_material",
+                "document_id": "00000000-0000-0000-0000-000000000001",
+                "document_revision_id": "00000000-0000-0000-0000-000000000011",
+                "content_sha256": "short",
+                "document_content_sha256": "b" * 64,
+            },
+        ),
+        (
+            "user_material",
+            {
+                "knowledge_source": "user_material",
+                "document_id": "00000000-0000-0000-0000-000000000001",
+                "document_revision_id": "00000000-0000-0000-0000-000000000011",
+                "content_sha256": "a" * 64,
+                "document_content_sha256": "short",
+            },
+        ),
+        (
+            "user_material",
+            {
+                "knowledge_source": "user_material",
+                "document_id": "00000000-0000-0000-0000-000000000001",
+                "document_revision_id": "00000000-0000-0000-0000-000000000011",
+                "content_sha256": "a" * 64,
+                "document_content_sha256": "b" * 64,
+                "corpus_manifest_sha256": "c" * 64,
+            },
+        ),
+    ],
+)
+def test_retrieval_gate_rejects_incomplete_or_forged_user_material_lineage(
+    source_type,
+    metadata,
+):
+    decision = RetrievalEvidenceGate().decide(
+        _result(
+            RetrievalAvailability.AVAILABLE,
+            [_user_material_chunk(source_type=source_type, metadata=metadata)],
+        )
+    )
+
+    assert decision.availability == EvidenceAvailability.DEGRADED
+    assert decision.sufficiency == EvidenceSufficiency.INSUFFICIENT
+    assert decision.reason_codes == ("invalid_knowledge_metadata",)
 
 
 def test_retrieval_gate_rejects_only_explicit_hard_negative_selection_risk():

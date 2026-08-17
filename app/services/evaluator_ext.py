@@ -32,6 +32,10 @@ from app.domain.knowledge.evidence import (
     EvidenceSufficiency,
     ReviewEvidenceBinding,
 )
+from app.domain.knowledge.source_scope import (
+    InterviewKnowledgeScopeSnapshot,
+    build_knowledge_source_scope,
+)
 from app.domain.knowledge.evidence_gate import (
     EvaluationSupportGate,
     RetrievalEvidenceGate,
@@ -53,6 +57,8 @@ from app.services.context_selection import (
     truncate_text_to_tokens,
 )
 from app.services.context_runtime import ContextRuntime, get_context_runtime
+from app.services.knowledge_citations import project_safe_knowledge_citations
+from app.services.session_plan_binding import session_plan_binding_from_state
 
 logger = logging.getLogger(__name__)
 
@@ -258,24 +264,34 @@ def resolve_reviewer_references(
 
 
 def _targeted_reviewer_search(state, chunk, vector_store) -> list:
+    source_scope = _targeted_reviewer_source_scope(state)
     if callable(getattr(vector_store, "search_runtime", None)):
         context = state["plan"].prep_context
         snapshot = context.binding_snapshot if context is not None else None
+        runtime_kwargs = {
+            "intent": RetrievalIntent.QUESTION_REVIEW,
+            "job_tags": state["job_tags"],
+            "source_types": ["theory", "expert_benchmark"],
+            "limit": 5,
+            "session_id": state["session_id"],
+            "question_id": chunk.question_id,
+            "prep_run_id": (
+                snapshot.prep_run_id if snapshot is not None else None
+            ),
+        }
+        if source_scope is not None:
+            runtime_kwargs["source_scope"] = source_scope
         outcome = vector_store.search_runtime(
             ExpertShadowEvaluator._build_query_text(
                 chunk.question_text,
                 chunk.focus,
                 chunk.messages,
             ),
-            intent=RetrievalIntent.QUESTION_REVIEW,
-            job_tags=state["job_tags"],
-            source_types=["theory", "expert_benchmark"],
-            limit=5,
-            session_id=state["session_id"],
-            question_id=chunk.question_id,
-            prep_run_id=(snapshot.prep_run_id if snapshot is not None else None),
+            **runtime_kwargs,
         )
         return list(outcome.result.selected_evidence)
+    if source_scope is not None:
+        raise RuntimeError("source-aware reviewer retrieval is unavailable")
     return list(
         vector_store.search(
             ExpertShadowEvaluator._build_query_text(
@@ -449,6 +465,7 @@ class ExpertShadowEvaluator:
         reference_transform: Callable | None = None,
         knowledge_unit_resolver=None,
         evaluation_support_gate: EvaluationSupportGate | None = None,
+        user_document_store=None,
     ) -> None:
         self._llm = llm
         self._vector_store = vector_store
@@ -473,6 +490,7 @@ class ExpertShadowEvaluator:
         self._evaluation_support_gate = (
             evaluation_support_gate or EvaluationSupportGate()
         )
+        self._user_document_store = user_document_store
 
     def evaluate(
         self,
@@ -490,6 +508,7 @@ class ExpertShadowEvaluator:
             )
 
         evaluation_items: list[dict] = []
+        citation_inputs_by_question: dict[str, dict] = {}
         self.last_retrieval_by_question = {}
         for chunk in chunks:
             try:
@@ -529,6 +548,23 @@ class ExpertShadowEvaluator:
                 retrieval,
                 bounded_references,
             )
+            citation_input = _citation_projection_input(
+                state["plan"],
+                retrieval,
+                bounded_references,
+            )
+            if citation_input is not None:
+                citation_inputs_by_question[chunk.question_id] = citation_input
+            user_material_references = [
+                reference
+                for reference in bounded_references
+                if _is_user_material_reference(reference)
+            ]
+            scoring_references = [
+                reference
+                for reference in bounded_references
+                if not _is_user_material_reference(reference)
+            ]
             final_evidence_ids = [
                 _reference_id(reference) for reference in bounded_references
                 if _reference_id(reference)
@@ -577,24 +613,28 @@ class ExpertShadowEvaluator:
                     else None
                 ),
             }
-            evaluation_items.append(
-                {
-                    "question_id": chunk.question_id,
-                    "question_text": chunk.question_text,
-                    "question_kind": chunk.question_kind,
-                    "focus": chunk.focus,
-                    "messages": bounded_messages,
-                    "scoring_references": bounded_references,
-                    "answer_references": [],
-                    "retrieval_path": retrieval.retrieval_path,
-                    "degraded_reason": retrieval.degraded_reason,
-                    "evidence_decision": (
-                        retrieval.decision.model_dump(mode="json")
-                        if retrieval.decision
-                        else None
-                    ),
-                }
-            )
+            evaluation_item = {
+                "question_id": chunk.question_id,
+                "question_text": chunk.question_text,
+                "question_kind": chunk.question_kind,
+                "focus": chunk.focus,
+                "messages": bounded_messages,
+                "scoring_references": scoring_references,
+                "answer_references": [],
+                "retrieval_path": retrieval.retrieval_path,
+                "degraded_reason": retrieval.degraded_reason,
+                "evidence_decision": (
+                    retrieval.decision.model_dump(mode="json")
+                    if retrieval.decision
+                    else None
+                ),
+            }
+            if user_material_references:
+                evaluation_item["non_authoritative_reference_context"] = [
+                    _non_authoritative_feedback_reference(reference)
+                    for reference in user_material_references
+                ]
+            evaluation_items.append(evaluation_item)
 
         if on_progress is not None:
             on_progress(
@@ -611,10 +651,9 @@ class ExpertShadowEvaluator:
 
             command_id = state.get("last_command_id")
             evidence_ids = [
-                reference["chunk_id"]
-                for item in evaluation_items
-                for reference in item.get("scoring_references", [])
-                if reference.get("chunk_id")
+                evidence_id
+                for metadata in self.last_retrieval_by_question.values()
+                for evidence_id in metadata.get("evidence_ids", [])
             ]
             report = ReportCoachAgent(
                 llm=self._llm,
@@ -657,8 +696,10 @@ class ExpertShadowEvaluator:
 
         report = _enforce_v2_report_references(
             report,
-            state["plan"],
+            state,
             evaluation_items,
+            citation_inputs_by_question=citation_inputs_by_question,
+            user_document_store=self._user_document_store,
         )
 
         if on_progress is not None:
@@ -791,9 +832,13 @@ def _align_review_binding_with_scoring_input(
 
 def _enforce_v2_report_references(
     report: InterviewReport,
-    plan,
+    state,
     evaluation_items: list[dict],
+    *,
+    citation_inputs_by_question: dict[str, dict] | None = None,
+    user_document_store=None,
 ) -> InterviewReport:
+    plan = state["plan"]
     context = plan.prep_context
     if context is None or context.schema_version != "v2":
         return report
@@ -810,6 +855,11 @@ def _enforce_v2_report_references(
         for item in evaluation_items
     }
     feedbacks = []
+    source_scope = _feedback_source_scope(state)
+    documents_by_id = _citation_documents(
+        source_scope,
+        user_document_store=user_document_store,
+    )
     for feedback in report.feedbacks:
         references = []
         seen_ids: set[str] = set()
@@ -839,5 +889,180 @@ def _enforce_v2_report_references(
                     ),
                 )
             )
-        feedbacks.append(feedback.model_copy(update={"references": references}))
+        citation_input = (citation_inputs_by_question or {}).get(
+            feedback.question_id
+        )
+        knowledge_citations = []
+        if source_scope is not None and citation_input is not None:
+            knowledge_citations = list(
+                project_safe_knowledge_citations(
+                    source_scope=source_scope,
+                    evidence_refs=citation_input["evidence_refs"],
+                    business_binding_evidence_ids=citation_input[
+                        "business_binding_evidence_ids"
+                    ],
+                    final_evidence_ids=citation_input["final_evidence_ids"],
+                    consumed_evidence_ids=citation_input[
+                        "consumed_evidence_ids"
+                    ],
+                    documents_by_id=documents_by_id,
+                )
+            )
+        feedbacks.append(
+            feedback.model_copy(
+                update={
+                    "references": references,
+                    "knowledge_citations": knowledge_citations,
+                }
+            )
+        )
     return report.model_copy(update={"feedbacks": feedbacks})
+
+
+def _targeted_reviewer_source_scope(state):
+    plan_origin = state.get("plan_origin")
+    if plan_origin in {None, "legacy_session_snapshot"}:
+        return None
+    if plan_origin != "plan_revision":
+        raise RuntimeError("frozen reviewer source scope is unavailable")
+    try:
+        binding = session_plan_binding_from_state(dict(state))
+        snapshot = InterviewKnowledgeScopeSnapshot.model_validate(
+            binding.plan_snapshot["knowledge_scope"]
+        )
+        if snapshot.selected_documents and binding.owner_principal_id is None:
+            raise ValueError("frozen material scope requires an owner")
+        source_scope = build_knowledge_source_scope(
+            snapshot,
+            owner_principal_id=binding.owner_principal_id,
+            usage="feedback",
+        )
+    except Exception as exc:
+        raise RuntimeError("frozen reviewer source scope is unavailable") from exc
+    if (
+        not source_scope.include_system_knowledge
+        and not source_scope.selected_documents
+    ):
+        raise RuntimeError("frozen reviewer source scope is empty")
+    return source_scope
+
+
+def _citation_projection_input(
+    plan,
+    retrieval: ReviewerReferenceResolution,
+    consumed_references: list[dict],
+) -> dict | None:
+    review_binding = retrieval.review_binding
+    context = plan.prep_context
+    snapshot = context.binding_snapshot if context is not None else None
+    if review_binding is None or snapshot is None:
+        return None
+    question_binding = next(
+        (
+            binding
+            for binding in snapshot.question_evidence_bindings
+            if binding.binding_id == review_binding.parent_question_binding_id
+        ),
+        None,
+    )
+    if question_binding is None:
+        return None
+    base_bundle = snapshot.base_evidence_bundle
+    if base_bundle is None or base_bundle.bundle_id != question_binding.bundle_id:
+        return None
+    evidence_ref_by_id = {
+        reference.evidence_id: reference
+        for reference in (
+            *base_bundle.candidate_evidence_refs,
+            *review_binding.supplemental_evidence_refs,
+        )
+    }
+    evidence_refs = tuple(evidence_ref_by_id.values())
+    business_binding_ids = tuple(
+        dict.fromkeys(
+            (
+                *question_binding.selected_evidence_ids,
+                *review_binding.supplemental_evidence_ids,
+            )
+        )
+    )
+    consumed_ids = tuple(
+        dict.fromkeys(
+            evidence_id
+            for reference in consumed_references
+            if (evidence_id := _reference_id(reference))
+        )
+    )
+    return {
+        "evidence_refs": evidence_refs,
+        "business_binding_evidence_ids": business_binding_ids,
+        "final_evidence_ids": review_binding.final_evidence_ids,
+        "consumed_evidence_ids": consumed_ids,
+    }
+
+
+def _feedback_source_scope(state):
+    try:
+        binding = session_plan_binding_from_state(state)
+        if binding.plan_origin != "plan_revision":
+            return None
+        snapshot = InterviewKnowledgeScopeSnapshot.model_validate(
+            binding.plan_snapshot["knowledge_scope"]
+        )
+        return build_knowledge_source_scope(
+            snapshot,
+            owner_principal_id=binding.owner_principal_id,
+            usage="feedback",
+        )
+    except (KeyError, TypeError, ValueError):
+        return None
+
+
+def _citation_documents(source_scope, *, user_document_store=None) -> dict:
+    if source_scope is None or not source_scope.selected_documents:
+        return {}
+    store = user_document_store
+    if store is None:
+        try:
+            from app.services.runtime import get_user_document_store
+
+            store = get_user_document_store()
+        except Exception:
+            store = None
+    documents = {}
+    for selected in source_scope.selected_documents:
+        document = None
+        if store is not None and source_scope.owner_principal_id is not None:
+            try:
+                document = store.get_document(
+                    owner_principal_id=source_scope.owner_principal_id,
+                    document_id=selected.document_id,
+                )
+            except Exception:
+                document = None
+        documents[selected.document_id] = document
+    return documents
+
+
+def _is_user_material_reference(reference: dict) -> bool:
+    metadata = reference.get("metadata") or {}
+    return (
+        reference.get("source_type") == "user_material"
+        or metadata.get("knowledge_source") == "user_material"
+    )
+
+
+def _non_authoritative_feedback_reference(reference: dict) -> dict:
+    return {
+        "chunk_id": _reference_id(reference),
+        "title": str(reference.get("title") or "知识资料"),
+        "source_scope": (
+            "user_document"
+            if _is_user_material_reference(reference)
+            else "system_knowledge"
+        ),
+        "authority": "non_authoritative",
+        "candidate_exact_quote": False,
+        "authoritative_scoring_evidence": False,
+        "content": str(reference.get("content") or ""),
+    }

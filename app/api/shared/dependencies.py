@@ -12,7 +12,7 @@ from app.application.interview.session_commands import (
     StreamingTurnService,
 )
 from app.application.interview.interview_start import InterviewStartService
-from app.api.shared.models import StartInterviewRequest
+from app.api.shared.models import PrepRequest, StartInterviewRequest
 from app.services.interview_launch import InterviewLaunchCoordinator
 from app.runtime.config.compatibility import (
     get_interview_langgraph_rollout_percent,
@@ -25,6 +25,7 @@ from app.services.runtime import (
     get_event_publisher,
     get_interview_launch_coordinator,
     get_interview_launch_repository,
+    get_interview_knowledge_scope_resolver as _get_interview_knowledge_scope_resolver,
     get_interview_workflow_service,
     get_memory_metric_store,
     get_plan_revision_store,
@@ -45,7 +46,74 @@ from app.services.runtime import (
     get_session_deletion_service,
     get_session_deletion_worker,
     get_session_store,
+    get_user_document_store,
+    get_user_document_deletion_service as _get_user_document_deletion_service,
+    get_user_document_ingestion_service as _get_user_document_ingestion_service,
+    get_user_document_service as _get_user_document_service,
 )
+
+
+def get_user_materials_runtime_settings():
+    from app.runtime.config import load_user_materials_runtime_settings
+
+    return load_user_materials_runtime_settings()
+
+
+def get_user_document_service():
+    return _get_user_document_service()
+
+
+def get_interview_knowledge_scope_resolver():
+    return _get_interview_knowledge_scope_resolver()
+
+
+def get_interview_knowledge_scope_resolver_factory(request: Request):
+    def factory():
+        override = request.app.dependency_overrides.get(
+            get_interview_knowledge_scope_resolver
+        )
+        return (
+            override()
+            if override is not None
+            else get_interview_knowledge_scope_resolver()
+        )
+
+    return factory
+
+
+def get_request_interview_knowledge_scope_resolver(
+    request: Request,
+    payload: PrepRequest,
+):
+    if payload.knowledge_scope is None:
+        return None
+    override = request.app.dependency_overrides.get(
+        get_interview_knowledge_scope_resolver
+    )
+    if (
+        not payload.knowledge_scope.selected_document_ids
+        and override is None
+    ):
+        return None
+    return (
+        override()
+        if override is not None
+        else get_interview_knowledge_scope_resolver()
+    )
+
+
+def get_user_document_ingestion_service(
+    settings=Depends(get_user_materials_runtime_settings),
+):
+    if not settings.enabled or not settings.ingest_enabled:
+        from app.api.shared.errors import raise_user_materials_hidden
+
+        raise_user_materials_hidden()
+    return _get_user_document_ingestion_service()
+
+
+def get_user_document_deletion_service():
+    return _get_user_document_deletion_service()
 
 
 def get_report_job_queue():
@@ -217,6 +285,8 @@ __all__ = [
     "get_event_publisher",
     "get_interview_launch_coordinator",
     "get_interview_launch_repository",
+    "get_interview_knowledge_scope_resolver",
+    "get_interview_knowledge_scope_resolver_factory",
     "get_interview_workflow_service",
     "get_interview_application_service",
     "get_legacy_launch_session_store",
@@ -242,6 +312,7 @@ __all__ = [
     "get_report_job_queue",
     "get_report_job_store",
     "get_request_interview_launch_coordinator",
+    "get_request_interview_knowledge_scope_resolver",
     "get_request_principal_identity_resolver",
     "get_request_principal_memory_control_store",
     "get_request_plan_revision_store",
@@ -250,4 +321,9 @@ __all__ = [
     "get_session_deletion_worker",
     "get_session_store",
     "get_streaming_turn_service",
+    "get_user_document_store",
+    "get_user_document_deletion_service",
+    "get_user_document_ingestion_service",
+    "get_user_document_service",
+    "get_user_materials_runtime_settings",
 ]

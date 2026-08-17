@@ -12,8 +12,6 @@ from pydantic import ValidationError
 from contracts.evidence import (
     AtomicEvidenceWriter,
     EvidenceIssuer,
-    EvidenceRegistry,
-    EvidenceVerifier,
     HmacReceiptSigner,
     ProductionBudgetReadinessEvidencePayload,
     ProductionShadowApprovalRequestPayload,
@@ -362,7 +360,7 @@ def test_preflight_payload_rejects_private_or_changed_state():
     assert "PREFLIGHT_CONFIGURATION_ALREADY_CHANGED" in result.gate_codes
 
 
-def test_repository_snapshot_uses_verified_typed_inputs():
+def test_repository_snapshot_keeps_local_v1_out_of_production_shadow():
     snapshot = repository_snapshot(
         approval_request=approval_request(),
         readiness=readiness_payload(),
@@ -371,12 +369,15 @@ def test_repository_snapshot_uses_verified_typed_inputs():
     assert snapshot == {
         "approval_packet_ready": True,
         "readiness_verified": True,
-        "safe_defaults": True,
+        "safe_defaults": False,
         "consume_rejected": True,
         "production_observation_not_run": True,
         "hard_stop_clear": True,
         "configuration_changed": False,
     }
+    with pytest.raises(ChangePreflightBlocked) as raised:
+        evaluate(repository=snapshot)
+    assert raised.value.codes == ("SAFE_DEFAULTS_CHANGED",)
 
 
 def _write_upstream_bundles(tmp_path, signer):
@@ -422,7 +423,7 @@ def _write_upstream_bundles(tmp_path, signer):
     return request_path, readiness_path
 
 
-def test_cli_binds_protected_inputs_and_external_record(
+def test_cli_binds_protected_inputs_then_blocks_local_v1_defaults(
     monkeypatch,
     tmp_path,
     capsys,
@@ -462,27 +463,16 @@ def test_cli_binds_protected_inputs_and_external_record(
             "--output",
             str(output),
         ]
-    ) == 0
+    ) == 1
 
-    verified = EvidenceVerifier(
-        registry=EvidenceRegistry.default(),
-        receipt_signer=signer,
-    ).verify(
-        json.loads(output.read_text(encoding="utf-8")),
-        expected_revision="abcdef3",
-        expected_scope="memory.production-shadow.change-preflight",
-    )
-    assert isinstance(
-        verified.payload,
-        ProductionShadowChangePreflightEvidencePayload,
-    )
-    assert verified.bundle.artifact.verification_status is VerificationStatus.PASS
-    assert verified.bundle.artifact.promotion_decision is PromotionDecision.HOLD
-    assert len(verified.bundle.artifact.envelope.input_manifest) == 3
-    stdout = capsys.readouterr().out
-    assert "VERIFICATION_STATUS=PASS" in stdout
-    assert "PROMOTION_DECISION=HOLD" in stdout
-    assert "EXTERNAL_APPROVAL_RECORD=VERIFIED" in stdout
+    assert not output.exists()
+    assert capsys.readouterr().out.strip().splitlines() == [
+        "PRODUCTION_BUDGET_SHADOW_CHANGE_PREFLIGHT=BLOCKED",
+        "GATE=SAFE_DEFAULTS_CHANGED",
+        "CONFIGURATION_CHANGED=false",
+        "LONG_TERM_MEMORY_CONSUMPTION=BLOCKED",
+        "PRODUCTION_OBSERVATION=NOT_RUN",
+    ]
 
 
 def test_cli_rejects_readiness_not_bound_to_approval_request(

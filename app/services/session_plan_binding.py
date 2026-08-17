@@ -24,6 +24,11 @@ class SessionPlanBinding(BaseModel):
     configuration_snapshot: dict[str, Any] | None = None
     plan_snapshot: dict[str, Any]
     principal_memory_mode: Literal["inherit", "ignore"] = "inherit"
+    owner_principal_id: str | None = Field(
+        default=None,
+        pattern=r"^[A-Za-z0-9_.-]{1,128}$",
+        exclude_if=lambda value: value is None,
+    )
 
     @model_validator(mode="after")
     def validate_binding(self):
@@ -54,6 +59,7 @@ def session_plan_binding_from_revision(
     revision: InterviewPlanRevision,
     *,
     principal_memory_mode: Literal["inherit", "ignore"] = "inherit",
+    owner_principal_id: str | None = None,
 ) -> SessionPlanBinding:
     return SessionPlanBinding(
         plan_origin="plan_revision",
@@ -64,6 +70,7 @@ def session_plan_binding_from_revision(
         configuration_snapshot=revision.configuration_snapshot.model_dump(mode="json"),
         plan_snapshot=revision.plan.model_dump(mode="json"),
         principal_memory_mode=principal_memory_mode,
+        owner_principal_id=owner_principal_id,
     )
 
 
@@ -89,5 +96,6 @@ def session_plan_binding_from_state(state: dict[str, Any]) -> SessionPlanBinding
             "configuration_snapshot": state.get("configuration_snapshot"),
             "plan_snapshot": state["plan_snapshot"],
             "principal_memory_mode": state.get("principal_memory_mode", "inherit"),
+            "owner_principal_id": state.get("owner_principal_id"),
         }
     )

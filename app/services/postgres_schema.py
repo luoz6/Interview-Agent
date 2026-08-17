@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 import re
 from typing import Literal
 
@@ -21,6 +22,11 @@ from app.services.postgres_schema_contract import (
 
 
 SchemaMode = Literal["migrate", "validate"]
+ColumnRequirementsResolver = Callable[[str], frozenset[str]]
+TokenRequirementsResolver = Callable[
+    [str],
+    tuple[frozenset[str], ...],
+]
 
 
 def validate_schema_mode(mode: str) -> SchemaMode:
@@ -49,6 +55,25 @@ def resolve_schema_mode(
 def validate_relations(
     provider: ConnectionProvider,
     relation_names: tuple[str, ...],
+    *,
+    required_columns_resolver: ColumnRequirementsResolver = (
+        required_columns_for_relation
+    ),
+    required_index_tokens_resolver: TokenRequirementsResolver = (
+        required_index_tokens_for_relation
+    ),
+    required_check_tokens_resolver: TokenRequirementsResolver = (
+        required_check_tokens_for_relation
+    ),
+    required_foreign_key_tokens_resolver: TokenRequirementsResolver = (
+        required_foreign_key_tokens_for_relation
+    ),
+    required_nullable_columns_resolver: ColumnRequirementsResolver = (
+        required_nullable_columns_for_relation
+    ),
+    required_strict_positive_columns_resolver: ColumnRequirementsResolver = (
+        required_strict_positive_columns_for_relation
+    ),
 ) -> None:
     for name in relation_names:
         validate_postgres_identifier(name)
@@ -68,9 +93,9 @@ def validate_relations(
                 )
 
             required = {
-                name: required_columns_for_relation(name)
+                name: required_columns_resolver(name)
                 for name in relation_names
-                if required_columns_for_relation(name)
+                if required_columns_resolver(name)
             }
             if required:
                 cursor.execute(
@@ -99,9 +124,9 @@ def validate_relations(
                         "PostgreSQL runtime columns are incompatible"
                     )
                 nullable_requirements = {
-                    name: required_nullable_columns_for_relation(name)
+                    name: required_nullable_columns_resolver(name)
                     for name in required
-                    if required_nullable_columns_for_relation(name)
+                    if required_nullable_columns_resolver(name)
                 }
                 if any(
                     not columns.issubset(nullable.get(name, set()))
@@ -112,9 +137,9 @@ def validate_relations(
                     )
 
             index_requirements = {
-                name: required_index_tokens_for_relation(name)
+                name: required_index_tokens_resolver(name)
                 for name in relation_names
-                if required_index_tokens_for_relation(name)
+                if required_index_tokens_resolver(name)
             }
             if index_requirements:
                 cursor.execute(
@@ -156,14 +181,14 @@ def validate_relations(
                             )
 
             check_requirements = {
-                name: required_check_tokens_for_relation(name)
+                name: required_check_tokens_resolver(name)
                 for name in relation_names
-                if required_check_tokens_for_relation(name)
+                if required_check_tokens_resolver(name)
             }
             strict_positive_requirements = {
-                name: required_strict_positive_columns_for_relation(name)
+                name: required_strict_positive_columns_resolver(name)
                 for name in relation_names
-                if required_strict_positive_columns_for_relation(name)
+                if required_strict_positive_columns_resolver(name)
             }
             checked_relations = set(check_requirements) | set(
                 strict_positive_requirements
@@ -250,9 +275,9 @@ def validate_relations(
                             )
 
             foreign_key_requirements = {
-                name: required_foreign_key_tokens_for_relation(name)
+                name: required_foreign_key_tokens_resolver(name)
                 for name in relation_names
-                if required_foreign_key_tokens_for_relation(name)
+                if required_foreign_key_tokens_resolver(name)
             }
             if foreign_key_requirements:
                 cursor.execute(

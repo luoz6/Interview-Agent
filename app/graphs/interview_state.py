@@ -1,4 +1,5 @@
 import hashlib
+from collections.abc import Mapping
 from datetime import datetime, timezone
 from typing import Any, Literal, TypedDict
 
@@ -88,6 +89,26 @@ class InterviewState(TypedDict):
     configuration_snapshot: dict[str, Any] | None
     plan_snapshot: dict[str, Any]
     principal_memory_mode: Literal["inherit", "ignore"]
+    owner_principal_id: str | None
+
+
+def latest_candidate_answer_for_question(
+    state: Mapping[str, Any],
+    question_id: str,
+) -> str:
+    messages = state.get("messages")
+    if not isinstance(messages, list):
+        return ""
+    return next(
+        (
+            str(message.get("content") or "")
+            for message in reversed(messages)
+            if isinstance(message, Mapping)
+            and message.get("role") == "candidate"
+            and message.get("question_id") == question_id
+        ),
+        "",
+    )
 
 
 def choose_workflow_engine(

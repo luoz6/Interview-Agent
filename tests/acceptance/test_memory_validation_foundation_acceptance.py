@@ -15,16 +15,24 @@ from contracts.policies import OperationalRcEvidencePolicy
 
 from scripts.memory_validation_foundation_acceptance import (
     AcceptanceBlocked,
-    SUCCESS_LINES,
     main,
     run_acceptance,
 )
 from tests.operational_shadow_fixtures import rc_payload
 
 
-def test_success_output_is_exact_and_keeps_consumption_blocked():
-    assert run_acceptance(rc_payload()) == SUCCESS_LINES
-    assert "PASS_FOR_PRODUCTION" not in "\n".join(SUCCESS_LINES)
+LOCAL_V1_PRODUCTION_GATES = (
+    "long_term_default_not_disabled",
+    "long_term_shadow_default_enabled",
+    "trusted_local_principal_api_default_enabled",
+)
+
+
+def test_local_v1_defaults_keep_production_foundation_blocked():
+    with pytest.raises(AcceptanceBlocked) as captured:
+        run_acceptance(rc_payload())
+
+    assert captured.value.codes == LOCAL_V1_PRODUCTION_GATES
 
 
 def test_missing_operational_evidence_blocks_ready():
@@ -37,7 +45,7 @@ def test_missing_operational_evidence_blocks_ready():
     assert "RC_REQUIRED_GATE_FAILED" in captured.value.codes
 
 
-def test_cli_prints_only_exact_success_lines(monkeypatch, tmp_path, capsys):
+def test_cli_prints_exact_local_v1_production_block(monkeypatch, tmp_path, capsys):
     secret = b"f" * 32
     signer = HmacReceiptSigner(key_id="foundation-test", secret=secret)
     payload = rc_payload()
@@ -67,5 +75,10 @@ def test_cli_prints_only_exact_success_lines(monkeypatch, tmp_path, capsys):
             "--evidence-revision",
             "bcdefa2",
         ]
-    ) == 0
-    assert capsys.readouterr().out.strip().splitlines() == list(SUCCESS_LINES)
+    ) == 1
+    assert capsys.readouterr().out.strip().splitlines() == [
+        "MEMORY_VALIDATION_FOUNDATION=BLOCKED",
+        *(f"GATE={code}" for code in LOCAL_V1_PRODUCTION_GATES),
+        "LONG_TERM_MEMORY_CONSUMPTION=BLOCKED",
+        "PRODUCTION_OBSERVATION=NOT_RUN",
+    ]

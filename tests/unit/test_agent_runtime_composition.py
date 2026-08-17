@@ -517,6 +517,7 @@ def test_interview_composition_uses_one_effective_snapshot_and_injects_selection
             "MEMORY_COMPRESSION_STATUS_PROJECTION_ENABLED": (
                 status_projection_enabled
             ),
+            "MEMORY_LONG_TERM_MODE": "disabled",
             "MEMORY_ARTIFACT_LEASE_SECONDS": "73",
             "MEMORY_PRIVACY_DEPLOYMENT_ID": "single-tenant-composition",
             "MEMORY_SELECTION_EXACT_RECENT_QUESTIONS": "2",
@@ -917,6 +918,7 @@ def test_review_composition_uses_one_effective_snapshot_for_gates_and_policy(
             "MEMORY_INTERVIEW_GRAPH_RUNTIME_ENABLED": "false",
             "MEMORY_COMPRESSION_MODE": "shadow",
             "MEMORY_COMPRESSION_TASK_INTENT_ENABLED": "true",
+            "MEMORY_LONG_TERM_MODE": "disabled",
             "MEMORY_ARTIFACT_LEASE_SECONDS": "83",
             "MEMORY_PRIVACY_DEPLOYMENT_ID": "review-composition",
             "MEMORY_SELECTION_ELIGIBILITY_UTILIZATION_BASIS_POINTS": "3456",

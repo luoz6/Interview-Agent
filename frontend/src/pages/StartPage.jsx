@@ -66,6 +66,8 @@ import {
   postJson,
   stableRequestId,
 } from "../api/client";
+import { materialStatus } from "../materials/materialsDisplay";
+import { useMaterials } from "../materials/useMaterials";
 import { resolveMemoryUiState } from "../memory/memoryStatus";
 import "../styles/pages/prep.css";
 
@@ -74,6 +76,10 @@ const CONFIGURATION_KEY = "interview-agent:plan-configuration-v1";
 const MAX_FILE_BYTES = 1024 * 1024;
 const MAX_TEXT_LENGTH = 50000;
 const PENDING_STATES = ["generating", "saving", "restoring", "starting"];
+const KNOWLEDGE_SCOPE_ERROR_CODES = new Set([
+  "knowledge_scope_document_not_found",
+  "knowledge_scope_document_unavailable",
+]);
 
 const KNOWLEDGE_STATUS_LABELS = {
   keyword: "关键词准备",
@@ -157,6 +163,44 @@ function normalizeApiError(error) {
   normalized.body = payload;
   normalized.retryable = error?.retryable;
   return normalized;
+}
+
+function scopeSelection(scope) {
+  const selectedDocuments = Array.isArray(scope?.selected_documents)
+    ? scope.selected_documents
+    : [];
+  return {
+    includeSystemKnowledge: scope?.include_system_knowledge !== false,
+    selectedMaterialIds: selectedDocuments
+      .map((item) => item?.document_id)
+      .filter((documentId) => typeof documentId === "string"),
+  };
+}
+
+function scopeSignature(includeSystemKnowledge, selectedMaterialIds) {
+  return JSON.stringify({
+    includeSystemKnowledge,
+    selectedMaterialIds: [...selectedMaterialIds].sort(),
+  });
+}
+
+function materialCanBeSelected(material) {
+  return material?.status === "ready" && material?.enabled === true;
+}
+
+function materialSelectionReason(material) {
+  if (!material?.enabled || material?.status === "disabled") {
+    return "已停用，请先到“我的资料”启用";
+  }
+  return materialStatus(material?.status).description;
+}
+
+function isKnowledgeScopeError(error) {
+  return KNOWLEDGE_SCOPE_ERROR_CODES.has(error?.code);
+}
+
+function knowledgeScopeErrorMessage() {
+  return "本次参考资料已失效或暂不可用。请重新确认资料范围并生成新计划。";
 }
 
 async function requestJson(url, options = {}) {
@@ -634,6 +678,149 @@ function StatusBarItem({ ready = false, state = "idle", label, value, current = 
   );
 }
 
+function PrepMaterialSelector({
+  materials,
+  selectedMaterialIds,
+  includeSystemKnowledge,
+  confirmedScope,
+  scopeStale,
+  scopeSelectionBlocked,
+  disabled,
+  onToggleMaterial,
+  onToggleSystemKnowledge,
+  onKeepAvailable,
+}) {
+  const selected = new Set(selectedMaterialIds);
+  const materialListReady = materials.availability === "ready";
+  const confirmed = scopeSelection(confirmedScope);
+  const confirmedNames = confirmed.selectedMaterialIds
+    .map((documentId) => materials.items.find((item) => item.documentId === documentId))
+    .filter(Boolean)
+    .map((item) => item.displayName);
+  const confirmedSummary = confirmed.includeSystemKnowledge
+    ? confirmed.selectedMaterialIds.length
+      ? `系统知识 + ${confirmed.selectedMaterialIds.length} 份个人资料`
+      : "仅系统知识"
+    : confirmed.selectedMaterialIds.length
+      ? `${confirmed.selectedMaterialIds.length} 份个人资料，不使用系统知识`
+      : "未启用知识来源";
+
+  return (
+    <section className="start-material-scope" aria-labelledby="start-material-scope-title">
+      <header>
+        <div>
+          <strong id="start-material-scope-title">本次参考资料</strong>
+          <span>可选 · 只影响新生成的面试计划</span>
+        </div>
+        <a href="/materials">管理资料</a>
+      </header>
+      <p className="start-material-scope-intro">
+        AI 会在相关问题、追问和反馈中使用你确认的范围；资料不会替代统一评分标准。
+      </p>
+
+      <label className="start-material-system-choice">
+        <input
+          type="checkbox"
+          checked={includeSystemKnowledge}
+          disabled={disabled}
+          onChange={(event) => onToggleSystemKnowledge(event.target.checked)}
+        />
+        <span><strong>同时使用系统知识</strong><small>使用产品内置的技术知识库</small></span>
+      </label>
+
+      {materials.availability === "loading" ? (
+        <div className="start-material-scope-state" role="status">
+          <SpinnerGap className="start-spinner" size={17} weight="bold" aria-hidden="true" />
+          <span>正在加载参考资料</span>
+        </div>
+      ) : null}
+
+      {materials.availability === "unavailable" ? (
+        <div className="start-material-scope-state" role="status">
+          <Info size={17} weight="bold" aria-hidden="true" />
+          <span>个人资料功能当前未启用；仍可只使用系统知识。</span>
+        </div>
+      ) : null}
+
+      {materials.availability === "error" ? (
+        <div className="start-material-scope-state" data-tone="warning" role="alert">
+          <WarningCircle size={17} weight="fill" aria-hidden="true" />
+          <span>资料列表暂时无法加载。</span>
+          <button type="button" disabled={disabled} onClick={materials.refresh}>重新加载</button>
+        </div>
+      ) : null}
+
+      {materials.availability === "ready" && materials.items.length === 0 ? (
+        <div className="start-material-scope-state" role="status">
+          <FileText size={17} weight="bold" aria-hidden="true" />
+          <span>还没有可用资料，可前往“我的资料”上传 Markdown 或 TXT。</span>
+        </div>
+      ) : null}
+
+      {materials.items.length ? (
+        <ul className="start-material-options" aria-label="可用于本次面试的参考资料">
+          {materials.items.map((material) => {
+            const selectable = materialListReady && materialCanBeSelected(material);
+            const checked = selected.has(material.documentId);
+            const state = materialStatus(material.status);
+            const selectionReason = materialListReady
+              ? materialSelectionReason(material)
+              : "资料状态尚未确认，暂不可选择";
+            return (
+              <li key={material.documentId} data-selectable={selectable}>
+                <label>
+                  <input
+                    type="checkbox"
+                    checked={checked}
+                    disabled={disabled || !selectable}
+                    onChange={(event) => onToggleMaterial(
+                      material.documentId,
+                      event.target.checked,
+                    )}
+                  />
+                  <span className="start-material-option-copy">
+                    <strong>{material.displayName}</strong>
+                    <small>{selectable ? "可用于本次面试" : selectionReason}</small>
+                  </span>
+                  <span
+                    className="start-material-option-status"
+                    data-tone={materialListReady ? state.tone : "pending"}
+                  >
+                    {materialListReady ? state.label : "待确认"}
+                  </span>
+                </label>
+              </li>
+            );
+          })}
+        </ul>
+      ) : null}
+
+      {scopeSelectionBlocked ? (
+        <div className="start-material-scope-warning" role="alert">
+          <WarningCircle size={17} weight="fill" aria-hidden="true" />
+          <span>已选范围中有资料当前不可用。请只保留可用资料，再重新生成计划。</span>
+          <button type="button" disabled={disabled} onClick={onKeepAvailable}>只保留可用资料</button>
+        </div>
+      ) : null}
+
+      {confirmedScope ? (
+        <div className="start-material-confirmed" data-stale={scopeStale} role="status">
+          <CheckCircle size={18} weight="fill" aria-hidden="true" />
+          <div>
+            <strong>{scopeStale ? "资料范围已变更" : "服务端已确认"}</strong>
+            <span>{scopeStale ? "请重新生成计划后再开始面试。" : confirmedSummary}</span>
+            {!scopeStale && confirmedNames.length ? (
+              <small>{confirmedNames.join("、")}</small>
+            ) : null}
+          </div>
+        </div>
+      ) : (
+        <p className="start-material-confirmation-note">生成计划后，这里会显示服务端确认的资料范围。</p>
+      )}
+    </section>
+  );
+}
+
 export function StartPage() {
   const [jobDescription, setJobDescription] = useState("");
   const [resumeText, setResumeText] = useState("");
@@ -662,7 +849,11 @@ export function StartPage() {
   const [memoryStatus, setMemoryStatus] = useState(null);
   const [memoryAvailability, setMemoryAvailability] = useState("loading");
   const [useMemory, setUseMemory] = useState(null);
+  const [includeSystemKnowledge, setIncludeSystemKnowledge] = useState(true);
+  const [selectedMaterialIds, setSelectedMaterialIds] = useState([]);
+  const materials = useMaterials();
   const automaticRestoreStarted = useRef(false);
+  const appliedScopeSignature = useRef("");
 
   const plan = editor.serverPlan;
   const questions = editableQuestions(plan);
@@ -682,6 +873,37 @@ export function StartPage() {
     plan && !configurationMatchesSnapshot(configuration, configurationSnapshot),
   );
   const prepContext = plan?.prep_context || {};
+  const confirmedKnowledgeScope = plan?.plan?.knowledge_scope || null;
+  const confirmedScopeSelection = useMemo(
+    () => scopeSelection(confirmedKnowledgeScope),
+    [confirmedKnowledgeScope],
+  );
+  const requestedScopeSignature = scopeSignature(
+    includeSystemKnowledge,
+    selectedMaterialIds,
+  );
+  const confirmedScopeSignature = confirmedKnowledgeScope
+    ? scopeSignature(
+        confirmedScopeSelection.includeSystemKnowledge,
+        confirmedScopeSelection.selectedMaterialIds,
+      )
+    : null;
+  const knowledgeScopeStale = Boolean(
+    confirmedScopeSignature
+    && requestedScopeSignature !== confirmedScopeSignature,
+  );
+  const selectableMaterialIds = useMemo(
+    () => new Set(
+      materials.items
+        .filter(materialCanBeSelected)
+        .map((material) => material.documentId),
+    ),
+    [materials.items],
+  );
+  const scopeSelectionBlocked = selectedMaterialIds.length > 0 && (
+    materials.availability !== "ready"
+    || selectedMaterialIds.some((documentId) => !selectableMaterialIds.has(documentId))
+  );
   const topics = prepContext.topics || [];
   const evidence = prepContext.evidence_refs || [];
   const jobTags = plan?.job_tags || [];
@@ -766,6 +988,22 @@ export function StartPage() {
   }, [configurationSnapshot]);
 
   useEffect(() => {
+    if (!confirmedKnowledgeScope) {
+      appliedScopeSignature.current = "";
+      return;
+    }
+    if (confirmedScopeSignature === appliedScopeSignature.current) return;
+    appliedScopeSignature.current = confirmedScopeSignature;
+    setIncludeSystemKnowledge(confirmedScopeSelection.includeSystemKnowledge);
+    setSelectedMaterialIds(confirmedScopeSelection.selectedMaterialIds);
+  }, [
+    confirmedKnowledgeScope,
+    confirmedScopeSelection.includeSystemKnowledge,
+    confirmedScopeSelection.selectedMaterialIds,
+    confirmedScopeSignature,
+  ]);
+
+  useEffect(() => {
     writeLocalStorage(
       CONFIGURATION_KEY,
       JSON.stringify(planConfigurationPayload(configuration)),
@@ -783,6 +1021,34 @@ export function StartPage() {
     });
     return () => window.cancelAnimationFrame(frame);
   }, [activeDocument, focusTarget]);
+
+  function noteScopeChange() {
+    if (!plan) return;
+    setNotice({
+      tone: "info",
+      text: "参考资料范围已更改。请重新生成计划，让服务端确认新的范围。",
+    });
+  }
+
+  function toggleMaterial(documentId, checked) {
+    setSelectedMaterialIds((current) => {
+      if (checked) return current.includes(documentId) ? current : [...current, documentId];
+      return current.filter((value) => value !== documentId);
+    });
+    noteScopeChange();
+  }
+
+  function toggleSystemKnowledge(checked) {
+    setIncludeSystemKnowledge(checked);
+    noteScopeChange();
+  }
+
+  function keepAvailableMaterials() {
+    setSelectedMaterialIds((current) => current.filter(
+      (documentId) => selectableMaterialIds.has(documentId),
+    ));
+    noteScopeChange();
+  }
 
   function validateSources() {
     const next = {
@@ -839,6 +1105,14 @@ export function StartPage() {
   }
 
   async function generatePlan() {
+    if (scopeSelectionBlocked) {
+      setInspectorView("readiness");
+      setNotice({
+        tone: "error",
+        text: "已选参考资料当前不可用。请重新确认资料范围后再生成计划。",
+      });
+      return;
+    }
     if (!validateSources()) return;
     setStatus("generating");
     setNotice({ tone: "info", text: "正在提取岗位约束、候选人经历与可用知识证据。" });
@@ -849,6 +1123,10 @@ export function StartPage() {
           job_description: jobDescription,
           resume_text: resumeText,
           configuration: planConfigurationPayload(configuration),
+          knowledge_scope: {
+            include_system_knowledge: includeSystemKnowledge,
+            selected_document_ids: [...selectedMaterialIds],
+          },
         }),
       });
       dispatchEditor({
@@ -860,7 +1138,12 @@ export function StartPage() {
       setNotice({ tone: "success", text: "面试蓝图已生成。请先检查题目与证据路径，再开始面试。" });
     } catch (error) {
       setStatus("error");
-      setNotice({ tone: "error", text: error.message });
+      if (isKnowledgeScopeError(error)) {
+        setInspectorView("readiness");
+        setNotice({ tone: "error", text: knowledgeScopeErrorMessage() });
+      } else {
+        setNotice({ tone: "error", text: error.message });
+      }
     }
   }
 
@@ -1000,6 +1283,8 @@ export function StartPage() {
     setJobDescription("");
     setResumeText("");
     setConfiguration(createPlanConfiguration());
+    setIncludeSystemKnowledge(true);
+    setSelectedMaterialIds([]);
     dispatchEditor({ type: "INVALIDATE_SOURCE" });
     setInvalid({ jd: false, resume: false });
     setFileNames({ jd: "未导入文件", resume: "未导入文件" });
@@ -1456,6 +1741,16 @@ export function StartPage() {
 
   async function startInterview() {
     if (!plan || !validateSources()) return;
+    if (knowledgeScopeStale || scopeSelectionBlocked) {
+      setInspectorView("readiness");
+      setNotice({
+        tone: "error",
+        text: scopeSelectionBlocked
+          ? "已选参考资料当前不可用。请重新确认资料范围后再生成计划。"
+          : "参考资料范围已更改。请先生成并确认新的面试计划。",
+      });
+      return;
+    }
     if (!isLatestValidPlan(editor) || configurationStale) {
       setNotice({
         tone: "error",
@@ -1482,7 +1777,10 @@ export function StartPage() {
       clearStableRequestId(requestScope);
       window.location.assign(`/interview?session_id=${encodeURIComponent(session.session_id)}`);
     } catch (error) {
-      if (
+      if (isKnowledgeScopeError(error)) {
+        setInspectorView("readiness");
+        setNotice({ tone: "error", text: knowledgeScopeErrorMessage() });
+      } else if (
         error.status === 409
         && error.payload?.code === "session_start_request_conflict"
       ) {
@@ -1904,6 +2202,18 @@ export function StartPage() {
                   <ReadinessItem ready={Boolean(draftId)} label="匿名草稿" value={draftDurabilityLabel} />
                   <ReadinessItem ready={Boolean(plan)} label="面试计划" value={plan ? "已生成" : "尚未生成"} />
                 </div>
+                <PrepMaterialSelector
+                  materials={materials}
+                  selectedMaterialIds={selectedMaterialIds}
+                  includeSystemKnowledge={includeSystemKnowledge}
+                  confirmedScope={confirmedKnowledgeScope}
+                  scopeStale={knowledgeScopeStale}
+                  scopeSelectionBlocked={scopeSelectionBlocked}
+                  disabled={busy}
+                  onToggleMaterial={toggleMaterial}
+                  onToggleSystemKnowledge={toggleSystemKnowledge}
+                  onKeepAvailable={keepAvailableMaterials}
+                />
                 <section className="start-memory-choice" data-state={memoryUi.state.toLowerCase()} aria-labelledby="start-memory-choice-title">
                   <div>
                     <strong id="start-memory-choice-title">长期记忆</strong>
@@ -1927,11 +2237,11 @@ export function StartPage() {
           </div>
 
           <footer className="start-inspector-actions">
-            <button className={plan ? "button start-button start-inspector-secondary" : "button start-button button-primary"} type="button" onClick={plan ? confirmRegenerateAll : generatePlan} disabled={busy} aria-busy={status === "generating" || undefined} data-state={status === "generating" ? "loading" : undefined}>
+            <button className={plan ? "button start-button start-inspector-secondary" : "button start-button button-primary"} type="button" onClick={plan && !knowledgeScopeStale ? confirmRegenerateAll : generatePlan} disabled={busy || scopeSelectionBlocked} aria-busy={status === "generating" || undefined} data-state={status === "generating" ? "loading" : undefined}>
               {status === "generating" ? <SpinnerGap className="start-spinner" size={18} weight="bold" aria-hidden="true" focusable="false" /> : <ListChecks size={18} weight="bold" aria-hidden="true" focusable="false" />}
-              <span>{status === "generating" ? "正在生成面试计划" : configurationStale ? "应用配置并重新生成" : plan ? "重新生成计划" : "生成面试计划"}</span>
+              <span>{status === "generating" ? "正在生成面试计划" : knowledgeScopeStale ? "应用资料范围并重新生成" : configurationStale ? "应用配置并重新生成" : plan ? "重新生成计划" : "生成面试计划"}</span>
             </button>
-            <button className={plan ? "button start-button button-primary" : "button start-button start-inspector-secondary"} type="button" disabled={!isLatestValidPlan(editor) || configurationStale || busy} onClick={startInterview} aria-busy={status === "starting" || undefined} data-state={status === "starting" ? "loading" : undefined} title={configurationStale ? "配置已变更，请先重新生成计划" : !isLatestValidPlan(editor) && plan ? "请先保存修改或处理冲突" : undefined}>
+            <button className={plan ? "button start-button button-primary" : "button start-button start-inspector-secondary"} type="button" disabled={!isLatestValidPlan(editor) || configurationStale || knowledgeScopeStale || scopeSelectionBlocked || busy} onClick={startInterview} aria-busy={status === "starting" || undefined} data-state={status === "starting" ? "loading" : undefined} title={scopeSelectionBlocked ? "已选参考资料当前不可用，请重新确认" : knowledgeScopeStale ? "资料范围已变更，请重新生成计划" : configurationStale ? "配置已变更，请先重新生成计划" : !isLatestValidPlan(editor) && plan ? "请先保存修改或处理冲突" : undefined}>
               {status === "starting" ? <SpinnerGap className="start-spinner" size={18} weight="bold" aria-hidden="true" focusable="false" /> : <ArrowRight size={18} weight="bold" aria-hidden="true" focusable="false" />}
               <span>{status === "starting" ? "正在创建面试" : "开始本次面试"}</span>
             </button>
@@ -1954,3 +2264,5 @@ export function StartPage() {
     </AppShell>
   );
 }
+
+export default StartPage;

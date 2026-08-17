@@ -15,11 +15,13 @@ import { usePageMeta } from "../hooks/usePageMeta";
 import "../styles/pages/help.css";
 
 const sections = [
-  { id: "prepare", label: "准备资料", icon: FileText },
+  { id: "materials", label: "我的资料", icon: Files },
+  { id: "prepare", label: "准备面试", icon: FileText },
   { id: "interview", label: "进行面试", icon: BookOpenText },
   { id: "recovery", label: "恢复会话", icon: ClockCounterClockwise },
   { id: "report-failure", label: "报告失败", icon: WarningCircle },
   { id: "drafts-data", label: "草稿与数据", icon: ShieldCheck },
+  { id: "maintainer-tools", label: "维护者工具", icon: Database },
 ];
 
 function HelpSection({ id, icon: SectionIcon, title, intro, children }) {
@@ -64,10 +66,24 @@ export function HelpPage() {
               <div><h2>先相信服务端当前状态</h2><p>刷新或重新进入页面后，以接口返回的计划、会话、报告阶段和错误状态为准。不要根据旧页面重复提交回答或结束命令。</p></div>
             </div>
 
-            <HelpSection id="prepare" icon={FileText} title="准备资料" intro="先建立一份可检查、可编辑、会被原样用于面试的题目计划。">
+            <HelpSection id="materials" icon={Files} title="使用“我的资料”" intro="上传自己的技术资料，并明确决定本次面试允许使用哪些内容。">
+              <ol className="help-manual-steps">
+                <li><span>1</span><p><strong>上传文本资料</strong>前往“我的资料”上传 UTF-8 Markdown 或 TXT；单个文件最大 1 MiB。当前不支持 PDF 或 DOCX 上传。</p></li>
+                <li><span>2</span><p><strong>等待资料可用</strong>“已就绪”可以选择；“处理中”需要等待；“处理失败”可以重试；“已停用”需要先重新启用。</p></li>
+                <li><span>3</span><p><strong>在准备页选择</strong>只有已就绪且已启用的资料能加入本次面试。开始后，Plan 和 Session 会固定这次选择，不会自动换成其他版本。</p></li>
+                <li><span>4</span><p><strong>在报告中核对实际引用</strong>选择资料只表示允许使用，不表示已经参考。只有实际用于反馈的内容才会显示为“我的资料”；删除后，历史引用只显示“已删除资料”。</p></li>
+              </ol>
+              <div className="help-report-recovery">
+                <ShieldCheck size={21} weight="duotone" aria-hidden="true" />
+                <div><h3>资料不会替代评分标准</h3><p>资料用于补充问题、追问和反馈上下文，不会改变评分规则、权重或及格线。没有资料引用也不表示自动扣分。</p></div>
+              </div>
+              <a className="help-manual-link" href="/materials">打开我的资料<ArrowRight size={15} weight="bold" aria-hidden="true" /></a>
+            </HelpSection>
+
+            <HelpSection id="prepare" icon={FileText} title="准备面试" intro="先建立一份可检查、可编辑的题目计划，再确认本轮允许使用的资料范围。">
               <ol className="help-manual-steps">
                 <li><span>1</span><p><strong>填写岗位 JD 与候选人经历</strong>只录入与本轮模拟直接相关的内容；导入文件仅支持页面明确列出的文本格式。</p></li>
-                <li><span>2</span><p><strong>生成并检查计划</strong>可以调整顺序、排除题目或重新生成单题。开始面试时使用的就是你确认的当前版本。</p></li>
+                <li><span>2</span><p><strong>生成并检查计划</strong>可以调整顺序、排除题目、重新生成单题，并选择已就绪的个人资料。开始面试时使用的就是你确认的当前版本。</p></li>
                 <li><span>3</span><p><strong>确认后开始</strong>创建会话期间不要重复点击；连接恢复会复用同一个启动标识。</p></li>
               </ol>
               <a className="help-manual-link" href="/prep">进入准备页<ArrowRight size={15} weight="bold" aria-hidden="true" /></a>
@@ -101,8 +117,17 @@ export function HelpPage() {
               <div className="help-manual-grid help-data-grid">
                 <article><Browser size={18} weight="duotone" aria-hidden="true" /><div><h3>浏览器保存什么</h3><p>浏览器只保存匿名草稿 ID、会话恢复引用和尚未提交的编辑内容，不把它们当作权威业务状态。</p></div></article>
                 <article><Database size={18} weight="duotone" aria-hidden="true" /><div><h3>草稿能保存多久</h3><p>以准备页显示的真实保存能力为准：“持久保存”由 PostgreSQL 提供；“进程内临时保存”会在服务重启后失效。</p></div></article>
+                <article><Files size={18} weight="duotone" aria-hidden="true" /><div><h3>资料与记忆的区别</h3><p>“我的资料”是你上传并为某次面试选择的文件；“我的记忆”是你允许系统长期保留、可更正或撤回的信息。两者不会互相替代。</p></div></article>
                 <article><ShieldCheck size={18} weight="duotone" aria-hidden="true" /><div><h3>当前产品边界</h3><p>当前是本地单用户工具，不提供登录、团队空间、共享链接或跨设备同步。</p></div></article>
               </div>
+            </HelpSection>
+
+            <HelpSection id="maintainer-tools" icon={Database} title="维护者：打开 AI 技术实验室" intro="技术实验室保留 RAG 诊断能力，但不属于普通用户的一级导航。">
+              <div className="help-report-recovery">
+                <Database size={21} weight="duotone" aria-hidden="true" />
+                <div><h3>仅用于本地维护和诊断</h3><p>维护者可以从 <code>/rag/lab</code> 查看检索、评测、证据链和全局 Corpus。它不会把“我的资料”发布为全局 Corpus，也不会静默改变面试运行时。</p></div>
+              </div>
+              <a className="help-manual-link" href="/rag/lab">打开 AI 技术实验室<ArrowRight size={15} weight="bold" aria-hidden="true" /></a>
             </HelpSection>
 
             <footer className="help-manual-footer">

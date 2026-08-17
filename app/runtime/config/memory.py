@@ -195,17 +195,17 @@ class LongTermMemoryConfig(FrozenMemoryModel):
         "write_shadow",
         "read_shadow",
         "local_consume",
-    ] = "disabled"
-    write_shadow_enabled: bool = False
-    read_shadow_enabled: bool = False
-    trusted_local_api_enabled: bool = False
-    local_principal_enabled: bool = False
+    ] = "local_consume"
+    write_shadow_enabled: bool = True
+    read_shadow_enabled: bool = True
+    trusted_local_api_enabled: bool = True
+    local_principal_enabled: bool = True
     local_principal_id: str = Field(
         default="local-owner",
         pattern=r"^[A-Za-z0-9_.-]{1,128}$",
     )
     operator_tombstone_ledger_path: str | None = None
-    local_consumption_enabled: bool = False
+    local_consumption_enabled: bool = True
     consent_policy_version: str = "principal-memory-consent-v1"
     fact_schema_version: str = "principal-memory-fact-v1"
     taxonomy_version: str = "principal-memory-taxonomy-v1"
@@ -239,6 +239,18 @@ def load_effective_memory_config(
 ) -> EffectiveMemoryConfig:
     env = process_environment() if environ is None else environ
     legacy_used: set[str] = set()
+    long_term_configuration_present = any(
+        name.startswith("MEMORY_LONG_TERM_")
+        or name
+        in {
+            "MEMORY_LOCAL_PRINCIPAL_ENABLED",
+            "MEMORY_LOCAL_PRINCIPAL_ID",
+            "MEMORY_TRUSTED_LOCAL_PRINCIPAL_MEMORY_API_ENABLED",
+            "MEMORY_PRINCIPAL_TOMBSTONE_LEDGER_PATH",
+        }
+        for name in env
+    )
+    local_memory_defaults_enabled = not long_term_configuration_present
 
     def resolve(
         new_name: str,
@@ -619,23 +631,30 @@ def load_effective_memory_config(
         long_term=LongTermMemoryConfig(
             mode=_parse_long_term_mode(
                 "MEMORY_LONG_TERM_MODE",
-                env.get("MEMORY_LONG_TERM_MODE", "disabled"),
+                env.get(
+                    "MEMORY_LONG_TERM_MODE",
+                    "local_consume" if local_memory_defaults_enabled else "disabled",
+                ),
             ),
             write_shadow_enabled=_new_bool(
-                env, "MEMORY_LONG_TERM_WRITE_SHADOW_ENABLED", False
+                env,
+                "MEMORY_LONG_TERM_WRITE_SHADOW_ENABLED",
+                local_memory_defaults_enabled,
             ),
             read_shadow_enabled=_new_bool(
-                env, "MEMORY_LONG_TERM_READ_SHADOW_ENABLED", False
+                env,
+                "MEMORY_LONG_TERM_READ_SHADOW_ENABLED",
+                local_memory_defaults_enabled,
             ),
             trusted_local_api_enabled=_new_bool(
                 env,
                 "MEMORY_TRUSTED_LOCAL_PRINCIPAL_MEMORY_API_ENABLED",
-                False,
+                local_memory_defaults_enabled,
             ),
             local_principal_enabled=_new_bool(
                 env,
                 "MEMORY_LOCAL_PRINCIPAL_ENABLED",
-                False,
+                local_memory_defaults_enabled,
             ),
             local_principal_id=(
                 _parse_required_identifier(
@@ -654,7 +673,7 @@ def load_effective_memory_config(
             local_consumption_enabled=_new_bool(
                 env,
                 "MEMORY_LONG_TERM_LOCAL_CONSUMPTION_ENABLED",
-                False,
+                local_memory_defaults_enabled,
             ),
             consent_policy_version=_resolve_new_only(
                 env,

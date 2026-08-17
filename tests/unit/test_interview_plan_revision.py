@@ -72,6 +72,30 @@ def test_canonical_hash_is_stable_for_key_order_unicode_and_line_endings():
     assert len(source_payload_sha256(source())) == 64
 
 
+def test_plan_source_binds_internal_owner_without_changing_legacy_hash():
+    plan_source = source()
+    payload = plan_source.model_dump(mode="json")
+
+    assert "owner_principal_id" not in payload
+    assert source_payload_sha256(plan_source) == canonical_sha256(payload)
+    assert source_payload_sha256(
+        {
+            "job_description": plan_source.job_description,
+            "resume_text": plan_source.resume_text,
+            "job_tags": list(plan_source.job_tags),
+        }
+    ) == source_payload_sha256(plan_source)
+    protected = PlanSourcePayload(
+        **payload,
+        owner_principal_id="principal-a",
+    )
+    assert protected.owner_principal_id == "principal-a"
+    assert protected.model_dump(mode="json")["owner_principal_id"] == "principal-a"
+    assert source_payload_sha256(protected) != source_payload_sha256(plan_source)
+    with pytest.raises(ValidationError):
+        PlanSourcePayload(**payload, owner_principal_id="invalid owner")
+
+
 def test_v2_plan_uses_stable_opaque_ids_and_rejects_legacy_q_sequence_contract():
     item = plan()
 

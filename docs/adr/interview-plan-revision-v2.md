@@ -376,3 +376,30 @@ names.
 Disable V2 write/read routing and return to legacy reads. Do not drop V2 tables,
 source tombstones, revisions, or session snapshots. No rollback path re-enables
 Provider generation during interview start.
+
+## U0 amendment: immutable interview knowledge scope
+
+- Amendment status: Accepted
+- Amendment date: 2026-08-15
+- Scope schema: `interview-knowledge-scope-v1`
+- Governing decision: `docs/adr/user-materials-rag-v1.md`
+
+`InterviewPlanV2` contains one immutable `knowledge_scope` snapshot. The complete
+snapshot participates in the existing canonical `plan_sha256`; Start validates and
+copies it to the Session and does not accept a second temporary document list.
+
+An existing serialized Plan without this field deterministically maps to system
+knowledge enabled, no selected user documents, and a null compatibility timestamp.
+It never derives a historical selection from the current materials library. Internal
+selected-document records freeze Document ID, Revision ID, content hash, and allowed
+usages. Owner identity remains outside the snapshot and is resolved from the existing
+Plan Family/Session Principal boundary. The protected Plan Source and Session Binding
+persist that server-side owner separately from the public snapshot. The first Start
+revalidates every frozen Revision against that owner before copying the binding; a
+successful retry or later replay reads the frozen binding deterministically before
+consulting current library state. Start never accepts a client-supplied temporary
+Scope or replacement document list.
+
+The governing User Materials ADR owns all remaining lifecycle, retrieval, citation,
+deletion, scoring, and capability decisions; this amendment does not duplicate or
+weaken its S1-S9 contract.

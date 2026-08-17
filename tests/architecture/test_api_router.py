@@ -8,6 +8,7 @@ DOMAIN_ROUTE_MODULES = (
     API / "deletion" / "routes.py",
     API / "interview" / "routes.py",
     API / "memory" / "routes.py",
+    API / "materials" / "routes.py",
     API / "plans" / "routes.py",
     API / "prep" / "routes.py",
     API / "reports" / "routes.py",
@@ -59,8 +60,8 @@ def test_composed_openapi_has_expected_unique_operation_inventory():
     ]
 
     # RAG Corpus exposes separate preview and create-version commands.
-    assert len(schema["paths"]) == 63
-    assert len(operations) == 69
+    assert len(schema["paths"]) == 66
+    assert len(operations) == 74
     assert len(operations) == len(set(operations))
 
 

@@ -42,6 +42,28 @@ Stage 35 makes the review pipeline observable. When `REPORT_TRACE_DIR` is set, l
 
 Stage 37 cleans up the Postgres runtime contract. Local verification should compare memory and Postgres behavior for `expected_version`, `command_id`, `state_version`, `checkpoint_version`, `phase_status`, and `review_status`. In Local V1, `checkpoint_version` mirrors `state_version` until an external checkpoint store exists. `last_command_id` is the last user command id; streaming completion and report lifecycle updates advance version metadata without overwriting it. A stale command should return HTTP 409 with the actual version, a duplicate command id should not append duplicate candidate messages, and service restart checks should confirm Postgres preserves version and phase metadata.
 
+## 1.2 “我的资料”操作路径
+
+“我的资料”是本地 Principal 拥有的文件库，不是维护者发布的全局 Knowledge Corpus。启用资料读取/选择与新资料摄取需要两个独立 capability：
+
+```powershell
+$env:USER_MATERIALS_ENABLED="true"
+$env:USER_MATERIALS_INGEST_ENABLED="true"
+```
+
+`USER_MATERIALS_ENABLED` 控制 `/materials`、准备页选择和运行时检索参与；`USER_MATERIALS_INGEST_ENABLED` 只控制上传、重试和新 Revision。两者都不会授予 Corpus create、activate、publish 或 retire 权限。
+
+本地操作顺序：
+
+1. 打开 `/materials`，上传 UTF-8 Markdown 或 TXT。单个文件上限为 1 MiB；当前不接受 PDF、DOCX、图片或 OCR。
+2. 等待状态变为“已就绪”。“处理中”需要等待，“处理失败”可以重试，“已停用”需要先重新启用。只有 `Ready + Enabled` 的资料可供选择。
+3. 打开 `/prep`，选择本次允许使用的资料并确认计划。服务端把 Revision、内容摘要和允许用途固化到 Plan；首次 Start 会以同一个 owner 重新验证，再把同一 Scope 固化到 Session。成功启动后的恢复与回放读取冻结绑定，不从当前资料库重新推断选择。
+4. 完成面试后，在报告中查看实际 Citation。被选择只表示允许使用；只有同时进入 Final Evidence、业务绑定并被反馈实际消费的资料才显示为“我的资料”。删除资料后，历史报告只显示不含标题和摘录的“已删除资料”。
+
+Source Scope 只是 Semantic 与 Lexical 两个现有检索通道内的候选约束，不是第三个 Fusion 输入。用户资料是非权威的提问、追问和反馈上下文，不会改变 rubric、权重、及格线或数值评分；没有 Citation 也不代表自动扣分。
+
+Local V1 由服务端 Local Principal 提供 owner 边界，不提供账号、登录、租户、团队或 RBAC。本节可用 InMemory/Fake 自动化验证产品契约，但真实 PostgreSQL 的 FK、索引、级联和事务恢复仍需单独授权验收；不得把非保护回归记为该实库验收已经通过。
+
 ## 2. PowerShell Setup
 
 Local PostgreSQL defaults are built into the code. Set these variables only when overriding the local defaults or providing the LLM key:

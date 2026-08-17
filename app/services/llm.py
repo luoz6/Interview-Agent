@@ -1058,7 +1058,19 @@ def _provider_visible_report_items(
     for evaluation_item in evaluation_items:
         provider_item = dict(evaluation_item)
         if "non_authoritative_reference_context" in provider_item:
-            provider_item.pop("scoring_references", None)
+            non_authoritative = provider_item.get(
+                "non_authoritative_reference_context"
+            )
+            has_user_material_context = isinstance(
+                non_authoritative,
+                list,
+            ) and any(
+                isinstance(reference, dict)
+                and reference.get("source_scope") == "user_document"
+                for reference in non_authoritative
+            )
+            if not has_user_material_context:
+                provider_item.pop("scoring_references", None)
             provider_item.pop("answer_references", None)
         provider_items.append(provider_item)
     return provider_items

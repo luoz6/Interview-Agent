@@ -20,6 +20,8 @@ const routeModules = Object.freeze({
   reports: "src/pages/ReportsPage.jsx",
   help: "src/pages/HelpPage.jsx",
   memoryCenter: "src/pages/MemoryCenterPage.jsx",
+  materials: "src/pages/MaterialsPage.jsx",
+  ragLab: "src/pages/RagConsolePage.jsx",
 });
 
 function fail(message) {
@@ -104,6 +106,8 @@ const forbiddenInitialSources = [
   routeModules.reportDetail,
   routeModules.reports,
   routeModules.help,
+  routeModules.materials,
+  routeModules.ragLab,
 ];
 const eagerSources = new Set(initial.chunkSources);
 for (const source of forbiddenInitialSources) {

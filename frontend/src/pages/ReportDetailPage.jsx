@@ -202,8 +202,73 @@ function DimensionBars({ values = {}, evaluations = {} }) {
   );
 }
 
+const citationScopeLabels = {
+  user_document: "我的资料",
+  system_knowledge: "系统知识",
+};
+
+function safeKnowledgeCitations(feedback) {
+  if (!Array.isArray(feedback?.knowledge_citations)) return [];
+  return feedback.knowledge_citations.filter((citation) => {
+    if (!citation || typeof citation !== "object") return false;
+    if (!Object.hasOwn(citationScopeLabels, citation.source_scope)) return false;
+    if (!["available", "deleted", "unavailable"].includes(citation.availability)) return false;
+    if (citation.usage !== "feedback") return false;
+    if (typeof citation.citation_id !== "string" || !citation.citation_id.trim()) return false;
+    return citation.availability !== "available"
+      || (typeof citation.display_title === "string" && Boolean(citation.display_title.trim()));
+  });
+}
+
+function CitationItem({ citation }) {
+  if (citation.availability === "deleted") {
+    return <li><strong>已删除资料</strong></li>;
+  }
+  if (citation.availability === "unavailable") {
+    return <li><strong>资料暂不可用</strong></li>;
+  }
+  return (
+    <li>
+      <div>
+        <strong>{citation.display_title}</strong>
+        {typeof citation.location_label === "string" && citation.location_label.trim()
+          ? <span>{citation.location_label}</span>
+          : null}
+      </div>
+      {typeof citation.excerpt === "string" && citation.excerpt.trim()
+        ? <p>{citation.excerpt}</p>
+        : null}
+    </li>
+  );
+}
+
+function FeedbackCitations({ feedback, anchorId }) {
+  const citations = safeKnowledgeCitations(feedback);
+  if (!citations.length) return null;
+  return (
+    <section className="report-detail-feedback-references" aria-label="本题实际参考来源">
+      <h4><Database size={16} weight="duotone" aria-hidden="true" />参考来源</h4>
+      <div className="report-detail-citation-groups">
+        {Object.entries(citationScopeLabels).map(([scope, label]) => {
+          const scopedCitations = citations.filter((citation) => citation.source_scope === scope);
+          if (!scopedCitations.length) return null;
+          return (
+            <section key={scope} aria-labelledby={`${anchorId}-${scope}`}>
+              <h5 id={`${anchorId}-${scope}`}>{label}</h5>
+              <ul>
+                {scopedCitations.map((citation, index) => (
+                  <CitationItem key={citation.citation_id || `${scope}-${index}`} citation={citation} />
+                ))}
+              </ul>
+            </section>
+          );
+        })}
+      </div>
+    </section>
+  );
+}
+
 function FeedbackItem({ feedback, index, anchorId }) {
-  const references = feedback.references || [];
   const dimensionEvidence = feedback.dimension_evidence || [];
   const score = Number.isFinite(feedback.score) ? feedback.score : null;
   const band = scoreBand(score);
@@ -224,10 +289,7 @@ function FeedbackItem({ feedback, index, anchorId }) {
         <section className="report-detail-feedback-rationale"><h4><ClipboardText size={16} weight="duotone" aria-hidden="true" />评分依据</h4><p>{feedback.rationale || "暂无评分依据。"}</p></section>
         <section className="report-detail-feedback-gap"><h4><Target size={16} weight="duotone" aria-hidden="true" />主要不足</h4><p>{feedback.critique || "暂无重点不足。"}</p></section>
         <section className="report-detail-feedback-better"><h4><Lightbulb size={16} weight="duotone" aria-hidden="true" />更好的回答</h4><p>{feedback.better_answer || "暂无改进答案。"}</p></section>
-        <section className="report-detail-feedback-references">
-          <h4><Database size={16} weight="duotone" aria-hidden="true" />证据引用</h4>
-          {references.length ? <ul>{references.map((reference, referenceIndex) => <li key={reference.chunk_id || referenceIndex}><div><strong>{reference.title || "未命名知识片段"}</strong><code>{reference.chunk_id || "未提供片段 ID"}</code></div><p>{reference.excerpt || "未提供公开摘要。"}</p></li>)}</ul> : <p className="report-detail-muted">本题没有可公开的知识引用；评分仍可基于候选人原始回答形成。</p>}
-        </section>
+        <FeedbackCitations feedback={feedback} anchorId={anchorId} />
         <section className="report-detail-scoring-evidence">
           <h4><ListChecks size={16} weight="duotone" aria-hidden="true" />维度证据</h4>
           {dimensionEvidence.length ? <div>{dimensionEvidence.map((item, evidenceIndex) => <article key={`${item.dimension || "dimension"}-${evidenceIndex}`}><header><strong>{dimensionLabels[item.dimension] || item.dimension || "综合能力"}</strong><span>{(item.quality_signals || []).join(" · ") || "暂无质量信号"}</span></header><dl><div><dt>命中</dt><dd>{(item.observed || []).join("；") || "暂无明确命中项"}</dd></div><div><dt>缺失</dt><dd>{(item.missing || []).join("；") || "未记录缺失项"}</dd></div></dl></article>)}</div> : <p className="report-detail-muted">当前报告没有返回独立的维度证据记录。</p>}
@@ -570,11 +632,10 @@ export function ReportDetailPage({ showDiagnostics = showRuntimeDiagnostics } = 
   const hasDimensionSignal = rankedDimensions.length > 0;
   const strongestDimension = hasDimensionSignal ? rankedDimensions[0] : null;
   const weakestDimension = hasDimensionSignal ? rankedDimensions[rankedDimensions.length - 1] : null;
-  const evidence = useMemo(() => {
-    const map = new Map();
-    feedbacks.flatMap((item) => item.references || []).forEach((item, index) => map.set(item.chunk_id || `${item.title || "evidence"}-${index}`, item));
-    return [...map.values()];
-  }, [feedbacks]);
+  const citationCount = useMemo(
+    () => feedbacks.reduce((total, item) => total + safeKnowledgeCitations(item).length, 0),
+    [feedbacks],
+  );
   const evidenceQuestionByRef = useMemo(() => new Map(
     (report?.evidence_refs || [])
       .filter((item) => item.question_id)
@@ -742,7 +803,7 @@ export function ReportDetailPage({ showDiagnostics = showRuntimeDiagnostics } = 
 
               <section id="questions" className="report-detail-section report-detail-panel" aria-labelledby="report-questions-title" data-report-reveal style={{ "--reveal-order": 4 }}>
                 <ReportSectionHeading icon={ChatCircleDots} title="05 · 逐题证据与回答建议" titleId="report-questions-title" meta={`${feedbacks.length} 道题；展开后查看依据、缺口、证据和安全回答建议。`} />
-                <p className="report-detail-section-intro">每道题同时呈现候选人证据、知识引用、评分依据和回答建议；没有引用不等于自动失分。</p>
+                <p className="report-detail-section-intro">逐题呈现评分依据、回答建议，以及本题实际使用的参考来源（如有）。</p>
                 {feedbacks.length ? <div className="report-detail-feedback-list">{feedbacks.map((feedback, index) => <FeedbackItem key={feedback.question_id || index} feedback={feedback} index={index} anchorId={questionAnchor(feedback.question_id, index)} />)}</div> : <div className="report-detail-empty-inline"><ChatCircleDots size={18} weight="duotone" aria-hidden="true" /><p><strong>暂无逐题反馈</strong><span>当前报告没有返回可展示的题目记录。</span></p></div>}
               </section>
 
@@ -753,7 +814,7 @@ export function ReportDetailPage({ showDiagnostics = showRuntimeDiagnostics } = 
               </section>
 
               <details className="report-detail-technical-appendix" open={showDiagnostics}>
-                <summary><span><Pulse size={18} weight="duotone" aria-hidden="true" /></span><div><strong>技术附录</strong><small>{showDiagnostics ? "Agent 执行、检索路径、版本、reason codes 与公开运行事件" : "版本、reason codes 与公开知识引用"}</small></div><CaretDown size={17} weight="bold" aria-hidden="true" /></summary>
+                <summary><span><Pulse size={18} weight="duotone" aria-hidden="true" /></span><div><strong>技术附录</strong><small>{showDiagnostics ? "Agent 执行、检索路径、版本、reason codes 与公开运行事件" : "版本与公开诊断信息"}</small></div><CaretDown size={17} weight="bold" aria-hidden="true" /></summary>
                 <div className="report-detail-technical-body">
                   <section aria-labelledby="report-revision-history-title">
                     <header className="report-detail-subsection-head"><h3 id="report-revision-history-title"><ArrowClockwise size={17} weight="duotone" aria-hidden="true" />报告版本</h3><span>{revisionsUnavailable ? "暂时不可用" : `${revisionHistory.length || (artifact ? 1 : 0)} 版`}</span></header>
@@ -779,10 +840,6 @@ export function ReportDetailPage({ showDiagnostics = showRuntimeDiagnostics } = 
                   </section>
                   </>}
 
-                  <section aria-labelledby="report-evidence-inventory-title">
-                    <header className="report-detail-subsection-head"><h3 id="report-evidence-inventory-title"><Database size={17} weight="duotone" aria-hidden="true" />公开知识引用清单</h3><span>{evidence.length} 个</span></header>
-                    {evidence.length ? <div className="report-detail-evidence-grid">{evidence.map((item, index) => <article key={item.chunk_id || index} data-evidence-id={item.chunk_id}><header><span>{item.source_type || "知识片段"}</span><code>{item.chunk_id || "未提供 ID"}</code></header><h3>{item.title || "未命名知识来源"}</h3><p>{item.excerpt || "未提供公开摘要。"}</p></article>)}</div> : <p className="report-detail-muted">没有可公开的知识引用；部分回答仍可只根据候选人原始内容评审。</p>}
-                  </section>
                 </div>
               </details>
             </>}
@@ -828,7 +885,7 @@ export function ReportDetailPage({ showDiagnostics = showRuntimeDiagnostics } = 
       <footer className="start-status-bar report-detail-status-bar" aria-label="报告详情工作区状态">
         <StatusBarItem icon={ChartBar} label="总分" value={reportReady ? (Number.isFinite(score) ? `${score} / 100` : "未评分") : "读取中"} state={reportReady ? (Number.isFinite(score) ? "ready" : "warning") : "idle"} />
         <StatusBarItem icon={ChatCircleDots} label="回答" value={`${answeredCount} / ${feedbacks.length || "—"}`} />
-        <StatusBarItem icon={Database} label="证据" value={evidence.length} />
+        {citationCount > 0 && <StatusBarItem icon={Database} label="来源" value={citationCount} />}
         <StatusBarItem icon={Gauge} label="覆盖" value={coverageLabel(coverageStatus)} state={coverageStatus === "complete" ? "ready" : "warning"} />
         <StatusBarItem icon={state === "error" ? WarningCircle : reportReady ? CheckCircle : Circle} label="当前" value={activeSectionLabel} state={state === "error" ? "error" : reportReady ? "ready" : "generating"} current />
       </footer>

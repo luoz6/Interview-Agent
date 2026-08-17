@@ -542,13 +542,13 @@ def test_legacy_proposal_quality_dictionary_is_not_trusted():
     assert "PROPOSAL_REVIEW_EVIDENCE_UNVERIFIED" in raised.value.codes
 
 
-def test_committed_default_config_is_disabled_and_consume_is_rejected():
+def test_committed_default_enables_local_memory_and_legacy_consume_is_rejected():
     config = load_effective_memory_config({})
     assert config.budget.mode == "disabled"
     assert config.compression.mode == "disabled"
-    assert config.long_term.mode == "disabled"
-    assert config.long_term.write_shadow_enabled is False
-    assert config.long_term.read_shadow_enabled is False
+    assert config.long_term.mode == "local_consume"
+    assert config.long_term.write_shadow_enabled is True
+    assert config.long_term.read_shadow_enabled is True
     with pytest.raises(ValueError, match="consume is not supported"):
         load_effective_memory_config({"MEMORY_LONG_TERM_MODE": "consume"})
 

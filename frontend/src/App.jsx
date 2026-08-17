@@ -6,7 +6,7 @@ function lazyNamedPage(loader, exportName) {
   return lazy(() => loader().then((module) => ({ default: module[exportName] })));
 }
 
-const StartPage = lazyNamedPage(() => import("./pages/StartPage"), "StartPage");
+const StartPage = lazy(() => import("./pages/StartPage"));
 const InterviewPage = lazyNamedPage(() => import("./pages/InterviewPage"), "InterviewPage");
 const ReportProcessingPage = lazyNamedPage(
   () => import("./pages/ReportProcessingPage"),
@@ -31,12 +31,14 @@ const routes = {
   "/help": HelpPage,
   "/memory-center": MemoryCenterPage,
   "/memory-center.html": MemoryCenterPage,
+  "/materials": lazy(() => import("./pages/MaterialsPage")),
 };
 
 export default function App() {
-  const Page = window.location.pathname.startsWith("/rag")
+  const pathname = window.location.pathname;
+  const Page = pathname.startsWith("/rag")
     ? RagConsolePage
-    : routes[window.location.pathname] || NotFoundPage;
+    : routes[pathname] || NotFoundPage;
   return (
     <RouteLoadBoundary>
       <Suspense fallback={<RouteLoadingFallback />}>

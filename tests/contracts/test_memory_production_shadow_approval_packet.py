@@ -165,13 +165,13 @@ def test_any_failed_input_blocks_packet_without_pending_ready_lines(mutator, cod
     assert not any("READY_FOR_REVIEW" in line for line in output)
 
 
-def test_repository_consume_remains_rejected_and_all_modes_default_disabled():
+def test_repository_legacy_consume_remains_rejected_and_local_memory_defaults_on():
     config = load_effective_memory_config({})
     assert config.budget.mode == "disabled"
     assert config.compression.mode == "disabled"
-    assert config.long_term.mode == "disabled"
-    assert config.long_term.write_shadow_enabled is False
-    assert config.long_term.read_shadow_enabled is False
+    assert config.long_term.mode == "local_consume"
+    assert config.long_term.write_shadow_enabled is True
+    assert config.long_term.read_shadow_enabled is True
     with pytest.raises(ValueError, match="consume is not supported"):
         load_effective_memory_config({"MEMORY_LONG_TERM_MODE": "consume"})
 

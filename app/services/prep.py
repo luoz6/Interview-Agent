@@ -14,6 +14,10 @@ from app.domain.knowledge.engine import (
 )
 
 if TYPE_CHECKING:
+    from app.domain.knowledge.source_scope import (
+        InterviewKnowledgeScopeSnapshot,
+        KnowledgeSourceScope,
+    )
     from app.ports.runtime import KnowledgeRepository
     from app.services.interview_plan_revision import PlanConfigurationSnapshot
 
@@ -275,6 +279,8 @@ def enforce_generated_interview_plan(
 def bind_prepared_plan_revision(
     plan: InterviewPlan,
     configuration: "PlanConfigurationSnapshot | None" = None,
+    *,
+    knowledge_scope: "InterviewKnowledgeScopeSnapshot | None" = None,
 ) -> InterviewPlan:
     from app.services.interview_plan_budget import assess_interview_plan_budget
     from app.services.interview_plan_revision import (
@@ -285,6 +291,7 @@ def bind_prepared_plan_revision(
     revision_plan = legacy_plan_to_v2(
         plan,
         configuration_snapshot=configuration,
+        knowledge_scope=knowledge_scope,
     )
     assessment = assess_interview_plan_budget(revision_plan)
     if not assessment.launch_allowed:
@@ -302,6 +309,8 @@ def bind_prepared_plan_revision(
 def prepared_plan_revision(
     plan: InterviewPlan,
     configuration: "PlanConfigurationSnapshot | None" = None,
+    *,
+    knowledge_scope: "InterviewKnowledgeScopeSnapshot | None" = None,
 ):
     from app.services.interview_plan_revision import (
         InterviewPlanV2,
@@ -310,7 +319,11 @@ def prepared_plan_revision(
 
     revision_plan = plan._revision_plan
     if revision_plan is None:
-        bind_prepared_plan_revision(plan, configuration)
+        bind_prepared_plan_revision(
+            plan,
+            configuration,
+            knowledge_scope=knowledge_scope,
+        )
         revision_plan = plan._revision_plan
     validated = InterviewPlanV2.model_validate(
         revision_plan.model_dump(mode="json", warnings=False)
@@ -342,6 +355,19 @@ def prepared_plan_revision(
             "prepared_configuration_mismatch",
             "prepared plan configuration does not match the requested snapshot",
         )
+    if knowledge_scope is not None:
+        from app.domain.knowledge.source_scope import (
+            InterviewKnowledgeScopeSnapshot,
+        )
+
+        requested_scope = InterviewKnowledgeScopeSnapshot.model_validate(
+            knowledge_scope.model_dump(mode="json")
+        )
+        if validated.knowledge_scope != requested_scope:
+            raise PlanGenerationValidationError(
+                "prepared_knowledge_scope_mismatch",
+                "prepared plan knowledge scope does not match the resolved snapshot",
+            )
     return validated
 
 
@@ -410,6 +436,19 @@ def public_interview_plan_payload(plan: InterviewPlan) -> dict:
 def public_interview_plan_v2_payload(plan) -> dict:
     payload = plan.model_dump(mode="json", exclude_none=True)
     _sanitize_public_prep_context(payload.get("prep_context"))
+    scope = payload.get("knowledge_scope")
+    if isinstance(scope, dict):
+        payload["knowledge_scope"] = {
+            "schema_version": scope.get("schema_version"),
+            "include_system_knowledge": scope.get(
+                "include_system_knowledge", True
+            ),
+            "selected_documents": [
+                {"document_id": item["document_id"]}
+                for item in scope.get("selected_documents", [])
+                if isinstance(item, dict) and "document_id" in item
+            ],
+        }
     for question in payload.get("questions", []):
         binding = question.get("knowledge_binding")
         if not isinstance(binding, dict):
@@ -462,6 +501,8 @@ def prepare_interview(
     knowledge_store: "KnowledgeRepository | None" = None,
     execution_runner=None,
     configuration: "PlanConfigurationSnapshot | None" = None,
+    knowledge_scope: "InterviewKnowledgeScopeSnapshot | None" = None,
+    knowledge_source_scope: "KnowledgeSourceScope | None" = None,
     allow_fallback: bool = True,
 ) -> InterviewPlan:
     job_description = _require_text("job_description", job_description)
@@ -500,7 +541,11 @@ def prepare_interview(
             job_tags=extract_job_tags(job_description),
         )
         return AgentFallback(
-            bind_prepared_plan_revision(plan, effective_configuration),
+            bind_prepared_plan_revision(
+                plan,
+                effective_configuration,
+                knowledge_scope=knowledge_scope,
+            ),
             (
                 exc.code
                 if isinstance(exc, PlanGenerationValidationError)
@@ -514,8 +559,13 @@ def prepare_interview(
             resume_text=resume_text,
             prep_run_id=correlation_id,
             configuration=effective_configuration,
+            knowledge_source_scope=knowledge_source_scope,
         )
-        return bind_prepared_plan_revision(plan, effective_configuration)
+        return bind_prepared_plan_revision(
+            plan,
+            effective_configuration,
+            knowledge_scope=knowledge_scope,
+        )
 
     def trace_metadata(plan: InterviewPlan) -> dict[str, Any]:
         from app.services.interview_plan_budget import (
@@ -526,7 +576,11 @@ def prepare_interview(
             plan_payload_sha256,
         )
 
-        revision_plan = prepared_plan_revision(plan, effective_configuration)
+        revision_plan = prepared_plan_revision(
+            plan,
+            effective_configuration,
+            knowledge_scope=knowledge_scope,
+        )
         enforcement = dict(plan._generation_enforcement)
         return {
             "question_count": len(plan.questions),

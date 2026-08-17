@@ -13,6 +13,7 @@ from app.runtime.config.loader import (
     load_llm_runtime_settings,
     load_provider_credentials,
     load_trace_runtime_settings,
+    load_user_materials_runtime_settings,
     load_worker_runtime_settings,
 )
 from app.runtime.config.models import (
@@ -26,6 +27,7 @@ from app.runtime.config.models import (
     ProviderCredentialSettings,
     ReportGraphRuntimeSettings,
     TraceRuntimeSettings,
+    UserMaterialsRuntimeSettings,
     WorkerRuntimeSettings,
 )
 
@@ -40,6 +42,7 @@ __all__ = [
     "ProviderCredentialSettings",
     "ReportGraphRuntimeSettings",
     "TraceRuntimeSettings",
+    "UserMaterialsRuntimeSettings",
     "WorkerRuntimeSettings",
     "environment_value",
     "load_api_runtime_settings",
@@ -50,6 +53,7 @@ __all__ = [
     "load_llm_runtime_settings",
     "load_provider_credentials",
     "load_trace_runtime_settings",
+    "load_user_materials_runtime_settings",
     "load_worker_runtime_settings",
     "process_environment",
     "set_default_environment_value",

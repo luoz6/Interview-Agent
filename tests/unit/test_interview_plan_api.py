@@ -1,11 +1,26 @@
+from datetime import datetime, timezone
+from types import SimpleNamespace
+
 import pytest
 from fastapi.testclient import TestClient
 
 import app.api.plans.routes as route_module
 import app.api.shared.dependencies as shared_dependencies
+from app.adapters.memory.user_documents import (
+    InMemoryUserDocumentChunkRepository,
+    InMemoryUserDocumentStore,
+)
+from app.application.materials.ingestion_service import UserDocumentIngestionService
+from app.application.materials.deletion_service import UserDocumentDeletionService
+from app.application.materials.service import UserDocumentService
 from app.main import app
+from app.services.interview_knowledge_scope import InterviewKnowledgeScopeResolver
 from app.services.interview_plan_regenerator import PlanRegenerationFailed
-from app.services.interview_plan_revision import InterviewPlanQuestionV2
+from app.services.interview_plan_revision import (
+    InterviewPlanQuestionV2,
+    PlanSourcePayload,
+    build_interview_knowledge_scope_snapshot,
+)
 from app.services.interview_plan_revision_store import (
     InMemoryInterviewPlanRevisionStore,
 )
@@ -17,6 +32,7 @@ from app.services.in_memory_principal_memory_control import (
     InMemoryPrincipalMemoryControlStore,
 )
 from app.services.principal_identity import ExplicitPrincipalIdentityResolver
+from tests.vector_store_fixtures import FakeEmbeddingProvider
 from tests.unit.test_interview_plan_revision import plan, source
 
 
@@ -627,6 +643,7 @@ def test_start_uses_verified_revision_snapshot_with_zero_provider_calls(api_plan
         mode="json"
     )
     assert state["plan_snapshot"] == initial.plan.model_dump(mode="json")
+    assert state.get("owner_principal_id") is None
     assert any(
         ref.owner_type == "session" and ref.owner_id == session_id
         for ref in revision_store.list_source_references(initial.source_id)
@@ -658,6 +675,296 @@ def test_duplicate_session_start_request_replays_one_business_session(api_plan):
         if ref.owner_type == "session"
     ]
     assert len(session_refs) == 1
+
+
+@pytest.mark.parametrize("material_change", ("disabled", "deleted"))
+def test_scoped_start_replay_uses_frozen_binding_after_material_change(
+    material_change,
+):
+    owner = "principal-a"
+    now = datetime(2026, 8, 15, tzinfo=timezone.utc)
+    document_store = InMemoryUserDocumentStore()
+    chunks = InMemoryUserDocumentChunkRepository()
+    document = UserDocumentIngestionService(
+        store=document_store,
+        chunks=chunks,
+        embedder=FakeEmbeddingProvider(),
+        clock=lambda: now,
+    ).ingest(
+        owner_principal_id=owner,
+        original_filename="scope.txt",
+        media_type="text/plain",
+        content=b"Frozen scope material",
+    )
+    scope_resolver = InterviewKnowledgeScopeResolver(
+        store=document_store,
+        clock=lambda: now,
+    )
+    scope = scope_resolver.resolve(
+        owner_principal_id=owner,
+        selected_document_ids=(document.document_id,),
+        include_system_knowledge=False,
+    )
+    revision_store = InMemoryInterviewPlanRevisionStore()
+    initial = revision_store.create_initial(
+        source_payload=PlanSourcePayload(
+            **source().model_dump(mode="json"),
+            owner_principal_id=owner,
+        ),
+        plan=plan().model_copy(update={"knowledge_scope": scope}),
+        retention_policy="local-v1",
+        generator_version="plan-generator-v2-test",
+    )
+    session_store = InterviewSessionStore()
+    principal = ExplicitPrincipalIdentityResolver(
+        deployment_id="materials-test",
+        principal_id=owner,
+    )
+    app.dependency_overrides[shared_dependencies.get_plan_revision_store] = (
+        lambda: revision_store
+    )
+    app.dependency_overrides[shared_dependencies.get_session_store] = (
+        lambda: session_store
+    )
+    app.dependency_overrides[
+        shared_dependencies.get_interview_knowledge_scope_resolver
+    ] = lambda: scope_resolver
+    app.dependency_overrides[shared_dependencies.get_principal_identity_resolver] = (
+        lambda: principal
+    )
+    app.dependency_overrides[
+        shared_dependencies.get_user_materials_runtime_settings
+    ] = lambda: SimpleNamespace(enabled=True, ingest_enabled=True)
+    payload = {
+        "plan_revision_id": initial.plan_revision_id,
+        "expected_revision": initial.revision,
+        "plan_sha256": initial.plan_sha256,
+        "request_id": "scoped-replay-after-disable",
+    }
+
+    try:
+        client = TestClient(app)
+        first = client.post("/api/interviews", json=payload)
+        assert first.status_code == 200, first.text
+        if material_change == "disabled":
+            UserDocumentService(store=document_store, clock=lambda: now).set_enabled(
+                owner_principal_id=owner,
+                document_id=document.document_id,
+                enabled=False,
+            )
+        else:
+            UserDocumentDeletionService(
+                store=document_store,
+                chunks=chunks,
+                clock=lambda: now,
+            ).delete(
+                owner_principal_id=owner,
+                document_id=document.document_id,
+            )
+
+        replay = client.post("/api/interviews", json=payload)
+
+        assert replay.status_code == 200, replay.text
+        assert replay.json() == first.json()
+        assert list(session_store._sessions) == [first.json()["session_id"]]
+
+        fresh_start = client.post(
+            "/api/interviews",
+            json={
+                **payload,
+                "request_id": f"scoped-first-start-after-{material_change}",
+            },
+        )
+        assert fresh_start.status_code == 409
+        assert fresh_start.json()["detail"]["code"] == (
+            "knowledge_scope_document_unavailable"
+        )
+        assert list(session_store._sessions) == [first.json()["session_id"]]
+    finally:
+        app.dependency_overrides.clear()
+
+
+@pytest.mark.parametrize(
+    (
+        "protected_owner",
+        "request_owner",
+        "resolver_available",
+        "expected_status",
+        "expected_code",
+    ),
+    (
+        ("principal-a", "principal-a", True, 200, None),
+        (
+            "principal-a",
+            "principal-b",
+            True,
+            409,
+            "knowledge_scope_document_unavailable",
+        ),
+        (
+            None,
+            "principal-a",
+            True,
+            409,
+            "knowledge_scope_document_unavailable",
+        ),
+        (
+            "principal-a",
+            "principal-a",
+            False,
+            409,
+            "knowledge_scope_document_unavailable",
+        ),
+    ),
+    ids=(
+        "current-owner",
+        "different-principal",
+        "missing-protected-owner",
+        "missing-scope-resolver",
+    ),
+)
+def test_scoped_start_requires_current_principal_to_match_protected_owner(
+    protected_owner,
+    request_owner,
+    resolver_available,
+    expected_status,
+    expected_code,
+):
+    material_owner = "principal-a"
+    now = datetime(2026, 8, 15, tzinfo=timezone.utc)
+    document_store = InMemoryUserDocumentStore()
+    chunks = InMemoryUserDocumentChunkRepository()
+    document = UserDocumentIngestionService(
+        store=document_store,
+        chunks=chunks,
+        embedder=FakeEmbeddingProvider(),
+        clock=lambda: now,
+    ).ingest(
+        owner_principal_id=material_owner,
+        original_filename="owner-scope.txt",
+        media_type="text/plain",
+        content=b"Owner-bound scope",
+    )
+    scope_resolver = InterviewKnowledgeScopeResolver(
+        store=document_store,
+        clock=lambda: now,
+    )
+    scope = scope_resolver.resolve(
+        owner_principal_id=material_owner,
+        selected_document_ids=(document.document_id,),
+        include_system_knowledge=True,
+    )
+    revision_store = InMemoryInterviewPlanRevisionStore()
+    initial = revision_store.create_initial(
+        source_payload=PlanSourcePayload(
+            **source().model_dump(mode="json"),
+            owner_principal_id=protected_owner,
+        ),
+        plan=plan().model_copy(update={"knowledge_scope": scope}),
+        retention_policy="local-v1",
+        generator_version="plan-generator-v2-test",
+    )
+    session_store = InterviewSessionStore()
+    principal = ExplicitPrincipalIdentityResolver(
+        deployment_id="materials-test",
+        principal_id=request_owner,
+    )
+    app.dependency_overrides[shared_dependencies.get_plan_revision_store] = (
+        lambda: revision_store
+    )
+    app.dependency_overrides[shared_dependencies.get_session_store] = (
+        lambda: session_store
+    )
+    app.dependency_overrides[
+        shared_dependencies.get_interview_knowledge_scope_resolver
+    ] = lambda: scope_resolver if resolver_available else None
+    app.dependency_overrides[shared_dependencies.get_principal_identity_resolver] = (
+        lambda: principal
+    )
+    app.dependency_overrides[
+        shared_dependencies.get_user_materials_runtime_settings
+    ] = lambda: SimpleNamespace(enabled=True, ingest_enabled=True)
+
+    try:
+        response = TestClient(app).post(
+            "/api/interviews",
+            json={
+                "plan_revision_id": initial.plan_revision_id,
+                "expected_revision": initial.revision,
+                "plan_sha256": initial.plan_sha256,
+                "request_id": f"owner-bound-{request_owner}",
+            },
+        )
+
+        assert response.status_code == expected_status
+        if expected_code is None:
+            state = session_store.get(response.json()["session_id"])
+            assert state["owner_principal_id"] == material_owner
+        else:
+            assert response.json()["detail"]["code"] == expected_code
+            assert session_store._sessions == {}
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_explicit_empty_scope_binds_owner_without_material_runtime():
+    owner = "principal-a"
+    now = datetime(2026, 8, 15, tzinfo=timezone.utc)
+    scope = build_interview_knowledge_scope_snapshot(
+        include_system_knowledge=False,
+        selected_documents=(),
+        created_at=now,
+    )
+    revision_store = InMemoryInterviewPlanRevisionStore()
+    initial = revision_store.create_initial(
+        source_payload=PlanSourcePayload(
+            **source().model_dump(mode="json"),
+            owner_principal_id=owner,
+        ),
+        plan=plan().model_copy(update={"knowledge_scope": scope}),
+        retention_policy="local-v1",
+        generator_version="plan-generator-v2-test",
+    )
+    session_store = InterviewSessionStore()
+    principal = ExplicitPrincipalIdentityResolver(
+        deployment_id="materials-test",
+        principal_id=owner,
+    )
+    app.dependency_overrides[shared_dependencies.get_plan_revision_store] = (
+        lambda: revision_store
+    )
+    app.dependency_overrides[shared_dependencies.get_session_store] = (
+        lambda: session_store
+    )
+    app.dependency_overrides[
+        shared_dependencies.get_interview_knowledge_scope_resolver
+    ] = lambda: None
+    app.dependency_overrides[shared_dependencies.get_principal_identity_resolver] = (
+        lambda: principal
+    )
+    app.dependency_overrides[
+        shared_dependencies.get_user_materials_runtime_settings
+    ] = lambda: SimpleNamespace(enabled=False, ingest_enabled=False)
+
+    try:
+        response = TestClient(app).post(
+            "/api/interviews",
+            json={
+                "plan_revision_id": initial.plan_revision_id,
+                "expected_revision": initial.revision,
+                "plan_sha256": initial.plan_sha256,
+                "request_id": "explicit-empty-owner-binding",
+            },
+        )
+
+        assert response.status_code == 200, response.text
+        state = session_store.get(response.json()["session_id"])
+        assert state["owner_principal_id"] == owner
+        assert state["plan_snapshot"]["knowledge_scope"] == scope.model_dump(
+            mode="json"
+        )
+    finally:
+        app.dependency_overrides.clear()
 
 
 def test_session_memory_ignore_is_bound_before_start_and_replays(api_plan, monkeypatch):

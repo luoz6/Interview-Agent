@@ -23,6 +23,7 @@ from app.services.prep import (
 )
 
 if TYPE_CHECKING:
+    from app.domain.knowledge.source_scope import KnowledgeSourceScope
     from app.services.interview_plan_revision import PlanConfigurationSnapshot
 
 
@@ -42,6 +43,7 @@ class KnowledgeAgent:
         resume_text: str,
         prep_run_id: str | None = None,
         configuration: PlanConfigurationSnapshot | None = None,
+        knowledge_source_scope: KnowledgeSourceScope | None = None,
     ) -> InterviewPlan:
         llm = self.llm or self._default_llm()
         vector_store = self.vector_store
@@ -71,6 +73,7 @@ class KnowledgeAgent:
                 queries,
                 repository,
                 prep_run_id=prep_run_id,
+                source_scope=knowledge_source_scope,
             )
         except Exception:
             grounding = degraded_grounding(queries, "knowledge_unavailable")
@@ -90,12 +93,14 @@ class KnowledgeAgent:
             result=grounding,
             repository=repository,
             prep_run_id=prep_run_id,
+            source_scope=knowledge_source_scope,
         )
         grounded_plan = attach_grounded_prep_context(
             plan,
             role_profile=role_profile,
             result=grounding,
             prep_run_id=prep_run_id,
+            source_scope=knowledge_source_scope,
         )
         self._record_grounding_trace(grounded_plan, grounding)
         return grounded_plan

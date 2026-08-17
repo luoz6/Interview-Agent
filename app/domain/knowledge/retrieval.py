@@ -10,6 +10,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from app.domain.knowledge.evidence import EvidenceDecision
 from app.domain.knowledge.models import KnowledgeChunk
+from app.domain.knowledge.source_scope import KnowledgeSourceScope, KnowledgeScopeUsage
 
 
 class RetrievalIntent(StrEnum):
@@ -98,6 +99,7 @@ class RetrievalRequest(BaseModel):
     question_id: str | None = None
     prep_run_id: str | None = None
     parent_bundle_id: str | None = None
+    source_scope: KnowledgeSourceScope | None = None
 
 
 class ResolvedRetrievalProfile(BaseModel):
@@ -204,6 +206,15 @@ class RetrievalRoutingSummary(BaseModel):
     values_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
 
 
+class RetrievalSourceScopeSummary(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    include_system_knowledge: bool
+    user_document_count: int = Field(ge=0)
+    usage: KnowledgeScopeUsage
+    source_scope_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
+
+
 class RetrievalFusionSummary(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
@@ -265,6 +276,7 @@ class RetrievalTrace(BaseModel):
     resolved_profile: ResolvedRetrievalProfile | None = None
     hard_constraints: RetrievalConstraintSummary | None = None
     routing_hints: RetrievalRoutingSummary | None = None
+    source_scope: RetrievalSourceScopeSummary | None = None
     channels: list[RetrievalChannelTrace] = Field(default_factory=list)
     fusion_summary: RetrievalFusionSummary | None = None
     rerank_summary: RetrievalRerankSummary | None = None
@@ -376,6 +388,20 @@ def build_retrieval_trace(
             topic_count=len(request.routing_hints.topics),
             canonical_tag_count=len(request.routing_hints.canonical_tags),
             values_sha256=_trace_sha256(routing_payload),
+        ),
+        source_scope=(
+            RetrievalSourceScopeSummary(
+                include_system_knowledge=(
+                    request.source_scope.include_system_knowledge
+                ),
+                user_document_count=len(
+                    request.source_scope.selected_documents
+                ),
+                usage=request.source_scope.usage,
+                source_scope_sha256=request.source_scope.source_scope_sha256,
+            )
+            if request.source_scope is not None
+            else None
         ),
         channels=channels,
         fusion_summary=fusion_summary,

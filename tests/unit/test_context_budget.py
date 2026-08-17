@@ -6,6 +6,7 @@ from app.services.context_budget import (
     ContextBudgetExceeded,
     ContextBudgetResolver,
     ContextSelectionBudget,
+    FOLLOWUP_CONTEXT_POLICY,
     OperationContextPolicy,
     RenderedPromptGuard,
     context_enforcement_enabled,
@@ -429,3 +430,8 @@ def test_dynamic_target_output_invariants(
     assert target >= policy.floor_tokens
     assert target <= policy_hard_cap_tokens
     assert target <= remaining_business_budget_tokens
+
+
+def test_followup_policy_uses_bounded_generation_output_limit():
+    assert FOLLOWUP_CONTEXT_POLICY.operation == "examiner.generate_followup"
+    assert FOLLOWUP_CONTEXT_POLICY.max_output_tokens == 120

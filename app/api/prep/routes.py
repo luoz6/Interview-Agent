@@ -1,4 +1,5 @@
 import inspect
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException
 
@@ -8,16 +9,29 @@ from app.api.shared.dependencies import (
     get_plan_revision_store,
     get_prep_plan_store,
     get_prep_question_regenerator,
+    get_principal_identity_resolver,
+    get_request_interview_knowledge_scope_resolver,
+    get_user_materials_runtime_settings,
 )
-from app.api.shared.errors import raise_prep_plan_error
+from app.api.shared.errors import (
+    raise_interview_knowledge_scope_error,
+    raise_prep_plan_error,
+    raise_user_materials_hidden,
+)
 from app.api.shared.models import (
     PrepPlanPatchRequest,
     PrepQuestionRegenerateRequest,
     PrepRequest,
 )
 from app.api.shared.projections import plan_revision_payload
+from app.domain.knowledge.source_scope import build_knowledge_source_scope
 from app.services.job_tags import extract_job_tags
-from app.services.interview_plan_revision import default_plan_configuration
+from app.services.interview_knowledge_scope import InterviewKnowledgeScopeError
+from app.services.interview_plan_revision import (
+    build_interview_knowledge_scope_snapshot,
+    default_plan_configuration,
+    legacy_interview_knowledge_scope_snapshot,
+)
 from app.services.prep import (
     PlanGenerationValidationError,
     prepare_interview,
@@ -36,8 +50,52 @@ def prep_interview(
     plan_store=Depends(get_prep_plan_store),
     revision_store=Depends(get_plan_revision_store),
     knowledge_store=Depends(get_prep_knowledge_repository),
+    scope_resolver=Depends(get_request_interview_knowledge_scope_resolver),
+    principal_resolver=Depends(get_principal_identity_resolver),
+    materials_settings=Depends(get_user_materials_runtime_settings),
 ):
     configuration = payload.configuration or default_plan_configuration()
+    knowledge_source_scope = None
+    source_owner_principal_id = None
+    if payload.knowledge_scope is None:
+        knowledge_scope = legacy_interview_knowledge_scope_snapshot()
+    else:
+        selected_document_ids = payload.knowledge_scope.selected_document_ids
+        if (
+            selected_document_ids
+            and not materials_settings.enabled
+        ):
+            raise_user_materials_hidden()
+        identity = principal_resolver.resolve()
+        if identity is None:
+            raise_user_materials_hidden()
+        source_owner_principal_id = identity.principal_id
+        if scope_resolver is None:
+            if selected_document_ids:
+                raise_user_materials_hidden()
+            knowledge_scope = build_interview_knowledge_scope_snapshot(
+                include_system_knowledge=(
+                    payload.knowledge_scope.include_system_knowledge
+                ),
+                selected_documents=(),
+                created_at=datetime.now(timezone.utc),
+            )
+        else:
+            try:
+                knowledge_scope = scope_resolver.resolve(
+                    owner_principal_id=identity.principal_id,
+                    selected_document_ids=selected_document_ids,
+                    include_system_knowledge=(
+                        payload.knowledge_scope.include_system_knowledge
+                    ),
+                )
+            except InterviewKnowledgeScopeError as exc:
+                raise_interview_knowledge_scope_error(exc)
+        knowledge_source_scope = build_knowledge_source_scope(
+            knowledge_scope,
+            owner_principal_id=identity.principal_id,
+            usage="question",
+        )
     try:
         kwargs = {
             "execution_runner": get_agent_execution_runner(),
@@ -45,12 +103,22 @@ def prep_interview(
         }
         if "knowledge_store" in inspect.signature(prepare_interview).parameters:
             kwargs["knowledge_store"] = knowledge_store
+        if "knowledge_scope" in inspect.signature(prepare_interview).parameters:
+            kwargs["knowledge_scope"] = knowledge_scope
+        if "knowledge_source_scope" in inspect.signature(
+            prepare_interview
+        ).parameters:
+            kwargs["knowledge_source_scope"] = knowledge_source_scope
         plan = prepare_interview(
             payload.job_description,
             payload.resume_text,
             **kwargs,
         )
-        revision_plan = prepared_plan_revision(plan, configuration)
+        revision_plan = prepared_plan_revision(
+            plan,
+            configuration,
+            knowledge_scope=knowledge_scope,
+        )
     except PlanGenerationValidationError as exc:
         raise HTTPException(
             status_code=422,
@@ -83,6 +151,7 @@ def prep_interview(
             "job_description": payload.job_description,
             "resume_text": payload.resume_text,
             "job_tags": job_tags,
+            "owner_principal_id": source_owner_principal_id,
         },
         plan=revision_plan,
         retention_policy="local-v1",

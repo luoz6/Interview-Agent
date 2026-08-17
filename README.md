@@ -2,13 +2,15 @@
 
 ## 项目简介
 
-Interview Agent 是一个面向本地单用户的技术面试助手，可生成面试计划、运行交互式模拟面试、生成带 RAG 证据的评估报告，并导出 PDF。
+Interview Agent 是一个面向本地单用户的技术面试助手，可生成面试计划、运行交互式模拟面试、管理本地个人资料、生成带实际 RAG 引用的评估报告，并导出 PDF。
 
 本仓库定位为 **Learning Project / Technical Showcase**。它不是面向公网的多租户产品，也不声明已达到生产可用或算法质量最优。
 
 当前文档入口：
 
 - [Local V1 运行手册](docs/local-v1-runbook.md)
+- [User Materials 产品边界 ADR](docs/adr/user-materials-rag-v1.md)
+- [Knowledge RAG V2 架构说明](docs/architecture/knowledge-rag-v2.md)
 - [RAG Demo 架构](docs/architecture/rag-demo-architecture.md)
 - [Knowledge RAG 实现状态](docs/architecture/knowledge-rag-v2-implementation-status.md)
 - [RAG 工程控制台指南](docs/runbooks/rag-engineering-console.md)
@@ -24,11 +26,14 @@ FastAPI application
     ├─ interview and report workflows
     ├─ PostgreSQL runtime persistence
     ├─ report worker
+    ├─ owner-scoped User Materials
+    │    └─ frozen Plan / Session scope
     └─ Knowledge RAG
-         ├─ Legacy retrieval
+         ├─ system Knowledge Corpus
+         ├─ selected User Materials
          └─ Hybrid V2
-              ├─ semantic retrieval
-              ├─ lexical retrieval
+              ├─ Semantic channel
+              ├─ Lexical channel
               ├─ weighted RRF
               ├─ deterministic rerank
               └─ candidate-aware evidence sufficiency
@@ -40,12 +45,32 @@ FastAPI application
 
 - 通过 OpenAI-compatible Provider 生成面试计划；
 - 支持恢复状态的交互式面试会话；
+- 支持 UTF-8 Markdown / TXT 个人资料的上传、重试、停用和永久删除；
+- 在准备页为一次面试选择资料，并把 Scope 固定到 Plan 和 Session；
 - 生成逐题证据、评分与最终面试报告；
 - 使用 PostgreSQL 持久化会话、报告任务和报告；
 - 可选的 pgvector Knowledge Retrieval；
 - 独立的 React/Vite 前端和 FastAPI API；
 - PDF 报告下载；
 - 带安全边界的本地 RAG 工程控制台。
+
+## 产品入口与“我的资料”闭环
+
+普通产品入口保持为：
+
+- `/prep`：准备面试、编辑计划和选择本次资料；
+- `/reports`：查看报告任务和历史报告；
+- `/materials`：管理“我的资料”；
+- `/memory-center`：管理“我的记忆”；
+- `/help`：查看使用、恢复和数据边界说明。
+
+“我的资料”当前只接受 UTF-8 `.md` / `.txt`，单个文件最大 1 MiB。PDF、DOCX、图片和 OCR 不属于当前上传能力。只有 `Ready + Enabled` 的资料能在准备页选择；选择会固化允许范围，但不会被推断成“已经引用”。Citation 只从业务实际消费的 Final Evidence 交集产生。资料删除后，历史报告只保留“已删除资料”的安全投影。
+
+用户资料是非权威的提问、追问和反馈上下文，不替代评分标准，也不改变评分规则、权重或及格线。没有 Citation 不表示自动扣分。
+
+本地运行时使用服务器解析的 Local Principal 做归属隔离，但产品不包含登录、账号、租户、团队或 RBAC。用户资料拥有独立生命周期，不会创建、激活、发布或退役全局 Corpus Release。
+
+维护者诊断入口是 `/rag/lab`。它不出现在普通一级导航；旧 `/rag`、`/rag/retrieval`、`/rag/evaluation`、`/rag/evidence-trace` 和 `/rag/corpus` 会兼容跳转到相应的 `/rag/lab/*` 页面。
 
 ## RAG Highlights
 
@@ -70,13 +95,13 @@ Query-aware 的作用是展示可复现的查询感知融合路径，不代表�
 
 1. 打开 `http://127.0.0.1:5173/prep`，生成一份面试计划。
 2. 完成一轮短面试，等待报告生成并查看逐题评价与最终报告。
-3. 打开 `/rag`，查看当前引擎、Corpus identity、Capability 和诊断数据集状态。
-4. 打开 `/rag/retrieval`：
+3. 维护者打开 `/rag/lab`，查看当前引擎、Corpus identity、Capability 和诊断数据集状态。
+4. 打开 `/rag/lab/retrieval`：
    - 运行默认的 Legacy / Hybrid Compare；
    - 切换到 Single Hybrid；
    - 分别选择 Fixed Weighted RRF 与 Query-aware Weighted RRF；
    - 查看服务端返回的 Query Signal、实际权重、Reason Codes 与候选证据。
-5. 打开 `/rag/evaluation`，选择一个案例进行 Frozen Replay。Replay 只需要 Console Read，不运行实时检索，也不调用外部 Provider。
+5. 打开 `/rag/lab/evaluation`，选择一个案例进行 Frozen Replay。Replay 只需要 Console Read，不运行实时检索，也不调用外部 Provider。
 
 这是一条技术演示路径，不是算法质量认证或生产发布审批。
 
@@ -153,6 +178,15 @@ python -m app.services.report_worker
 
 然后打开 `http://127.0.0.1:5173/prep`。Vite 开发服务器通过 `/api` 代理访问 `127.0.0.1:8000`。
 
+若要使用“我的资料”，还需在本地进程显式启用两个独立 capability：
+
+```powershell
+$env:USER_MATERIALS_ENABLED="true"
+$env:USER_MATERIALS_INGEST_ENABLED="true"
+```
+
+前者控制资料列表、准备页选择和检索参与；后者只控制上传、重试和新 Revision。两者都不授予全局 Corpus 写权限。当前 U4 非保护回归没有连接真实 PostgreSQL，因此不能据此宣称 User Materials 的 PostgreSQL FK、索引、级联和事务恢复已经完成真机验收。
+
 ### 加载 Knowledge Corpus
 
 版本化知识加载会写 PostgreSQL，并可能调用外部 Embedding Provider、产生费用。只有在目标数据库、Corpus version 和 Provider 调用获得明确授权后才能执行：
@@ -205,17 +239,22 @@ Focused RAG 验证和 closure audit 命令见 [RAG 工程控制台指南](docs/r
 - 创建新的 Corpus version；
 - Production Shadow、Canary、Promotion 或 rollout。
 
+受保护的 PostgreSQL 节点和外部 Provider 检查必须单独授权；被排除或未运行的节点不能记作通过。
+
 ## 当前限制
 
 - 没有登录或多用户账号隔离；
+- “我的资料”上传仅支持 UTF-8 Markdown / TXT 和 1 MiB 上限，不支持 PDF / DOCX；
 - 没有公网部署安全设计；
 - 没有跨设备同步；
+- 本地启动不包含 Docker Compose；按运行手册分别启动 API、前端和 Report Worker；
 - 不声明 Query-aware 优于 Fixed RRF；
 - 不声明 Hybrid 优于 Legacy；
 - 本次 closure 不包含新 Ground Truth、blind A/B、threshold calibration 或 no-evidence tuning；
 - 不包含 Remote Reranker、Cross-Encoder、GraphRAG、Production Shadow、Canary、Promotion 或 Legacy retirement；
 - 不支持三路或四路 Compare；
 - 本地完成流程不会自动调用外部 Provider。
+- 本次 User Materials 收口没有执行真实 PostgreSQL 验收。
 
 ## 历史归档
 

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 from enum import StrEnum
-from typing import Any
+from typing import Any, Literal
 from uuid import uuid4
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
@@ -109,10 +109,23 @@ class EvidenceRef(BaseModel):
     topic: str = ""
     source_type: str
     content_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
-    corpus_manifest_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
+    corpus_manifest_sha256: str = Field(
+        default="", pattern=r"^(?:[a-f0-9]{64})?$"
+    )
     corpus_version: str = ""
     authority_metadata: dict[str, Any] = Field(default_factory=dict)
     provenance: dict[str, Any] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def validate_source_lineage(self) -> "EvidenceRef":
+        if self.source_type == "user_material":
+            if self.corpus_manifest_sha256:
+                raise ValueError(
+                    "user material evidence must not claim a corpus manifest"
+                )
+        elif not self.corpus_manifest_sha256:
+            raise ValueError("system evidence requires a corpus manifest binding")
+        return self
 
     @classmethod
     def from_chunk(cls, chunk: KnowledgeChunk) -> "EvidenceRef":
@@ -131,6 +144,42 @@ class EvidenceRef(BaseModel):
             authority_metadata=dict(chunk.metadata.get("authority_metadata") or {}),
             provenance=dict(chunk.metadata.get("provenance") or {}),
         )
+
+
+class SafeKnowledgeCitation(BaseModel):
+    """Public, bounded projection of knowledge actually consumed by a business flow."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    citation_id: str = Field(pattern=r"^citation-[0-9a-f]{32}$")
+    source_scope: Literal["user_document", "system_knowledge"]
+    document_safe_ref: str | None = Field(
+        default=None,
+        pattern=r"^material-[0-9a-f]{32}$",
+    )
+    display_title: str = Field(min_length=1, max_length=200)
+    location_label: str | None = Field(default=None, min_length=1, max_length=200)
+    excerpt: str | None = Field(default=None, min_length=1, max_length=500)
+    usage: Literal["question", "follow_up", "feedback"]
+    availability: Literal["available", "deleted", "unavailable"]
+
+    @model_validator(mode="after")
+    def validate_safe_projection(self) -> "SafeKnowledgeCitation":
+        if self.availability == "deleted":
+            if self.source_scope != "user_document":
+                raise ValueError("only user document citations can be deleted")
+            if (
+                self.display_title != "已删除资料"
+                or self.excerpt is not None
+                or self.location_label is not None
+                or self.document_safe_ref is not None
+            ):
+                raise ValueError(
+                    "deleted citations must use the content-free deleted projection"
+                )
+        if self.availability == "unavailable" and self.excerpt is not None:
+            raise ValueError("unavailable citations cannot expose an excerpt")
+        return self
 
 
 class BaseEvidenceBundle(BaseModel):
@@ -154,16 +203,39 @@ class BaseEvidenceBundle(BaseModel):
     def validate_candidate_lineage(self) -> "BaseEvidenceBundle":
         evidence_ids = tuple(ref.evidence_id for ref in self.candidate_evidence_refs)
         _require_unique(evidence_ids, "candidate_evidence_refs")
-        if self.candidate_evidence_refs and not self.corpus_manifest_sha256:
+        system_references = tuple(
+            ref
+            for ref in self.candidate_evidence_refs
+            if ref.source_type != "user_material"
+        )
+        if system_references and not self.corpus_manifest_sha256:
             raise ValueError("candidate evidence requires a corpus manifest binding")
         if self.corpus_manifest_sha256 and any(
             ref.corpus_manifest_sha256 != self.corpus_manifest_sha256
-            for ref in self.candidate_evidence_refs
+            for ref in system_references
         ):
             raise ValueError("candidate evidence corpus manifest does not match bundle")
         if self.created_at.utcoffset() is None:
             raise ValueError("created_at must be timezone-aware")
         return self
+
+
+class QuestionSourceScopeBinding(BaseModel):
+    """Identifier-free summary of the retrieval scope frozen for one question."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    schema_version: Literal["question-source-scope-binding-v1"] = (
+        "question-source-scope-binding-v1"
+    )
+    scope_kind: Literal[
+        "explicit_empty",
+        "system_only",
+        "user_only",
+        "mixed",
+    ]
+    usage: Literal["question"] = "question"
+    source_scope_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
 
 
 class QuestionEvidenceBinding(BaseModel):
@@ -174,6 +246,7 @@ class QuestionEvidenceBinding(BaseModel):
     question_id: str
     selected_evidence_ids: tuple[str, ...] = ()
     selection_version: str
+    source_scope_binding: QuestionSourceScopeBinding | None = None
     decision: EvidenceDecision
     created_at: datetime = Field(default_factory=_utc_now)
 

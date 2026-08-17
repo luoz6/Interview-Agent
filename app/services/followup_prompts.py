@@ -7,6 +7,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from app.services.context_budget import FOLLOWUP_CONTEXT_POLICY
 from app.services.decision_store import DecisionContract
 from app.services.provider_usage import (
     begin_provider_attempt,
@@ -441,7 +442,12 @@ class StructuredFollowupGenerationProvider:
     prompt_version = FOLLOWUP_GENERATION_PROMPT_VERSION
     prompt_sha256 = FOLLOWUP_GENERATION_PROMPT_SHA256
 
-    def __init__(self, chat_model, *, max_tokens: int = 120) -> None:
+    def __init__(
+        self,
+        chat_model,
+        *,
+        max_tokens: int = FOLLOWUP_CONTEXT_POLICY.max_output_tokens,
+    ) -> None:
         self.chat_model = chat_model
         self.max_tokens = max_tokens
 

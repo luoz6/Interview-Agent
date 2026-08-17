@@ -64,7 +64,7 @@ PLAN_CONTEXT_POLICY = OperationContextPolicy(
 FOLLOWUP_CONTEXT_POLICY = OperationContextPolicy(
     operation="examiner.generate_followup",
     input_cap_tokens=12_000,
-    max_output_tokens=512,
+    max_output_tokens=120,
 )
 QUESTION_REVIEW_CONTEXT_POLICY = OperationContextPolicy(
     operation="shadow_reviewer.evaluate",

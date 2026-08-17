@@ -145,6 +145,14 @@ class RagConsoleRuntimeSettings:
 
 
 @dataclass(frozen=True)
+class UserMaterialsRuntimeSettings:
+    """Fail-closed capabilities for the user Materials API."""
+
+    enabled: bool = False
+    ingest_enabled: bool = False
+
+
+@dataclass(frozen=True)
 class CoreRuntimeSettings:
     postgres_dsn: str = field(repr=False)
     runtime_store: str

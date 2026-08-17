@@ -121,7 +121,10 @@ class HybridKnowledgeRetrievalService:
         ]
         if not available:
             availability = RetrievalAvailability.UNAVAILABLE
-        elif len(available) != len(channel_results):
+        elif len(available) != len(channel_results) or any(
+            item.availability == RetrievalAvailability.DEGRADED
+            for item in available
+        ):
             availability = RetrievalAvailability.DEGRADED
         else:
             availability = RetrievalAvailability.AVAILABLE

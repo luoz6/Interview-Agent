@@ -11,6 +11,12 @@ from uuid import UUID, uuid4
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from app.domain.knowledge.source_scope import (
+    INTERVIEW_KNOWLEDGE_SCOPE_SCHEMA_VERSION,
+    InterviewKnowledgeScopeSnapshot,
+    SelectedUserDocumentRevision,
+    knowledge_scope_selection_payload,
+)
 from app.services.interview_plan_budget import (
     MAX_SAFE_MAIN_QUESTION_COUNT,
     MIN_SAFE_MAIN_QUESTION_COUNT,
@@ -60,6 +66,11 @@ class PlanSourcePayload(ImmutableModel):
     job_description: str = Field(min_length=1)
     resume_text: str = Field(min_length=1)
     job_tags: tuple[str, ...] = ()
+    owner_principal_id: str | None = Field(
+        default=None,
+        pattern=r"^[A-Za-z0-9_.-]{1,128}$",
+        exclude_if=lambda value: value is None,
+    )
 
     @field_validator("job_description", "resume_text", mode="before")
     @classmethod
@@ -205,10 +216,61 @@ class InterviewPlanQuestionV2(ImmutableModel):
         return self
 
 
+def knowledge_scope_selection_sha256(
+    *,
+    include_system_knowledge: bool,
+    selected_documents: tuple[SelectedUserDocumentRevision, ...],
+) -> str:
+    return canonical_sha256(
+        knowledge_scope_selection_payload(
+            include_system_knowledge=include_system_knowledge,
+            selected_documents=selected_documents,
+        )
+    )
+
+
+def build_interview_knowledge_scope_snapshot(
+    *,
+    include_system_knowledge: bool,
+    selected_documents: tuple[SelectedUserDocumentRevision, ...] = (),
+    created_at: datetime | None,
+) -> InterviewKnowledgeScopeSnapshot:
+    normalized_documents = tuple(
+        sorted(
+            (
+                SelectedUserDocumentRevision.model_validate(item)
+                for item in selected_documents
+            ),
+            key=lambda item: (item.document_id, item.document_revision_id),
+        )
+    )
+    return InterviewKnowledgeScopeSnapshot(
+        schema_version=INTERVIEW_KNOWLEDGE_SCOPE_SCHEMA_VERSION,
+        include_system_knowledge=include_system_knowledge,
+        selected_documents=normalized_documents,
+        selection_sha256=knowledge_scope_selection_sha256(
+            include_system_knowledge=include_system_knowledge,
+            selected_documents=normalized_documents,
+        ),
+        created_at=created_at,
+    )
+
+
+def legacy_interview_knowledge_scope_snapshot() -> InterviewKnowledgeScopeSnapshot:
+    return build_interview_knowledge_scope_snapshot(
+        include_system_knowledge=True,
+        selected_documents=(),
+        created_at=None,
+    )
+
+
 class InterviewPlanV2(ImmutableModel):
     schema_version: Literal["interview-plan-v2"] = "interview-plan-v2"
     title: str = Field(min_length=1)
     configuration_snapshot: PlanConfigurationSnapshot
+    knowledge_scope: InterviewKnowledgeScopeSnapshot = Field(
+        default_factory=legacy_interview_knowledge_scope_snapshot
+    )
     questions: tuple[InterviewPlanQuestionV2, ...]
     prep_context: dict[str, Any] | None = None
 
@@ -228,6 +290,12 @@ class InterviewPlanV2(ImmutableModel):
 
     @model_validator(mode="after")
     def validate_plan(self):
+        expected_selection_sha256 = knowledge_scope_selection_sha256(
+            include_system_knowledge=self.knowledge_scope.include_system_knowledge,
+            selected_documents=self.knowledge_scope.selected_documents,
+        )
+        if self.knowledge_scope.selection_sha256 != expected_selection_sha256:
+            raise ValueError("knowledge scope selection_sha256 does not match scope")
         if not (
             MIN_SAFE_MAIN_QUESTION_COUNT
             <= len(self.questions)
@@ -359,7 +427,7 @@ def source_payload_sha256(payload: PlanSourcePayload | dict[str, Any]) -> str:
         if isinstance(payload, PlanSourcePayload)
         else PlanSourcePayload.model_validate(payload)
     )
-    return canonical_sha256(model.model_dump(mode="json"))
+    return canonical_sha256(model.model_dump(mode="json", exclude_none=True))
 
 
 def plan_configuration_sha256(
@@ -417,6 +485,7 @@ def legacy_plan_to_v2(
     *,
     generator_version: str | None = None,
     configuration_snapshot: PlanConfigurationSnapshot | None = None,
+    knowledge_scope: InterviewKnowledgeScopeSnapshot | None = None,
 ) -> InterviewPlanV2:
     """Convert the legacy generated plan at the compatibility boundary.
 
@@ -450,6 +519,13 @@ def legacy_plan_to_v2(
             generator_version=effective_generator_version,
             followup_policy_version="fixed_v1",
         )
+    resolved_scope = (
+        legacy_interview_knowledge_scope_snapshot()
+        if knowledge_scope is None
+        else InterviewKnowledgeScopeSnapshot.model_validate(
+            knowledge_scope.model_dump(mode="json")
+        )
+    )
     context = (
         deepcopy(plan.prep_context.model_dump(mode="json"))
         if getattr(plan, "prep_context", None) is not None
@@ -495,6 +571,7 @@ def legacy_plan_to_v2(
     return synchronize_plan_knowledge_context(InterviewPlanV2(
         title=plan.title,
         configuration_snapshot=config,
+        knowledge_scope=resolved_scope,
         questions=tuple(questions),
         prep_context=context,
     ))

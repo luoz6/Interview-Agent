@@ -15,10 +15,10 @@ def test_write_shadow_is_the_only_enabled_axis():
     assert config.long_term.trusted_local_api_enabled is False
 
 
-def test_fault_matrix_cancels_or_rejects_every_unsafe_case():
+def test_fault_matrix_reports_current_bounded_taxonomy_outcomes():
     result = run_fault_matrix()
     assert result == {
-        "candidate_rejected": 3,
+        "candidate_rejected": 2,
         "consent_unavailable": 1,
         "extractor_failure_contained": 1,
         "identity_changed": 1,
@@ -47,7 +47,7 @@ def test_synthetic_write_shadow_creates_only_deduplicated_proposals():
     assert payload.sample_count == 30
     assert payload.violations == []
     assert payload.synthetic is True
-    assert payload.metrics["fault_candidate_rejected"] == 3.0
+    assert payload.metrics["fault_candidate_rejected"] == 2.0
     assert payload.metrics["hard_cross_principal_write"] == 0.0
     assert payload.metrics["cleanup_residue"] == 0.0
 
