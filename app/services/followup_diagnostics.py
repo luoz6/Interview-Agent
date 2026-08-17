@@ -11,7 +11,18 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from app.services.decision_store import DecisionContract, FollowupPolicyVersion
 
 
-FOLLOWUP_DIAGNOSTICS_VERSION = "followup-diagnostics-v1"
+FOLLOWUP_DIAGNOSTICS_VERSION = "followup-diagnostics-v2"
+FOLLOWUP_TEXT_MIN_NORMALIZED_CHARS = 12
+FOLLOWUP_TEXT_SIMILARITY_THRESHOLD = 0.9
+
+FollowupDiagnosticSignal = Literal[
+    "empty",
+    "very_short",
+    "off_topic_candidate",
+    "repeated_answer",
+    "no_new_information",
+    "answer_only_repeats_question",
+]
 
 
 class FollowupDiagnosticRejected(RuntimeError):
@@ -62,11 +73,11 @@ class FollowupDiagnosticInput(BaseModel):
 class FollowupDiagnostics(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    diagnostics_version: Literal["followup-diagnostics-v1"] = (
+    diagnostics_version: Literal["followup-diagnostics-v2"] = (
         FOLLOWUP_DIAGNOSTICS_VERSION
     )
     input_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
-    signals: list[Literal["empty", "very_short", "off_topic_candidate"]]
+    signals: list[FollowupDiagnosticSignal]
     provider_allowed: bool
     deterministic_decision: DecisionContract | None
     provider_context: dict[str, object]
@@ -86,7 +97,7 @@ def diagnose_followup(value: FollowupDiagnosticInput | dict) -> FollowupDiagnost
     if request.command_expired:
         raise FollowupDiagnosticRejected("stale_command")
 
-    signals = _answer_signals(request.candidate_answers)
+    signals = _answer_signals(request)
     decision = _deterministic_decision(request, signals)
     if decision is None:
         context, truncated = _bounded_provider_context(request)
@@ -117,7 +128,7 @@ def diagnose_followup(value: FollowupDiagnosticInput | dict) -> FollowupDiagnost
 
 def _deterministic_decision(
     request: FollowupDiagnosticInput,
-    signals: list[str],
+    signals: list[FollowupDiagnosticSignal],
 ) -> DecisionContract | None:
     common = {
         "closed_gap_ids": list(request.closed_gap_ids),
@@ -190,10 +201,12 @@ def _deterministic_decision(
     return None
 
 
-def _answer_signals(answers: list[str]) -> list[str]:
-    latest = answers[-1].strip() if answers else ""
+def _answer_signals(
+    request: FollowupDiagnosticInput,
+) -> list[FollowupDiagnosticSignal]:
+    latest = request.candidate_answers[-1].strip() if request.candidate_answers else ""
     meaningful = re.sub(r"[\W_]+", "", latest, flags=re.UNICODE)
-    signals: list[str] = []
+    signals: list[FollowupDiagnosticSignal] = []
     if not meaningful or latest.casefold() in {
         "不知道",
         "还是不知道",
@@ -214,10 +227,44 @@ def _answer_signals(answers: list[str]) -> list[str]:
         for marker in ("与问题无关", "没有回答当前问题", "off topic", "does not answer")
     ):
         signals.append("off_topic_candidate")
+    repeated_answer = _is_substantive_duplicate(
+        latest,
+        request.candidate_answers[:-1],
+    )
+    repeats_question = _is_substantive_duplicate(
+        latest,
+        [request.question_text],
+    )
+    repeats_followup = _is_substantive_duplicate(
+        latest,
+        request.asked_followups,
+    )
+    if repeated_answer:
+        signals.append("repeated_answer")
+    if repeated_answer or repeats_question or repeats_followup:
+        signals.append("no_new_information")
+    if repeats_question:
+        signals.append("answer_only_repeats_question")
     return signals
 
 
-def _answer_state(signals: list[str]) -> str:
+def _is_substantive_duplicate(value: str, prior_texts: list[str]) -> bool:
+    if len(normalize_followup_text(value)) < FOLLOWUP_TEXT_MIN_NORMALIZED_CHARS:
+        return False
+    eligible = [
+        text
+        for text in prior_texts
+        if len(normalize_followup_text(text))
+        >= FOLLOWUP_TEXT_MIN_NORMALIZED_CHARS
+    ]
+    return bool(eligible) and is_duplicate_followup_text(
+        value,
+        eligible,
+        similarity_threshold=FOLLOWUP_TEXT_SIMILARITY_THRESHOLD,
+    )
+
+
+def _answer_state(signals: list[FollowupDiagnosticSignal]) -> str:
     if "empty" in signals:
         return "empty"
     if "off_topic_candidate" in signals:
@@ -301,7 +348,7 @@ def _input_sha256(request: FollowupDiagnosticInput) -> str:
 def stable_followup_fingerprint(value: str) -> str:
     if re.fullmatch(r"[0-9a-fA-F]{64}", value):
         return value.casefold()
-    normalized = re.sub(r"[\W_]+", "", value.casefold(), flags=re.UNICODE)
+    normalized = normalize_followup_text(value)
     return hashlib.sha256(normalized.encode("utf-8")).hexdigest()
 
 
@@ -309,7 +356,7 @@ def is_duplicate_followup_text(
     generated_text: str,
     prior_questions: list[str],
     *,
-    similarity_threshold: float = 0.9,
+    similarity_threshold: float = FOLLOWUP_TEXT_SIMILARITY_THRESHOLD,
 ) -> bool:
     normalized = normalize_followup_text(generated_text)
     if not normalized:
@@ -318,9 +365,12 @@ def is_duplicate_followup_text(
         other = normalize_followup_text(text)
         if normalized == other:
             return True
-        if min(len(normalized), len(other)) >= 12 and SequenceMatcher(
-            None, normalized, other
-        ).ratio() >= similarity_threshold:
+        if (
+            min(len(normalized), len(other))
+            >= FOLLOWUP_TEXT_MIN_NORMALIZED_CHARS
+            and SequenceMatcher(None, normalized, other).ratio()
+            >= similarity_threshold
+        ):
             return True
     return False
 

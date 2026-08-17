@@ -3,6 +3,9 @@ import json
 from pydantic import ValidationError
 
 from app.services.followup_diagnostics import (
+    FOLLOWUP_DIAGNOSTICS_VERSION,
+    FOLLOWUP_TEXT_MIN_NORMALIZED_CHARS,
+    FOLLOWUP_TEXT_SIMILARITY_THRESHOLD,
     FollowupDiagnosticInput,
     FollowupDiagnosticRejected,
     FollowupPolicySnapshot,
@@ -97,6 +100,202 @@ def test_empty_answer_allows_one_clarification_then_forces_next():
     assert first.deterministic_decision.action == "follow_up"
     assert first.deterministic_decision.gap_type == "clarification"
     assert second.deterministic_decision.action == "next_question"
+
+
+@pytest.mark.parametrize(
+    "answers",
+    [
+        [
+            "我会先写入业务幂等键并持久化处理结果。",
+            "我会先写入业务幂等键，并持久化处理结果。",
+        ],
+        [
+            "I persist the idempotency key before processing the message.",
+            "I persist the idempotency key before processing the message!",
+        ],
+    ],
+)
+def test_repeated_answer_is_also_no_new_information(answers):
+    result = diagnose_followup(request(candidate_answers=answers))
+
+    assert result.signals == ["repeated_answer", "no_new_information"]
+
+
+@pytest.mark.parametrize(
+    ("question_text", "answer"),
+    [
+        (
+            "如何保证消息处理的幂等性并验证失败恢复？",
+            "如何保证消息处理的幂等性，并验证失败恢复？",
+        ),
+        (
+            "How do you guarantee idempotent processing and validate recovery?",
+            "How do you guarantee idempotent processing and validate recovery!",
+        ),
+    ],
+)
+def test_answer_only_repeating_question_is_no_new_information(
+    question_text, answer
+):
+    result = diagnose_followup(
+        request(question_text=question_text, candidate_answers=[answer])
+    )
+
+    assert result.signals == [
+        "no_new_information",
+        "answer_only_repeats_question",
+    ]
+
+
+@pytest.mark.parametrize(
+    ("prior_answer", "asked_followup"),
+    [
+        (
+            "我会使用业务幂等键拒绝重复请求。",
+            "请说明失败写入后的恢复步骤和验证指标。",
+        ),
+        (
+            "I reject duplicate requests with a business idempotency key.",
+            "Please explain recovery steps and validation metrics after a failed write.",
+        ),
+    ],
+)
+def test_repeating_only_the_asked_followup_has_no_new_information(
+    prior_answer, asked_followup
+):
+    result = diagnose_followup(
+        request(
+            candidate_answers=[prior_answer, asked_followup],
+            asked_followups=[asked_followup],
+            followup_count=1,
+        )
+    )
+
+    assert result.signals == ["no_new_information"]
+
+
+@pytest.mark.parametrize(
+    ("question_text", "prior_answer", "asked_followup", "latest_answer"),
+    [
+        (
+            "如何保证消息处理的幂等性？",
+            "我会使用唯一业务键拒绝重复请求。",
+            "失败写入后如何恢复？",
+            "我会从持久化日志重放失败写入，并监控补偿结果。",
+        ),
+        (
+            "How do you make message processing idempotent?",
+            "I reject duplicate requests with a unique business key.",
+            "How do you recover a failed write?",
+            "I replay failed writes from the durable log and monitor compensation.",
+        ),
+    ],
+)
+def test_new_information_is_not_misclassified_as_any_repeat_signal(
+    question_text, prior_answer, asked_followup, latest_answer
+):
+    result = diagnose_followup(
+        request(
+            question_text=question_text,
+            candidate_answers=[prior_answer, latest_answer],
+            asked_followups=[asked_followup],
+            followup_count=1,
+        )
+    )
+
+    assert not {
+        "repeated_answer",
+        "no_new_information",
+        "answer_only_repeats_question",
+    }.intersection(result.signals)
+
+
+@pytest.mark.parametrize("answer", ["是的", "yes"])
+def test_short_repeated_answers_are_not_misclassified_as_repeat_signals(answer):
+    result = diagnose_followup(request(candidate_answers=[answer, answer]))
+
+    assert result.signals == ["very_short"]
+
+
+def test_repeat_signal_thresholds_and_minimum_length_boundary_are_frozen():
+    assert FOLLOWUP_TEXT_MIN_NORMALIZED_CHARS == 12
+    assert FOLLOWUP_TEXT_SIMILARITY_THRESHOLD == 0.9
+
+    below = diagnose_followup(
+        request(candidate_answers=["abcdefghijk", "abcdefghijk"])
+    )
+    at_boundary = diagnose_followup(
+        request(candidate_answers=["abcdefghijkl", "abcdefghijkl"])
+    )
+
+    assert below.signals == ["very_short"]
+    assert at_boundary.signals == ["repeated_answer", "no_new_information"]
+
+
+def test_repeat_signals_do_not_reopen_a_closed_question_or_gap():
+    closed_gap = stable_followup_fingerprint("missing recovery evidence")
+    result = diagnose_followup(
+        request(
+            question_closed=True,
+            candidate_answers=[
+                "我会通过持久化日志恢复失败写入并验证补偿结果。",
+                "我会通过持久化日志恢复失败写入，并验证补偿结果。",
+            ],
+            closed_gap_ids=[closed_gap],
+        )
+    )
+
+    assert result.signals == ["repeated_answer", "no_new_information"]
+    assert result.provider_allowed is False
+    assert result.deterministic_decision.action == "next_question"
+    assert result.deterministic_decision.reason_code == "question_closed"
+    assert result.deterministic_decision.closed_gap_ids == [closed_gap]
+
+
+def test_diagnostics_v2_preserves_replay_input_and_provider_context_contract():
+    payload = request(
+        question_text=(
+            "How do you guarantee idempotent processing and validate recovery?"
+        ),
+        focus="idempotency, failure recovery, and monitoring",
+        candidate_answers=[
+            "I persist the idempotency key before processing the message.",
+            "I persist the idempotency key before processing the message!",
+        ],
+        asked_followups=["Please add one concrete implementation detail."],
+        followup_count=1,
+        public_knowledge_summary="",
+    )
+    result = diagnose_followup(payload)
+
+    assert FOLLOWUP_DIAGNOSTICS_VERSION == "followup-diagnostics-v2"
+    assert result.diagnostics_version == FOLLOWUP_DIAGNOSTICS_VERSION
+    assert result.input_sha256 == (
+        "d0498b9eb3cf8f8cd9f1d276dbe150675587571106e22850dabebc80f8fb3167"
+    )
+    assert result.provider_allowed is True
+    assert result.deterministic_decision is None
+    assert result.provider_context == {
+        "question_id": "q1",
+        "question": (
+            "How do you guarantee idempotent processing and validate recovery?"
+        ),
+        "focus": "idempotency, failure recovery, and monitoring",
+        "candidate_answers": payload["candidate_answers"],
+        "asked_followups": payload["asked_followups"],
+        "followup_count": 1,
+        "closed_gap_fingerprints": [],
+        "open_gap_fingerprint": None,
+        "public_knowledge_summary": "",
+        "policy": {
+            "policy_version": "adaptive_v1",
+            "max_followups": 2,
+            "max_context_chars": 1200,
+            "empty_clarification_limit": 1,
+        },
+    }
+    assert "signals" not in result.provider_context
+    assert "diagnostics_version" not in result.provider_context
 
 
 def test_regular_answer_produces_bounded_provider_context_and_stable_fingerprints():
