@@ -429,11 +429,11 @@ def _load_rag_console_runtime_settings() -> RagConsoleRuntimeSettings:
 def _load_user_materials_runtime_settings() -> UserMaterialsRuntimeSettings:
     env = process_environment()
     return UserMaterialsRuntimeSettings(
-        enabled=_strict_bool(env, "USER_MATERIALS_ENABLED", False),
+        enabled=_strict_bool(env, "USER_MATERIALS_ENABLED", True),
         ingest_enabled=_strict_bool(
             env,
             "USER_MATERIALS_INGEST_ENABLED",
-            False,
+            True,
         ),
     )
 

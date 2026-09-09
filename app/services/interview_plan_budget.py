@@ -298,18 +298,34 @@ def estimate_plan_duration(
 def assess_interview_plan_budget(plan: Any) -> PlanBudgetAssessment:
     from app.services.interview_plan_revision import (
         InterviewPlanQuestionV2,
+        InterviewPlanV2,
+        InterviewPlanV3,
         PlanConfigurationSnapshot,
+        parse_interview_plan,
     )
+    from app.domain.interview.question_intent import QuestionIntentV1
 
-    configuration_value = getattr(plan, "configuration_snapshot", None)
+    if isinstance(plan, (InterviewPlanV2, InterviewPlanV3)):
+        parsed_plan = plan
+        configuration_value = PlanConfigurationSnapshot.model_validate(
+            _model_payload(plan.configuration_snapshot)
+        )
+    else:
+        parsed_plan = parse_interview_plan(_model_payload(plan))
+        configuration_value = parsed_plan.configuration_snapshot
     configuration = PlanConfigurationSnapshot.model_validate(
         _model_payload(configuration_value)
     )
-    raw_questions = getattr(plan, "questions", None)
+    raw_questions = parsed_plan.questions
     if not isinstance(raw_questions, (list, tuple)):
         raise ValueError("plan questions must be a list or tuple")
+    question_model = (
+        InterviewPlanQuestionV2
+        if parsed_plan.schema_version == "interview-plan-v2"
+        else QuestionIntentV1
+    )
     questions = tuple(
-        InterviewPlanQuestionV2.model_validate(_model_payload(question))
+        question_model.model_validate(_model_payload(question))
         for question in raw_questions
     )
     profile = duration_budget_profile(configuration.target_duration_minutes)
@@ -341,7 +357,7 @@ def assess_interview_plan_budget(plan: Any) -> PlanBudgetAssessment:
         configuration.question_type_budget
     )
     actual_types = _normalized_question_type_counts(
-        Counter(question.question_type for question in questions)
+        Counter(_question_type(question) for question in questions)
     )
     if actual_types != expected_types:
         warnings.append("question_type_budget_drift")
@@ -457,6 +473,15 @@ def _normalized_question_type_counts(values: Any) -> dict[str, int]:
 def _model_payload(value: Any) -> Any:
     if isinstance(value, BaseModel):
         return value.model_dump(mode="json", warnings=False)
+    return value
+
+
+def _question_type(question: Any) -> str:
+    value = getattr(question, "question_type", None)
+    if value is None:
+        value = getattr(question, "kind", None)
+    if value not in QUESTION_TYPE_ORDER:
+        raise ValueError("question has an unsupported type")
     return value
 
 

@@ -309,8 +309,11 @@ def test_materials_schema_has_an_independent_frozen_migration_identity():
     assert USER_MATERIALS_SCHEMA_MIGRATION_ID not in {
         migration.migration_id for migration in RUNTIME_MIGRATIONS
     }
+    assert "row_serialization_versions_v1_v29" in {
+        migration.migration_id for migration in RUNTIME_MIGRATIONS
+    }
     assert LATEST_RUNTIME_MIGRATION.migration_id == (
-        "row_serialization_versions_v1_v29"
+        "interview_jit_main_question_v1_v30"
     )
 
 

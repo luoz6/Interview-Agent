@@ -22,6 +22,7 @@ class A2AAgentInvoker:
         causation_id: str | None = None,
         parent_run_id: str | None = None,
         command_id: str | None = None,
+        idempotency_key: str | None = None,
     ) -> DomainArtifact:
         return self._client.send_task(
             agent_id=agent_id,
@@ -33,4 +34,5 @@ class A2AAgentInvoker:
             causation_id=causation_id,
             parent_run_id=parent_run_id,
             command_id=command_id,
+            idempotency_key=idempotency_key,
         )

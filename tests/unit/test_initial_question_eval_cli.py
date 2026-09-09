@@ -11,9 +11,30 @@ from app.services.followup_provider_preflight import (
     DeepSeekDiscoverySnapshot,
     ProviderPrice,
 )
+from app.services.evaluator_candidate_identity import (
+    EVALUATOR_CANDIDATE_IDENTITY_VERSION,
+)
 from app.services.initial_question_eval import build_synthetic_initial_question_attempts
+from app.services.llm import (
+    PLAN_GENERATION_PROMPT_SHA256,
+    PLAN_GENERATION_PROMPT_VERSION,
+    PLAN_QUALITY_REPAIR_PROMPT_SHA256,
+    PLAN_QUALITY_REPAIR_PROMPT_VERSION,
+)
 from app.services.interview_plan_revision import v2_plan_to_legacy
 from app.services.t65_provider_evidence import build_t65_usage_cost_ledger
+
+
+def no_repair_lifecycle_metadata() -> dict[str, object]:
+    return {
+        "initial_hard_finding_codes": [],
+        "quality_repair_triggered": False,
+        "quality_repair_succeeded": None,
+        "post_repair_hard_finding_codes": None,
+        "quality_repair_prompt_version": PLAN_QUALITY_REPAIR_PROMPT_VERSION,
+        "quality_repair_prompt_sha256": PLAN_QUALITY_REPAIR_PROMPT_SHA256,
+        "provider_response_id_sha256s": ["a" * 64],
+    }
 
 
 @pytest.mark.parametrize(
@@ -58,6 +79,36 @@ def test_t57_cli_rejects_unsafe_run_id_before_discovery_provider_or_write(
     assert not output_root.exists()
 
 
+def test_plan_prompt_identity_fails_before_provider_discovery_or_write(
+    monkeypatch, tmp_path
+):
+    output_root = tmp_path / "prompt-drift"
+    monkeypatch.setattr(
+        cli,
+        "verify_plan_generation_prompt_identity",
+        lambda: (_ for _ in ()).throw(RuntimeError("drift")),
+    )
+    monkeypatch.setattr(
+        cli,
+        "discover_deepseek_provider",
+        lambda **_kwargs: pytest.fail("prompt drift must stop before discovery"),
+    )
+
+    with pytest.raises(SystemExit, match="prompt integrity check failed"):
+        cli.main(
+            [
+                "--mode", "provider",
+                "--scope", "smoke",
+                "--purpose", "evaluation",
+                "--partition", "all",
+                "--out", str(output_root),
+                "--run-id", "prompt-drift",
+            ]
+        )
+
+    assert not output_root.exists()
+
+
 def test_fixture_cli_writes_full_evidence_and_returns_blocked_not_pass(tmp_path):
     code = cli.main(
         [
@@ -95,10 +146,35 @@ def test_fixture_cli_writes_full_evidence_and_returns_blocked_not_pass(tmp_path)
     assert manifest["estimated_cost"] == 0.0
     assert len(manifest["candidate_revision"]) == 40
     assert len(manifest["candidate_tree"]) == 40
+    assert manifest["candidate_identity_version"] == (
+        EVALUATOR_CANDIDATE_IDENTITY_VERSION
+    )
+    if manifest["worktree_clean"]:
+        assert manifest["candidate_unstaged_tracked_diff_sha256"] is None
+        assert manifest["candidate_staged_diff_sha256"] is None
+        assert manifest["candidate_untracked_safe_manifest_sha256"] is None
+    else:
+        assert len(manifest["candidate_unstaged_tracked_diff_sha256"]) == 64
+        assert len(manifest["candidate_staged_diff_sha256"]) == 64
+        assert len(manifest["candidate_untracked_safe_manifest_sha256"]) == 64
+    assert manifest["candidate_untracked_safe_file_count"] >= 0
+    assert manifest["candidate_untracked_excluded_file_count"] >= 0
     assert manifest["authorization_sha256"]
     assert manifest["provider"]
     assert manifest["model"]
     assert manifest["plan_output_mode"] == "raw_only"
+    assert manifest["plan_generation_prompt_version"] == PLAN_GENERATION_PROMPT_VERSION
+    assert manifest["plan_generation_prompt_sha256"] == PLAN_GENERATION_PROMPT_SHA256
+    assert manifest["quality_repair_prompt_version"] == (
+        PLAN_QUALITY_REPAIR_PROMPT_VERSION
+    )
+    assert manifest["quality_repair_prompt_sha256"] == (
+        PLAN_QUALITY_REPAIR_PROMPT_SHA256
+    )
+    assert manifest["initial_hard_finding_codes"] == []
+    assert manifest["quality_repair_triggered"] is False
+    assert manifest["quality_repair_succeeded"] is None
+    assert manifest["post_repair_hard_finding_codes"] is None
     assert metrics["automated_status"] == "PASS"
     assert metrics["attempt_count"] == 24
     assert metrics["provider_usage"]["recorded_source_invocations"] == 0
@@ -232,6 +308,73 @@ def test_initial_consumer_preserves_explicit_zero_usage():
     assert cli._complete_provider_token_usage(metadata) == metadata
 
 
+def test_manifest_repair_lifecycle_uses_explicit_state_not_invocation_count():
+    repaired = SimpleNamespace(
+        initial_hard_finding_codes=("overloaded_multi_ask",),
+        quality_repair_triggered=True,
+        quality_repair_succeeded=True,
+        post_repair_hard_finding_codes=(),
+    )
+    artifact = SimpleNamespace(
+        attempts=(repaired,),
+        failed_generation_lifecycles=(),
+        outbound_requests_attempted=99,
+    )
+    manifest = {}
+
+    cli._apply_repair_lifecycle_manifest(manifest, artifact)
+
+    assert manifest == {
+        "initial_hard_finding_codes": ["overloaded_multi_ask"],
+        "quality_repair_triggered": True,
+        "quality_repair_succeeded": True,
+        "post_repair_hard_finding_codes": [],
+    }
+
+
+def test_manifest_repair_lifecycle_preserves_unknown_failed_outcome():
+    failed = SimpleNamespace(
+        initial_hard_finding_codes=("answer_leakage",),
+        quality_repair_triggered=True,
+        quality_repair_succeeded=None,
+        post_repair_hard_finding_codes=None,
+    )
+    artifact = SimpleNamespace(
+        attempts=(),
+        failed_generation_lifecycles=(failed,),
+    )
+    manifest = {}
+
+    cli._apply_repair_lifecycle_manifest(manifest, artifact)
+
+    assert manifest["initial_hard_finding_codes"] == ["answer_leakage"]
+    assert manifest["quality_repair_triggered"] is True
+    assert manifest["quality_repair_succeeded"] is None
+    assert manifest["post_repair_hard_finding_codes"] is None
+
+
+def test_saved_replay_repair_prompt_identity_is_fail_closed():
+    current = SimpleNamespace(
+        quality_repair_prompt_version=PLAN_QUALITY_REPAIR_PROMPT_VERSION,
+        quality_repair_prompt_sha256=PLAN_QUALITY_REPAIR_PROMPT_SHA256,
+    )
+    artifact = SimpleNamespace(
+        attempts=(current,),
+        failed_generation_lifecycles=(),
+    )
+    assert cli._artifact_repair_prompt_identity_is_current(artifact) is True
+
+    drifted = SimpleNamespace(
+        quality_repair_prompt_version="plan-quality-repair-old",
+        quality_repair_prompt_sha256="0" * 64,
+    )
+    artifact = SimpleNamespace(
+        attempts=(drifted,),
+        failed_generation_lifecycles=(),
+    )
+    assert cli._artifact_repair_prompt_identity_is_current(artifact) is False
+
+
 def test_usage_manifest_keeps_all_token_totals_null_when_any_usage_is_unknown():
     attempts = (
         SimpleNamespace(
@@ -302,6 +445,7 @@ def test_live_capture_hard_stops_and_keeps_manifest_null_on_partial_usage(
         cli,
         "consume_provider_context_metadata",
         lambda: {
+            **no_repair_lifecycle_metadata(),
             "provider_attempt_count": 1,
             "provider_metered_attempt_count": 1,
             "provider_usage_available": True,
@@ -350,6 +494,7 @@ def test_live_capture_selects_single_request_raw_json_mode(monkeypatch):
         cli,
         "consume_provider_context_metadata",
         lambda: {
+            **no_repair_lifecycle_metadata(),
             "provider_attempt_count": 1,
             "provider_metered_attempt_count": 1,
             "provider_usage_available": True,
@@ -378,6 +523,18 @@ def test_live_capture_selects_single_request_raw_json_mode(monkeypatch):
     assert artifact.capture_status == "complete"
     assert artifact.outbound_requests_attempted == 1
     assert artifact.outbound_requests_metered == 1
+    assert artifact.schema_version == "initial-question-provider-replay-v2"
+    attempt = artifact.attempts[0]
+    assert attempt.initial_hard_finding_codes == ()
+    assert attempt.quality_repair_triggered is False
+    assert attempt.quality_repair_succeeded is None
+    assert attempt.post_repair_hard_finding_codes is None
+    assert attempt.quality_repair_prompt_version == (
+        PLAN_QUALITY_REPAIR_PROMPT_VERSION
+    )
+    assert attempt.quality_repair_prompt_sha256 == (
+        PLAN_QUALITY_REPAIR_PROMPT_SHA256
+    )
 
 
 def test_live_capture_honors_preselected_smoke_case_count(monkeypatch):
@@ -401,6 +558,7 @@ def test_live_capture_honors_preselected_smoke_case_count(monkeypatch):
         cli,
         "consume_provider_context_metadata",
         lambda: {
+            **no_repair_lifecycle_metadata(),
             "provider_attempt_count": 1,
             "provider_metered_attempt_count": 1,
             "provider_usage_available": True,
@@ -445,6 +603,7 @@ def test_live_capture_stops_before_starting_the_next_business_sample(monkeypatch
         cli,
         "consume_provider_context_metadata",
         lambda: {
+            **no_repair_lifecycle_metadata(),
             "provider_attempt_count": 1,
             "provider_metered_attempt_count": 0,
         },
@@ -463,6 +622,113 @@ def test_live_capture_stops_before_starting_the_next_business_sample(monkeypatch
     assert business_calls == ["started"]
     assert artifact.capture_status == "hard_stopped"
     assert artifact.outbound_requests_attempted == 1
+
+
+def test_live_capture_records_usage_and_response_id_stops_together(monkeypatch):
+    dataset = cli.load_interview_quality_dataset(cli.DEFAULT_DATASET)
+    dataset = dataset.model_copy(update={"cases": dataset.cases[:1]})
+
+    monkeypatch.setattr(
+        cli,
+        "OpenAIInterviewLLM",
+        lambda _config: SimpleNamespace(
+            generate_plan=lambda *_args, **_kwargs: (_ for _ in ()).throw(
+                RuntimeError("provider response omitted usage")
+            )
+        ),
+    )
+    monkeypatch.setattr(
+        cli,
+        "consume_provider_context_metadata",
+        lambda: {
+            **no_repair_lifecycle_metadata(),
+            "provider_attempt_count": 2,
+            "provider_metered_attempt_count": 1,
+            "provider_usage_available": False,
+            "provider_model": "deepseek-v4-pro",
+            "provider_response_id_sha256s": [],
+        },
+    )
+
+    artifact = cli._record_live_provider_responses(
+        dataset,
+        dataset_sha256="a" * 64,
+        authorization=cli.load_provider_authorization(cli.DEFAULT_AUTHORIZATION),
+        api_key="not-serialized",
+        timeout_seconds=1.0,
+        context_window_tokens=128_000,
+        smoke=True,
+    )
+
+    lifecycle = artifact.failed_generation_lifecycles[0]
+    assert artifact.hard_stop_conditions == (
+        "USAGE_METERING_UNAVAILABLE",
+        "RESPONSE_ID_EVIDENCE_UNAVAILABLE",
+    )
+    assert lifecycle.hard_stop_condition == "RESPONSE_ID_EVIDENCE_UNAVAILABLE"
+
+
+def test_failed_repair_request_persists_redacted_lifecycle_and_exact_requests(
+    monkeypatch,
+):
+    dataset = cli.load_interview_quality_dataset(cli.DEFAULT_DATASET)
+    dataset = dataset.model_copy(update={"cases": dataset.cases[:1]})
+    item = cli.InitialQuestionCaseInput.model_validate(dataset.cases[0].input)
+    monkeypatch.setattr(
+        cli,
+        "OpenAIInterviewLLM",
+        lambda _config: SimpleNamespace(
+            generate_plan=lambda *_args, **_kwargs: (_ for _ in ()).throw(
+                ValueError("schema failed after repair trigger")
+            )
+        ),
+    )
+    monkeypatch.setattr(
+        cli,
+        "consume_provider_context_metadata",
+        lambda: {
+            "provider_attempt_count": 2,
+            "provider_metered_attempt_count": 2,
+            "provider_usage_available": True,
+            "provider_model": "deepseek-v4-pro",
+            "provider_input_tokens": 20,
+            "provider_output_tokens": 4,
+            "provider_cached_input_tokens": 0,
+            "provider_response_id_sha256s": ["a" * 64, "b" * 64],
+            "initial_hard_finding_codes": ["overloaded_multi_ask"],
+            "quality_repair_triggered": True,
+            "quality_repair_succeeded": None,
+            "post_repair_hard_finding_codes": None,
+            "quality_repair_prompt_version": PLAN_QUALITY_REPAIR_PROMPT_VERSION,
+            "quality_repair_prompt_sha256": PLAN_QUALITY_REPAIR_PROMPT_SHA256,
+        },
+    )
+
+    artifact = cli._record_live_provider_responses(
+        dataset,
+        dataset_sha256="a" * 64,
+        authorization=cli.load_provider_authorization(cli.DEFAULT_AUTHORIZATION),
+        api_key="not-serialized",
+        timeout_seconds=1.0,
+        context_window_tokens=128_000,
+        smoke=True,
+    )
+
+    assert artifact.capture_status == "hard_stopped"
+    assert artifact.outbound_requests_attempted == 2
+    assert artifact.outbound_requests_metered == 2
+    assert artifact.attempts == ()
+    assert len(artifact.failed_generation_lifecycles) == 1
+    lifecycle = artifact.failed_generation_lifecycles[0]
+    assert lifecycle.initial_hard_finding_codes == ("overloaded_multi_ask",)
+    assert lifecycle.quality_repair_triggered is True
+    assert lifecycle.quality_repair_succeeded is None
+    assert lifecycle.post_repair_hard_finding_codes is None
+    assert lifecycle.response_id_sha256s == ("a" * 64, "b" * 64)
+    serialized = artifact.model_dump_json()
+    assert item.job_description not in serialized
+    assert item.resume_summary not in serialized
+    assert "schema failed after repair trigger" not in serialized
 
 
 def test_live_capture_model_mismatch_stops_before_next_business_sample(monkeypatch):
@@ -486,6 +752,7 @@ def test_live_capture_model_mismatch_stops_before_next_business_sample(monkeypat
         cli,
         "consume_provider_context_metadata",
         lambda: {
+            **no_repair_lifecycle_metadata(),
             "provider_attempt_count": 1,
             "provider_metered_attempt_count": 1,
             "provider_usage_available": True,
@@ -511,3 +778,53 @@ def test_live_capture_model_mismatch_stops_before_next_business_sample(monkeypat
     assert artifact.hard_stop_conditions == ("PROVIDER_OR_MODEL_MISMATCH",)
     assert artifact.outbound_requests_attempted == 1
     assert artifact.outbound_requests_metered == 1
+
+
+def test_live_capture_rejects_model_drift_even_when_final_model_is_authorized(
+    monkeypatch,
+):
+    dataset = cli.load_interview_quality_dataset(cli.DEFAULT_DATASET)
+    dataset = dataset.model_copy(update={"cases": dataset.cases[:2]})
+    legacy = v2_plan_to_legacy(
+        build_synthetic_initial_question_attempts(dataset)[0].plan
+    )
+    business_calls = []
+
+    monkeypatch.setattr(
+        cli,
+        "OpenAIInterviewLLM",
+        lambda _config: SimpleNamespace(
+            generate_plan=lambda *_args, **_kwargs: (
+                business_calls.append("started") or legacy
+            )
+        ),
+    )
+    monkeypatch.setattr(
+        cli,
+        "consume_provider_context_metadata",
+        lambda: {
+            **no_repair_lifecycle_metadata(),
+            "provider_attempt_count": 2,
+            "provider_metered_attempt_count": 2,
+            "provider_usage_available": True,
+            "provider_model": "deepseek-v4-pro",
+            "provider_response_models": ["deepseek-v4-pro", "deepseek-v4-flash"],
+            "provider_input_tokens": 20,
+            "provider_output_tokens": 4,
+            "provider_cached_input_tokens": 0,
+            "provider_response_id_sha256s": ["a" * 64, "b" * 64],
+        },
+    )
+
+    artifact = cli._record_live_provider_responses(
+        dataset,
+        dataset_sha256="a" * 64,
+        authorization=cli.load_provider_authorization(cli.DEFAULT_AUTHORIZATION),
+        api_key="not-serialized",
+        timeout_seconds=1.0,
+        context_window_tokens=128_000,
+        smoke=True,
+    )
+
+    assert business_calls == ["started"]
+    assert artifact.hard_stop_conditions == ("PROVIDER_OR_MODEL_MISMATCH",)

@@ -119,6 +119,8 @@ def test_repeated_answer_is_also_no_new_information(answers):
     result = diagnose_followup(request(candidate_answers=answers))
 
     assert result.signals == ["repeated_answer", "no_new_information"]
+    assert result.provider_allowed is True
+    assert result.deterministic_decision is None
 
 
 @pytest.mark.parametrize(
@@ -174,6 +176,60 @@ def test_repeating_only_the_asked_followup_has_no_new_information(
     assert result.signals == ["no_new_information"]
 
 
+def test_adaptive_repeated_state_after_first_followup_is_deterministic_stop():
+    result = diagnose_followup(
+        request(
+            candidate_answers=[
+                "我会使用业务幂等键拒绝重复请求。",
+                "我会使用业务幂等键拒绝重复请求。",
+            ],
+            asked_followups=["请说明失败写入后的恢复步骤和验证指标。"],
+            followup_count=1,
+        )
+    )
+
+    assert result.signals == ["repeated_answer", "no_new_information"]
+    assert result.provider_allowed is False
+    assert result.provider_context == {}
+    assert result.deterministic_decision.action == "next_question"
+    assert result.deterministic_decision.answer_state == "partial"
+    assert result.deterministic_decision.gap_type == "none"
+    assert result.deterministic_decision.reason_code == "repeated_state"
+
+
+def test_adaptive_first_followup_and_new_information_still_allow_provider():
+    result = diagnose_followup(
+        request(
+            candidate_answers=[
+                "我会使用业务幂等键拒绝重复请求。",
+                "我会从持久化日志重放失败写入并监控补偿结果。",
+            ],
+            asked_followups=["请说明失败写入后的恢复步骤和验证指标。"],
+            followup_count=1,
+        )
+    )
+
+    assert result.provider_allowed is True
+    assert result.deterministic_decision is None
+
+
+def test_fixed_policy_keeps_existing_deterministic_order_for_repeated_state():
+    result = diagnose_followup(
+        request(
+            candidate_answers=[
+                "我会使用业务幂等键拒绝重复请求。",
+                "我会使用业务幂等键拒绝重复请求。",
+            ],
+            asked_followups=["请说明失败写入后的恢复步骤和验证指标。"],
+            followup_count=1,
+            policy={"policy_version": "fixed_v1", "max_followups": 1},
+        )
+    )
+
+    assert result.provider_allowed is False
+    assert result.deterministic_decision.reason_code == "followup_limit_reached"
+
+
 @pytest.mark.parametrize(
     ("question_text", "prior_answer", "asked_followup", "latest_answer"),
     [
@@ -212,9 +268,17 @@ def test_new_information_is_not_misclassified_as_any_repeat_signal(
 
 @pytest.mark.parametrize("answer", ["是的", "yes"])
 def test_short_repeated_answers_are_not_misclassified_as_repeat_signals(answer):
-    result = diagnose_followup(request(candidate_answers=[answer, answer]))
+    result = diagnose_followup(
+        request(
+            candidate_answers=["我会使用业务幂等键拒绝重复请求。", answer],
+            asked_followups=["请说明失败写入后的恢复步骤和验证指标。"],
+            followup_count=1,
+        )
+    )
 
     assert result.signals == ["very_short"]
+    assert result.provider_allowed is True
+    assert result.deterministic_decision is None
 
 
 def test_repeat_signal_thresholds_and_minimum_length_boundary_are_frozen():
@@ -241,6 +305,8 @@ def test_repeat_signals_do_not_reopen_a_closed_question_or_gap():
                 "我会通过持久化日志恢复失败写入并验证补偿结果。",
                 "我会通过持久化日志恢复失败写入，并验证补偿结果。",
             ],
+            asked_followups=["请补充恢复失败写入的验证方式。"],
+            followup_count=1,
             closed_gap_ids=[closed_gap],
         )
     )
@@ -252,7 +318,7 @@ def test_repeat_signals_do_not_reopen_a_closed_question_or_gap():
     assert result.deterministic_decision.closed_gap_ids == [closed_gap]
 
 
-def test_diagnostics_v2_preserves_replay_input_and_provider_context_contract():
+def test_diagnostics_v3_preserves_replay_input_and_provider_context_contract():
     payload = request(
         question_text=(
             "How do you guarantee idempotent processing and validate recovery?"
@@ -268,34 +334,15 @@ def test_diagnostics_v2_preserves_replay_input_and_provider_context_contract():
     )
     result = diagnose_followup(payload)
 
-    assert FOLLOWUP_DIAGNOSTICS_VERSION == "followup-diagnostics-v2"
+    assert FOLLOWUP_DIAGNOSTICS_VERSION == "followup-diagnostics-v3"
     assert result.diagnostics_version == FOLLOWUP_DIAGNOSTICS_VERSION
     assert result.input_sha256 == (
         "d0498b9eb3cf8f8cd9f1d276dbe150675587571106e22850dabebc80f8fb3167"
     )
-    assert result.provider_allowed is True
-    assert result.deterministic_decision is None
-    assert result.provider_context == {
-        "question_id": "q1",
-        "question": (
-            "How do you guarantee idempotent processing and validate recovery?"
-        ),
-        "focus": "idempotency, failure recovery, and monitoring",
-        "candidate_answers": payload["candidate_answers"],
-        "asked_followups": payload["asked_followups"],
-        "followup_count": 1,
-        "closed_gap_fingerprints": [],
-        "open_gap_fingerprint": None,
-        "public_knowledge_summary": "",
-        "policy": {
-            "policy_version": "adaptive_v1",
-            "max_followups": 2,
-            "max_context_chars": 1200,
-            "empty_clarification_limit": 1,
-        },
-    }
-    assert "signals" not in result.provider_context
-    assert "diagnostics_version" not in result.provider_context
+    assert result.provider_allowed is False
+    assert result.deterministic_decision is not None
+    assert result.deterministic_decision.reason_code == "repeated_state"
+    assert result.provider_context == {}
 
 
 def test_regular_answer_produces_bounded_provider_context_and_stable_fingerprints():

@@ -11,7 +11,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from app.services.decision_store import DecisionContract, FollowupPolicyVersion
 
 
-FOLLOWUP_DIAGNOSTICS_VERSION = "followup-diagnostics-v2"
+FOLLOWUP_DIAGNOSTICS_VERSION = "followup-diagnostics-v3"
 FOLLOWUP_TEXT_MIN_NORMALIZED_CHARS = 12
 FOLLOWUP_TEXT_SIMILARITY_THRESHOLD = 0.9
 
@@ -73,7 +73,7 @@ class FollowupDiagnosticInput(BaseModel):
 class FollowupDiagnostics(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    diagnostics_version: Literal["followup-diagnostics-v2"] = (
+    diagnostics_version: Literal["followup-diagnostics-v3"] = (
         FOLLOWUP_DIAGNOSTICS_VERSION
     )
     input_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
@@ -196,6 +196,19 @@ def _deterministic_decision(
             gap_type="none",
             gap_summary="",
             reason_code="followup_limit_reached",
+            **common,
+        )
+    if (
+        request.policy.policy_version == "adaptive_v1"
+        and request.followup_count >= 1
+        and "no_new_information" in signals
+    ):
+        return DecisionContract(
+            action="next_question",
+            answer_state=_answer_state(signals),
+            gap_type="none",
+            gap_summary="",
+            reason_code="repeated_state",
             **common,
         )
     return None

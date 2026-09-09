@@ -15,6 +15,7 @@ from app.services.interview_workflow import (
     InterviewWorkflowService,
     _followup_ui_state,
 )
+from app.services.interview_plan_revision import legacy_plan_to_v3
 from app.services.langgraph_runtime import VersionedGraphRegistry
 from app.services.report_jobs import choose_report_workflow_engine
 from tests.interview_fixtures import sample_interview_plan
@@ -137,7 +138,7 @@ def test_durable_interview_version_predicate_accepts_registered_versions(version
     assert is_durable_interview_version(version) is True
 
 
-@pytest.mark.parametrize("version", [None, "legacy", "langgraph-review-v1", "langgraph-v3"])
+@pytest.mark.parametrize("version", [None, "legacy", "langgraph-review-v1", "langgraph-v4"])
 def test_durable_interview_version_predicate_rejects_other_versions(version):
     assert is_durable_interview_version(version) is False
 
@@ -164,6 +165,67 @@ def test_registry_never_falls_back_to_another_graph_version():
 
     with pytest.raises(ValueError, match="unsupported graph version"):
         registry.get("langgraph-v2")
+
+
+@pytest.mark.parametrize(
+    ("runtime_store", "runtime_enabled", "graph_version"),
+    [
+        ("memory", True, "langgraph-v3"),
+        ("postgres", False, "langgraph-v3"),
+        ("postgres", True, "langgraph-v1"),
+        ("postgres", True, "langgraph-v2"),
+    ],
+)
+def test_v3_plan_fails_closed_outside_enabled_langgraph_v3_postgres_runtime(
+    runtime_store,
+    runtime_enabled,
+    graph_version,
+):
+    registry = VersionedGraphRegistry()
+    registry.register(graph_version, object())
+    workflow = InterviewWorkflowService(
+        legacy_store=FakeLegacyStore({}),
+        workflow_store=FakeWorkflowStore(),
+        generation_store=object(),
+        graph_registry=registry,
+        runtime_store=runtime_store,
+        runtime_enabled=runtime_enabled,
+        rollout_percent=100,
+        default_graph_version=graph_version,
+    )
+
+    with pytest.raises(RuntimeError, match="requires enabled langgraph-v3 PostgreSQL runtime"):
+        workflow.start(
+            legacy_plan_to_v3(sample_interview_plan()),
+            job_description="backend role",
+            resume_text="distributed systems",
+            job_tags=["backend"],
+            bootstrap=False,
+        )
+
+
+def test_legacy_plan_cannot_be_dispatched_to_langgraph_v3():
+    registry = VersionedGraphRegistry()
+    registry.register("langgraph-v3", object())
+    workflow = InterviewWorkflowService(
+        legacy_store=FakeLegacyStore({}),
+        workflow_store=FakeWorkflowStore(),
+        generation_store=object(),
+        graph_registry=registry,
+        runtime_store="postgres",
+        runtime_enabled=True,
+        rollout_percent=100,
+        default_graph_version="langgraph-v3",
+    )
+
+    with pytest.raises(ValueError, match="langgraph-v3 requires interview-plan-v3"):
+        workflow.start(
+            sample_interview_plan(),
+            job_description="backend role",
+            resume_text="distributed systems",
+            job_tags=["backend"],
+            bootstrap=False,
+        )
 
 
 @dataclass
@@ -337,6 +399,81 @@ def test_decision_stage_snapshot_can_recover_before_generation_exists():
     assert "gap_summary" not in snapshot
     assert "decision_confidence" not in snapshot
     assert "reason_code" not in snapshot
+
+
+def test_v3_snapshot_does_not_reveal_generation_stage_question_before_commit():
+    state = {
+        "workflow_engine": "langgraph-v3",
+        "graph_schema_version": "langgraph-v3",
+        "memory_policy_version": "question-memory-v1",
+        "messages": [],
+    }
+    values = {
+        "workflow_engine": "langgraph-v3",
+        "interview_status": "preparing_first_question",
+        "current_index": 0,
+        "rendered_question": {
+            "question_id": "q1",
+            "text": "validated but not committed question",
+            "generation_id": "generation-1",
+        },
+        "rendered_questions": {},
+        "current_rendered_question_id": None,
+        "plan_snapshot": {
+            "questions": [{"question_id": "q1", "kind": "technical"}]
+        },
+    }
+    registry = VersionedGraphRegistry()
+    registry.register("langgraph-v3", FakeGraph(values, "commit_rendered_main_question"))
+    workflow = InterviewWorkflowService(
+        legacy_store=FakeLegacyStore(state),
+        workflow_store=FakeWorkflowStore(),
+        generation_store=object(),
+        graph_registry=registry,
+        runtime_store="postgres",
+        runtime_enabled=True,
+        rollout_percent=100,
+        default_graph_version="langgraph-v3",
+    )
+
+    snapshot = workflow.snapshot("s1")
+
+    assert snapshot["current_question"] is None
+    assert snapshot["questions"] == [
+        {"id": "q1", "kind": "technical", "state": "pending"}
+    ]
+    assert "validated but not committed question" not in str(snapshot)
+
+
+def test_v3_snapshot_exposes_bootstrap_observer_before_first_graph_checkpoint():
+    state = {
+        "workflow_engine": "langgraph-v3",
+        "graph_schema_version": "langgraph-v3",
+        "memory_policy_version": "question-memory-v1",
+        "status": "preparing_first_question",
+        "messages": [],
+    }
+    registry = VersionedGraphRegistry()
+    registry.register("langgraph-v3", FakeGraph({}, "prepare_main_question"))
+    workflow = InterviewWorkflowService(
+        legacy_store=FakeLegacyStore(state),
+        workflow_store=FakeWorkflowStore(),
+        generation_store=object(),
+        graph_registry=registry,
+        runtime_store="postgres",
+        runtime_enabled=True,
+        rollout_percent=100,
+        default_graph_version="langgraph-v3",
+    )
+
+    snapshot = workflow.snapshot("s1")
+
+    assert snapshot["status"] == "preparing_first_question"
+    assert snapshot["active_command_id"] == "bootstrap"
+    assert snapshot["active_stream_url"] == (
+        "/api/interviews/s1/bootstrap/stream"
+    )
+    assert snapshot.get("current_question") is None
 
 
 def test_new_answer_after_finish_is_rejected_before_inbox_write():

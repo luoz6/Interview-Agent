@@ -1,4 +1,5 @@
 import hashlib
+import inspect
 import json
 import logging
 from dataclasses import dataclass
@@ -25,6 +26,7 @@ from app.services.provider_usage import (
     publish_prompt_measurement,
     publish_provider_response,
     publish_plan_context_selection,
+    publish_plan_quality_repair_lifecycle,
 )
 from app.services.context_runtime import (
     ContextRuntime,
@@ -49,8 +51,15 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-REPORT_EVIDENCE_PROMPT_VERSION = "stage40-evidence-v1"
+REPORT_EVIDENCE_PROMPT_VERSION = "stage40-evidence-v2"
+# Frozen identity for the current evidence prompt source.  The report
+# evaluator verifies this against ``_build_report_prompt`` before a run so a
+# prompt edit cannot be mistaken for a resumable run under the old identity.
+REPORT_EVIDENCE_PROMPT_SHA256 = (
+    "310c9295eabe5bcabeb88e51f5ed4bd422087181fa0ec4776af76f6806868deb"
+)
 RAW_ONLY_PLAN_MODELS = frozenset({"deepseek-v4-pro"})
+RAW_ONLY_REPORT_MODELS = frozenset({"deepseek-v4-pro"})
 PLAN_MAX_LOGICAL_GENERATION_ROUNDS = 2
 PLAN_MAX_QUALITY_REPAIR_ROUNDS = 1
 PLAN_MAX_PROVIDER_INVOCATIONS = 4
@@ -58,7 +67,7 @@ PLAN_SDK_MAX_RETRIES = 1
 PLAN_MAX_TRANSPORT_ATTEMPTS = PLAN_MAX_PROVIDER_INVOCATIONS * (
     PLAN_SDK_MAX_RETRIES + 1
 )
-PLAN_QUALITY_REPAIR_PROMPT_VERSION = "plan-quality-repair-v1"
+PLAN_QUALITY_REPAIR_PROMPT_VERSION = "plan-quality-repair-v2"
 PLAN_QUALITY_REPAIR_PROMPT_TEMPLATE = (
     "Plan quality repair prompt version: {prompt_version}.\n"
     "Prompt template SHA-256: {prompt_sha256}.\n"
@@ -67,6 +76,12 @@ PLAN_QUALITY_REPAIR_PROMPT_TEMPLATE = (
     "Preserve the plan title, question count, question ids, question kinds, and "
     "all generation-contract fields.\n"
     "Change only question prompts or focus text needed to correct the findings.\n"
+    "For overloaded_multi_ask, rewrite each affected prompt around exactly one "
+    "primary assessment objective. Use at most one question mark, no numbered "
+    "subquestions, and no more than two assessment verbs such as explain, "
+    "compare, describe, analyze, evaluate, design, or their Chinese equivalents. "
+    "Move secondary dimensions into the focus text instead of asking them as "
+    "additional candidate tasks.\n"
     "Use only the candidate plan and deterministic metadata below. No job "
     "description, resume, or source evidence is available in this repair round.\n"
     "Return valid JSON only in the same candidate-plan shape. Do not return markdown.\n\n"
@@ -78,7 +93,15 @@ PLAN_QUALITY_REPAIR_PROMPT_TEMPLATE = (
     "{candidate_plan}"
 )
 PLAN_QUALITY_REPAIR_PROMPT_SHA256 = (
-    "5031ef7d322a64d5db6500c1b9afdb3020ba3886c0dc1cbcfbc22ba6bbd005b2"
+    "97bb1cb2a292c43790307456eeab9c99e5f985fd1193d9dddef224700ea8da54"
+)
+PLAN_GENERATION_PROMPT_VERSION = "plan-generation-v3"
+# Fail-closed identity rule: SHA-256 over UTF-8 bytes of
+# ``<version>\n<inspect.getsource(_build_plan_prompt)>``. Dynamic JD, resume,
+# knowledge, and configuration values are deliberately excluded; a source
+# template edit requires a new version and frozen digest before evaluation.
+PLAN_GENERATION_PROMPT_SHA256 = (
+    "1872e97c7be37621536fd4e82653a864dee6e6a58815b15598fb7d05c72dc88b"
 )
 
 
@@ -92,6 +115,27 @@ def resolve_plan_output_mode(
     """Choose the production plan protocol before any Provider request."""
 
     return "raw_only" if model in RAW_ONLY_PLAN_MODELS else "structured_first"
+
+
+def resolve_report_output_mode(
+    model: str,
+) -> Literal["structured_first", "raw_only"]:
+    """Choose the report transport supported by the configured model."""
+
+    return "raw_only" if model in RAW_ONLY_REPORT_MODELS else "structured_first"
+
+
+def verify_plan_generation_prompt_identity() -> str:
+    try:
+        source = inspect.getsource(OpenAIInterviewLLM._build_plan_prompt)
+    except (OSError, TypeError) as exc:
+        raise RuntimeError("plan generation prompt source is unavailable") from exc
+    actual = hashlib.sha256(
+        f"{PLAN_GENERATION_PROMPT_VERSION}\n{source}".encode("utf-8")
+    ).hexdigest()
+    if actual != PLAN_GENERATION_PROMPT_SHA256:
+        raise RuntimeError("plan generation prompt integrity check failed")
+    return actual
 
 
 @dataclass(frozen=True)
@@ -158,11 +202,22 @@ class InterviewLLM(Protocol):
         resume_text: str,
         knowledge_context: list[dict] | None = None,
         configuration: "PlanConfigurationSnapshot | None" = None,
+        intent_only: bool = False,
     ):
         """Generate the interview plan from JD and resume."""
 
     def generate_followup(self, context: list[dict[str, str]]) -> str:
         """Generate a follow-up question from recent context."""
+
+    def generate_main_question(
+        self,
+        *,
+        intent,
+        conversation: list[dict[str, str]] | None = None,
+        evidence: list[dict[str, str]] | None = None,
+        timeout_seconds: float | None = None,
+    ) -> str:
+        """Generate one JIT main question from a frozen QuestionIntent."""
 
     def stream_followup(self, context: list[dict[str, str]]) -> Iterator[str]:
         """Stream a follow-up question from recent context."""
@@ -185,9 +240,12 @@ class OpenAIInterviewLLM:
         report_output_mode: Literal["structured_first", "raw_only"] | None = None,
         context_runtime: ContextRuntime | None = None,
         provider_attempt_hook: Callable[[], None] | None = None,
+        report_evidence_observer: Callable[[list[dict[str, Any]]], None]
+        | None = None,
     ) -> None:
         from app.services.report_trace import ReportTraceRecorder
 
+        injected_chat_model = chat_model is not None
         resolved_config = config or (
             LLMConfig(api_key="injected-chat-model")
             if chat_model is not None
@@ -226,10 +284,13 @@ class OpenAIInterviewLLM:
         self._prompt_guard = RenderedPromptGuard()
         self.trace_recorder = trace_recorder or ReportTraceRecorder.from_env()
         self._provider_attempt_hook = provider_attempt_hook
+        self._report_evidence_observer = report_evidence_observer
         self.plan_output_mode = resolved_config.plan_output_mode
-        configured_mode = (
-            report_output_mode or load_llm_runtime_settings().report_output_mode
-        )
+        configured_mode = report_output_mode
+        if configured_mode is None and not injected_chat_model:
+            configured_mode = load_llm_runtime_settings().report_output_mode
+        if configured_mode is None:
+            configured_mode = load_llm_runtime_settings().report_output_mode
         if configured_mode not in {"structured_first", "raw_only"}:
             raise ValueError(f"unsupported OPENAI_REPORT_OUTPUT_MODE: {configured_mode}")
         self.report_output_mode = configured_mode
@@ -240,17 +301,31 @@ class OpenAIInterviewLLM:
         resume_text: str,
         knowledge_context: list[dict] | None = None,
         configuration: "PlanConfigurationSnapshot | None" = None,
+        intent_only: bool = False,
     ):
         from app.services.prep import (
             enforce_generated_interview_plan,
+            enforce_generated_intent_plan,
             enforce_generated_interview_question_quality,
             InterviewPlan,
+            InterviewIntentDraftPlan,
+            interview_plan_from_intent_draft,
             PlanGenerationValidationError,
             validate_launchable_interview_plan,
             validate_generation_configuration,
         )
         from app.services.interview_question_quality import (
             HARD_QUESTION_QUALITY_CODES,
+            hard_interview_question_quality_findings,
+        )
+
+        publish_plan_quality_repair_lifecycle(
+            initial_hard_finding_codes=(),
+            quality_repair_triggered=False,
+            quality_repair_succeeded=None,
+            post_repair_hard_finding_codes=None,
+            quality_repair_prompt_version=PLAN_QUALITY_REPAIR_PROMPT_VERSION,
+            quality_repair_prompt_sha256=PLAN_QUALITY_REPAIR_PROMPT_SHA256,
         )
 
         configuration = (
@@ -258,7 +333,6 @@ class OpenAIInterviewLLM:
             if configuration is not None
             else None
         )
-
         assert_principal_memory_sink(
             operation="plan_generation",
             payload={"knowledge_context": knowledge_context},
@@ -278,6 +352,7 @@ class OpenAIInterviewLLM:
             resume_text=resume_text,
             knowledge_context=knowledge_context,
             configuration=configuration,
+            intent_only=intent_only,
         )
         self._guard_prompt(
             prompt,
@@ -285,6 +360,8 @@ class OpenAIInterviewLLM:
             force_enforcement=True,
         )
         provider_invocations = 0
+        repair_triggered = False
+        initial_hard_finding_codes: tuple[str, ...] = ()
 
         def reserve_provider_invocation() -> None:
             nonlocal provider_invocations
@@ -300,7 +377,11 @@ class OpenAIInterviewLLM:
                     force_context_enforcement=True,
                 )
                 try:
-                    generated = InterviewPlan.model_validate(payload)
+                    generated = (
+                        InterviewIntentDraftPlan.model_validate(payload)
+                        if intent_only
+                        else InterviewPlan.model_validate(payload)
+                    )
                 except ValidationError as exc:
                     raise ValueError(
                         f"raw interview plan JSON schema validation failed: {exc}"
@@ -308,7 +389,13 @@ class OpenAIInterviewLLM:
             else:
                 try:
                     reserve_provider_invocation()
-                    generated = self._invoke_structured_plan(prompt, InterviewPlan)
+                    generated = (
+                        self._invoke_structured_plan(
+                            prompt, InterviewIntentDraftPlan
+                        )
+                        if intent_only
+                        else self._invoke_structured_plan(prompt, InterviewPlan)
+                    )
                 except Exception as exc:
                     logger.warning(
                         "Structured interview plan output failed, trying raw JSON path",
@@ -320,7 +407,11 @@ class OpenAIInterviewLLM:
                         force_context_enforcement=True,
                     )
                     try:
-                        generated = InterviewPlan.model_validate(payload)
+                        generated = (
+                            InterviewIntentDraftPlan.model_validate(payload)
+                            if intent_only
+                            else InterviewPlan.model_validate(payload)
+                        )
                     except ValidationError as exc:
                         raise ValueError(
                             "raw interview plan JSON schema validation failed: "
@@ -328,10 +419,18 @@ class OpenAIInterviewLLM:
                         ) from exc
 
             try:
-                if configuration is None:
+                if intent_only:
+                    accepted = enforce_generated_intent_plan(
+                        interview_plan_from_intent_draft(generated),
+                        configuration,
+                    )
+                elif configuration is None:
                     launchable = validate_launchable_interview_plan(generated)
-                    return enforce_generated_interview_question_quality(launchable)
-                return enforce_generated_interview_plan(generated, configuration)
+                    accepted = enforce_generated_interview_question_quality(launchable)
+                else:
+                    accepted = enforce_generated_interview_plan(
+                        generated, configuration
+                    )
             except PlanGenerationValidationError as exc:
                 repair_round_available = (
                     logical_round < PLAN_MAX_QUALITY_REPAIR_ROUNDS
@@ -340,20 +439,75 @@ class OpenAIInterviewLLM:
                     not repair_round_available
                     or exc.code not in HARD_QUESTION_QUALITY_CODES
                 ):
+                    if repair_triggered:
+                        post_candidate = self._quality_repair_candidate(
+                            generated,
+                            configuration=configuration,
+                        )
+                        post_findings = hard_interview_question_quality_findings(
+                            post_candidate.questions
+                        )
+                        publish_plan_quality_repair_lifecycle(
+                            initial_hard_finding_codes=initial_hard_finding_codes,
+                            quality_repair_triggered=True,
+                            quality_repair_succeeded=False,
+                            post_repair_hard_finding_codes=tuple(
+                                dict.fromkeys(
+                                    finding.code for finding in post_findings
+                                )
+                            ),
+                            quality_repair_prompt_version=(
+                                PLAN_QUALITY_REPAIR_PROMPT_VERSION
+                            ),
+                            quality_repair_prompt_sha256=(
+                                PLAN_QUALITY_REPAIR_PROMPT_SHA256
+                            ),
+                        )
                     raise
                 repair_candidate = self._quality_repair_candidate(
                     generated,
                     configuration=configuration,
                 )
+                hard_findings = hard_interview_question_quality_findings(
+                    repair_candidate.questions
+                )
+                initial_hard_finding_codes = tuple(
+                    dict.fromkeys(finding.code for finding in hard_findings)
+                )
+                repair_triggered = True
+                publish_plan_quality_repair_lifecycle(
+                    initial_hard_finding_codes=initial_hard_finding_codes,
+                    quality_repair_triggered=True,
+                    quality_repair_succeeded=None,
+                    post_repair_hard_finding_codes=None,
+                    quality_repair_prompt_version=PLAN_QUALITY_REPAIR_PROMPT_VERSION,
+                    quality_repair_prompt_sha256=PLAN_QUALITY_REPAIR_PROMPT_SHA256,
+                )
                 prompt = self._build_plan_quality_repair_prompt(
                     repair_candidate,
                     configuration=configuration,
+                    hard_findings=hard_findings,
                 )
                 self._guard_prompt(
                     prompt,
                     PLAN_CONTEXT_POLICY,
                     force_enforcement=True,
                 )
+            else:
+                if repair_triggered:
+                    publish_plan_quality_repair_lifecycle(
+                        initial_hard_finding_codes=initial_hard_finding_codes,
+                        quality_repair_triggered=True,
+                        quality_repair_succeeded=True,
+                        post_repair_hard_finding_codes=(),
+                        quality_repair_prompt_version=(
+                            PLAN_QUALITY_REPAIR_PROMPT_VERSION
+                        ),
+                        quality_repair_prompt_sha256=(
+                            PLAN_QUALITY_REPAIR_PROMPT_SHA256
+                        ),
+                    )
+                return accepted
 
         raise RuntimeError("plan generation rounds exhausted without a result")
 
@@ -375,27 +529,15 @@ class OpenAIInterviewLLM:
         candidate,
         *,
         configuration: "PlanConfigurationSnapshot | None",
+        hard_findings,
     ) -> str:
-        from app.services.interview_question_quality import (
-            HARD_QUESTION_QUALITY_CODES,
-            QuestionQualityInput,
-            assess_interview_question_quality,
-        )
-
-        report = assess_interview_question_quality(
-            tuple(
-                QuestionQualityInput.from_question(question)
-                for question in candidate.questions
-            )
-        )
         findings = [
             {
                 "code": finding.code,
                 "evidence_summary": finding.evidence_summary,
                 "question_refs": list(finding.question_refs),
             }
-            for finding in report.hard_violations
-            if finding.code in HARD_QUESTION_QUALITY_CODES
+            for finding in hard_findings
         ]
         if not findings:
             raise RuntimeError("quality repair requires a deterministic Hard finding")
@@ -456,6 +598,7 @@ class OpenAIInterviewLLM:
         resume_text: str,
         knowledge_context: list[dict] | None = None,
         configuration: "PlanConfigurationSnapshot | None" = None,
+        intent_only: bool = False,
     ) -> str:
         from app.services.interview_plan_budget import QUESTION_TYPE_ORDER
 
@@ -521,18 +664,52 @@ class OpenAIInterviewLLM:
                 "The duration is an estimate, not an exact-time promise. The service "
                 "assigns per-question minute and follow-up estimates locally.\n"
             )
-        expected_shape = {
-            "title": "Backend interview plan",
-            "questions": [
-                {
-                    "id": f"q{index}",
-                    "kind": kind,
-                    "prompt": "Ask one concrete interview question.",
-                    "focus": "What this question evaluates.",
-                }
-                for index, kind in enumerate(question_kinds, start=1)
-            ],
-        }
+        if intent_only:
+            expected_shape = {
+                "title": "Backend interview plan",
+                "questions": [
+                    {
+                        "id": f"q{index}",
+                        "kind": kind,
+                        "focus": "The topic or scenario to assess.",
+                        "difficulty": (
+                            configuration.difficulty
+                            if configuration is not None
+                            else "intermediate"
+                        ),
+                        "assessment_goals": [
+                            "implementation_depth",
+                            "tradeoff",
+                        ],
+                    }
+                    for index, kind in enumerate(question_kinds, start=1)
+                ],
+            }
+            content_instruction = (
+                "Return assessment intents only. Do not write any final interview "
+                "question, prompt, or candidate-facing wording. Each intent must "
+                "contain one focus and 1 to 4 assessment_goals chosen from: "
+                "ownership, implementation_depth, failure_mode, recovery, "
+                "tradeoff, scale, reliability, observability, collaboration.\n"
+            )
+        else:
+            expected_shape = {
+                "title": "Backend interview plan",
+                "questions": [
+                    {
+                        "id": f"q{index}",
+                        "kind": kind,
+                        "prompt": "Ask one concrete interview question.",
+                        "focus": "What this question evaluates.",
+                    }
+                    for index, kind in enumerate(question_kinds, start=1)
+                ],
+            }
+            content_instruction = (
+                "Each question must assess exactly one primary objective. Move "
+                "secondary topics into the focus text; do not combine multiple "
+                "questions or numbered subquestions in one prompt.\n"
+            )
         knowledge_section = ""
         if knowledge_context:
             knowledge_section = (
@@ -548,6 +725,7 @@ class OpenAIInterviewLLM:
             "Each question kind must be one of: project, technical, system-design, behavioral.\n"
             f"{id_instruction}\n"
             "Questions should be specific to the candidate's resume and the target job.\n"
+            f"{content_instruction}"
             "Do not generate prep_context; the service enriches the plan with Knowledge Agent metadata locally.\n"
             "Return valid JSON only. Do not return markdown.\n"
             f"{configuration_section}"
@@ -624,6 +802,54 @@ class OpenAIInterviewLLM:
         self._guard_prompt(prompt, FOLLOWUP_CONTEXT_POLICY)
         message = self._invoke_chat(prompt, FOLLOWUP_CONTEXT_POLICY)
         return str(getattr(message, "content", message)).strip()
+
+    def generate_main_question(
+        self,
+        *,
+        intent,
+        conversation: list[dict[str, str]] | None = None,
+        evidence: list[dict[str, str]] | None = None,
+        timeout_seconds: float | None = None,
+    ) -> str:
+        """Generate a validated JIT question without exposing raw deltas."""
+        from app.domain.interview.question_intent import QuestionIntentV1
+        from app.services.main_question_generation import (
+            render_main_question_prompt,
+            validate_main_question,
+        )
+
+        frozen_intent = (
+            intent
+            if isinstance(intent, QuestionIntentV1)
+            else QuestionIntentV1.model_validate(intent)
+        )
+        bounded_context = [*(conversation or []), *(evidence or [])]
+        from app.services.principal_memory_sink_policy import (
+            MAIN_QUESTION_GENERATION_SINK,
+        )
+
+        assert_principal_memory_sink(
+            operation=MAIN_QUESTION_GENERATION_SINK,
+            payload=bounded_context,
+        )
+        prompt = render_main_question_prompt(
+            intent=frozen_intent,
+            context=bounded_context,
+        )
+        from app.services.context_budget import MAIN_QUESTION_CONTEXT_POLICY
+
+        self._guard_prompt(prompt, MAIN_QUESTION_CONTEXT_POLICY)
+        message = self._invoke_chat(
+            prompt,
+            MAIN_QUESTION_CONTEXT_POLICY,
+            timeout_seconds=timeout_seconds,
+        )
+        text = str(getattr(message, "content", message)).strip()
+        return validate_main_question(
+            text,
+            frozen_intent,
+            conversation or [],
+        ).text
 
     def stream_followup(self, context: list[dict[str, str]]) -> Iterator[str]:
         assert_principal_memory_sink(
@@ -781,7 +1007,7 @@ class OpenAIInterviewLLM:
             f"session_id: {session_id}\n\n"
             f"plan_title: {plan.title}\n\n"
             "questions:\n"
-            f"{json.dumps([question.model_dump() for question in plan.questions], ensure_ascii=False, indent=2)}\n\n"
+            f"{json.dumps([{'question_id': item.get('question_id'), 'kind': item.get('question_kind'), 'question_text': item.get('question_text')} for item in evaluation_items], ensure_ascii=False, indent=2)}\n\n"
             "evaluation_items:\n"
             f"{json.dumps(evaluation_items, ensure_ascii=False, indent=2)}"
         )
@@ -856,6 +1082,10 @@ class OpenAIInterviewLLM:
                     {"payload": payload.model_dump(exclude_none=True)},
                 )
             normalized = normalize_provider_payload(payload, evaluation_items)
+            if self._report_evidence_observer is not None:
+                self._report_evidence_observer(
+                    normalized.provider_owned_question_results
+                )
             self._record_trace(
                 session_id,
                 "normalized_payload",
@@ -1201,10 +1431,19 @@ class OpenAIInterviewLLM:
             selected_knowledge or None,
         )
 
-    def _invoke_chat(self, prompt: str, policy: OperationContextPolicy):
+    def _invoke_chat(
+        self,
+        prompt: str,
+        policy: OperationContextPolicy,
+        *,
+        timeout_seconds: float | None = None,
+    ):
         model = self.chat_model
         if hasattr(model, "bind"):
-            model = model.bind(max_tokens=policy.max_output_tokens)
+            kwargs = {"max_tokens": policy.max_output_tokens}
+            if timeout_seconds is not None:
+                kwargs["timeout"] = timeout_seconds
+            model = model.bind(**kwargs)
         self._begin_provider_attempt()
         response = model.invoke(prompt)
         publish_provider_response(response)

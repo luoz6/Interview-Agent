@@ -16,6 +16,8 @@ class SessionSnapshotProjector:
 
     def project(self, state: InterviewState) -> dict[str, Any]:
         _ensure_state_metadata(state)
+        if state.get("workflow_engine") == "langgraph-v3":
+            return self._project_v3_shell(state)
         current_question = (
             None
             if state["status"] == "finished"
@@ -95,6 +97,52 @@ class SessionSnapshotProjector:
             ],
         }
 
+    def _project_v3_shell(self, state: InterviewState) -> dict[str, Any]:
+        """Project only structural V3 data before Graph state is overlaid."""
+
+        questions = [
+            {
+                "id": intent.question_id,
+                "kind": intent.kind,
+                "state": "pending",
+            }
+            for intent in state["plan"].questions
+        ]
+        return {
+            "session_id": state["session_id"],
+            "status": state["status"],
+            "phase": state["phase"],
+            "phase_status": state["phase_status"],
+            "review_status": state["review_status"],
+            "current_index": state["current_index"],
+            "total_questions": len(questions),
+            "completed_questions": 0,
+            "answered_questions": 0,
+            "skipped_questions": 0,
+            "unanswered_questions": len(questions),
+            "state_version": state["state_version"],
+            "checkpoint_version": state["checkpoint_version"],
+            "workflow_engine": "langgraph-v3",
+            "graph_schema_version": "langgraph-v3",
+            "memory_policy_version": state["memory_policy_version"],
+            "deletion_status": state.get("deletion_status", "active"),
+            "plan_origin": state["plan_origin"],
+            "plan_revision_id": state.get("plan_revision_id"),
+            "plan_family_id": state.get("plan_family_id"),
+            "revision": state.get("revision"),
+            "plan_sha256": state["plan_sha256"],
+            "configuration_snapshot": deepcopy(
+                state.get("configuration_snapshot")
+            ),
+            "plan_snapshot": _public_session_plan_snapshot(
+                state["plan_snapshot"]
+            ),
+            "job_tags": list(state["job_tags"]),
+            "current_question": None,
+            "questions": questions,
+            "messages": [],
+        }
+
 
 def interview_assistance_metadata(
     state: dict[str, Any],
@@ -153,6 +201,18 @@ def _public_session_plan_snapshot(snapshot: dict[str, Any]) -> dict[str, Any]:
     public_snapshot.pop("source_id", None)
     public_snapshot.pop("source_sha256", None)
     questions = public_snapshot.get("questions") or []
+    if public_snapshot.get("schema_version") == "interview-plan-v3":
+        public_snapshot["questions"] = [
+            {
+                "id": intent.get("question_id"),
+                "kind": intent.get("kind"),
+                "status": "pending",
+            }
+            for intent in questions
+            if isinstance(intent, dict)
+        ]
+        public_snapshot.pop("prep_context", None)
+        return public_snapshot
     if (
         "configuration_snapshot" not in public_snapshot
         or not questions

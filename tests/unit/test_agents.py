@@ -4,7 +4,11 @@ from app.agents.examiner import ExaminerAgent, fallback_followup
 from app.agents.knowledge import KnowledgeAgent
 from app.agents.report_coach import ReportCoachAgent
 from app.agents.shadow_reviewer import ShadowReviewerAgent
-from app.services.prep import InterviewPlan, InterviewQuestion
+from app.services.prep import (
+    InterviewPlan,
+    InterviewQuestion,
+    PlanGenerationValidationError,
+)
 from app.services.report import DimensionScores, InterviewFeedback, InterviewReport
 from app.services.agent_runtime import AgentExecutionContext, AgentExecutionRunner
 import pytest
@@ -245,6 +249,21 @@ def test_knowledge_agent_generates_plan():
 
     assert plan.title == "Backend plan"
     assert plan.questions[0].focus == "Redis consistency"
+
+
+def test_knowledge_agent_requires_native_intent_provider_when_jit_enabled(
+    monkeypatch,
+):
+    monkeypatch.setenv("INTERVIEW_JIT_MAIN_QUESTION_ENABLED", "true")
+
+    with pytest.raises(
+        PlanGenerationValidationError,
+        match="native intent provider contract",
+    ):
+        KnowledgeAgent(llm=PlanLLM()).generate_plan(
+            job_description="Backend Redis role",
+            resume_text="Built Redis cache",
+        )
 
 
 def test_report_coach_agent_generates_report():

@@ -246,7 +246,7 @@ def test_v16_context_artifact_identity_contract_requires_versioned_columns():
         "context_compression_failure_state_v1_v28"
     )
     assert LATEST_RUNTIME_MIGRATION.migration_id == (
-        "row_serialization_versions_v1_v29"
+        "interview_jit_main_question_v1_v30"
     )
 
 
@@ -679,8 +679,8 @@ def test_fresh_install_records_full_registry_and_quality_schema(monkeypatch):
         (spec.migration_id, spec.checksum, spec.transaction_mode)
         for spec in RUNTIME_MIGRATIONS
     ]
-    assert len(database.rows) == 29
-    assert len({row[0] for row in database.rows}) == 29
+    assert len(database.rows) == 30
+    assert len({row[0] for row in database.rows}) == 30
     assert {
         "PostgresInterviewPlanRevisionStore",
         "_upgrade_interview_draft_plan_binding",
@@ -853,15 +853,15 @@ def test_v28_failure_state_manifest_is_append_only_and_canonical():
     assert '"relation_suffix":"_context_compression_failure_states"' in (
         RUNTIME_SCHEMA_V28_MANIFEST
     )
-    assert RUNTIME_MIGRATIONS[-3].migration_id == (
+    assert RUNTIME_MIGRATIONS[-4].migration_id == (
         "question_memory_resolved_target_v1_v27"
     )
-    assert RUNTIME_MIGRATIONS[-2].migration_id == (
+    assert RUNTIME_MIGRATIONS[-3].migration_id == (
         "context_compression_failure_state_v1_v28"
     )
-    assert RUNTIME_MIGRATIONS[-2].checksum == RUNTIME_SCHEMA_V28_CHECKSUM
+    assert RUNTIME_MIGRATIONS[-3].checksum == RUNTIME_SCHEMA_V28_CHECKSUM
     assert LATEST_RUNTIME_MIGRATION.migration_id == (
-        "row_serialization_versions_v1_v29"
+        "interview_jit_main_question_v1_v30"
     )
 
 
@@ -1403,7 +1403,36 @@ def test_actual_migration_installs_heartbeat_and_is_idempotent(postgres_dsn):
             "decision_prompt_sha256",
             "generation_prompt_version",
             "generation_prompt_sha256",
+            "generation_kind",
+            "identity_sha256",
+            "intent_sha256",
+            "context_sha256",
+            "knowledge_scope_sha256",
+            "generator_version",
+            "result_mode",
+            "failure_reason_code",
+            "provider_invocation_count",
+            "generation_latency_ms",
+            "fallback_used",
+            "safe_reason_code",
         } <= generation_columns
+        assert {
+            "main_question",
+            "completed",
+            "provider_invocation_count",
+            "generation_latency_ms",
+            "fallback_used",
+            "safe_reason_code",
+            "generated",
+            "provider_timeout",
+        } <= set(
+            generation_constraints
+            .replace("(", " ")
+            .replace(")", " ")
+            .replace(",", " ")
+            .replace("'", " ")
+            .split()
+        )
         assert {
             "decision_prompt_version",
             "decision_prompt_sha256",

@@ -1,6 +1,13 @@
+import hashlib
+import inspect
+
 import pytest
 
-from app.services.llm import REPORT_EVIDENCE_PROMPT_VERSION, OpenAIInterviewLLM
+from app.services.llm import (
+    REPORT_EVIDENCE_PROMPT_SHA256,
+    REPORT_EVIDENCE_PROMPT_VERSION,
+    OpenAIInterviewLLM,
+)
 from app.services.prep import InterviewPlan, InterviewQuestion
 from app.services.report import (
     DimensionScores,
@@ -567,8 +574,14 @@ def test_report_prompt_has_stable_evidence_version():
         session_id="stage40-version-test",
     )
 
-    assert REPORT_EVIDENCE_PROMPT_VERSION == "stage40-evidence-v1"
-    assert "stage40-evidence-v1" in prompt
+    assert REPORT_EVIDENCE_PROMPT_VERSION == "stage40-evidence-v2"
+    assert REPORT_EVIDENCE_PROMPT_SHA256 == hashlib.sha256(
+        (
+            f"{REPORT_EVIDENCE_PROMPT_VERSION}\n"
+            f"{inspect.getsource(OpenAIInterviewLLM._build_report_prompt)}"
+        ).encode("utf-8")
+    ).hexdigest()
+    assert "stage40-evidence-v2" in prompt
     assert "The backend computes all numeric scores from evidence." in prompt
 
 

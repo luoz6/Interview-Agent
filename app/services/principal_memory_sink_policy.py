@@ -7,6 +7,7 @@ from typing import Any
 
 CAUSAL_BOUNDARY_VIOLATION = "CAUSAL_BOUNDARY_VIOLATION"
 FOLLOWUP_GENERATION_SINK = "followup_generation"
+MAIN_QUESTION_GENERATION_SINK = "main_question_generation"
 ASSISTANCE_CONTEXT_KIND = "principal_memory_assistance_v1"
 ASSISTANCE_LABEL = "Non-authoritative historical preference"
 ASSISTANCE_WARNING = (
@@ -84,7 +85,10 @@ def assert_principal_memory_sink(*, operation: str, payload: Any) -> None:
 
     if not assistance_messages:
         return
-    if operation != FOLLOWUP_GENERATION_SINK or len(assistance_messages) != 1:
+    if operation not in {
+        FOLLOWUP_GENERATION_SINK,
+        MAIN_QUESTION_GENERATION_SINK,
+    } or len(assistance_messages) != 1:
         raise PrincipalMemoryCausalBoundaryViolation()
     _assert_canonical_assistance_message(assistance_messages[0])
 

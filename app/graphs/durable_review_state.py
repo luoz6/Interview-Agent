@@ -7,6 +7,14 @@ from typing import Annotated, Literal, TypedDict
 
 from pydantic import BaseModel, Field
 
+from app.services.published_question import (
+    published_question_ids,
+    published_question_lineage,
+    published_question_text,
+    question_id,
+    question_kind,
+)
+
 
 def _sha256(value: object) -> str:
     payload = json.dumps(
@@ -16,6 +24,10 @@ def _sha256(value: object) -> str:
         sort_keys=True,
     ).encode("utf-8")
     return hashlib.sha256(payload).hexdigest()
+
+
+def _text_sha256(value: str) -> str:
+    return hashlib.sha256(value.encode("utf-8")).hexdigest()
 
 
 class ReviewMessageReference(BaseModel):
@@ -29,6 +41,9 @@ class ReviewQuestionInput(BaseModel):
     question_id: str
     kind: str
     prompt_sha256: str
+    intent_sha256: str | None = None
+    rendered_question_sha256: str | None = None
+    generation_id: str | None = None
     answer_state: Literal["answered", "skipped", "unanswered"]
     message_content_sha256: list[str] = Field(default_factory=list)
     evidence_ids: list[str] = Field(default_factory=list)
@@ -49,29 +64,65 @@ class DurableReviewInputManifest(BaseModel):
     def from_finished_state(cls, state: dict) -> "DurableReviewInputManifest":
         plan = state["plan"]
         prep_context = plan.prep_context
-        evidence_hashes = (
-            {
-                item.evidence_id: item.content_sha256
-                for item in prep_context.evidence_refs
+        is_v3 = getattr(plan, "schema_version", None) == "interview-plan-v3"
+        if is_v3:
+            from app.services.interview_plan_knowledge import (
+                parse_question_knowledge_binding,
+            )
+
+            bindings = {
+                question_id(question): parse_question_knowledge_binding(
+                    question.knowledge_binding
+                )
+                for question in plan.questions
             }
-            if prep_context is not None
-            else {}
-        )
-        evidence_ids = (
-            {
-                item.question_id: list(item.evidence_ids)
-                for item in prep_context.question_hints
+            evidence_hashes = {
+                evidence_id: digest
+                for binding in bindings.values()
+                for evidence_id, digest in binding.evidence_content_sha256.items()
             }
-            if prep_context is not None
-            else {}
-        )
-        corpus_manifest_sha256 = (
-            prep_context.binding_snapshot.corpus_manifest_sha256
-            if prep_context is not None
-            and prep_context.binding_snapshot is not None
-            else None
-        )
-        messages = list(state.get("messages", []))
+            evidence_ids = {
+                target_id: list(binding.evidence_ids)
+                for target_id, binding in bindings.items()
+            }
+            manifests = {
+                binding.corpus_manifest_sha256
+                for binding in bindings.values()
+                if binding.corpus_manifest_sha256 is not None
+            }
+            corpus_manifest_sha256 = (
+                next(iter(manifests)) if len(manifests) == 1 else None
+            )
+        else:
+            evidence_hashes = (
+                {
+                    item.evidence_id: item.content_sha256
+                    for item in prep_context.evidence_refs
+                }
+                if prep_context is not None
+                else {}
+            )
+            evidence_ids = (
+                {
+                    item.question_id: list(item.evidence_ids)
+                    for item in prep_context.question_hints
+                }
+                if prep_context is not None
+                else {}
+            )
+            corpus_manifest_sha256 = (
+                prep_context.binding_snapshot.corpus_manifest_sha256
+                if prep_context is not None
+                and prep_context.binding_snapshot is not None
+                else None
+            )
+        published_ids = published_question_ids(state) if is_v3 else None
+        messages = [
+            message
+            for message in state.get("messages", [])
+            if published_ids is None
+            or message.get("question_id") in published_ids
+        ]
         message_refs = [
             ReviewMessageReference(
                 sequence_no=index,
@@ -88,23 +139,31 @@ class DurableReviewInputManifest(BaseModel):
         }
         skipped_question_ids = set(state.get("skipped_question_ids", []))
         questions = []
+        published_plan_questions = []
         for question in plan.questions:
-            if question.id in answered_question_ids:
+            target_id = question_id(question)
+            if is_v3 and target_id not in published_ids:
+                continue
+            prompt = published_question_text(state, question)
+            lineage = published_question_lineage(state, question)
+            published_plan_questions.append(question)
+            if target_id in answered_question_ids:
                 answer_state = "answered"
-            elif question.id in skipped_question_ids:
+            elif target_id in skipped_question_ids:
                 answer_state = "skipped"
             else:
                 answer_state = "unanswered"
-            bound_evidence_ids = evidence_ids.get(question.id, [])
+            bound_evidence_ids = evidence_ids.get(target_id, [])
             question_message_hashes = [
                 item.content_sha256
                 for item in message_refs
-                if item.question_id == question.id
+                if item.question_id == target_id
             ]
             question_payload = {
-                "question_id": question.id,
-                "kind": question.kind,
-                "prompt_sha256": _sha256(question.prompt),
+                "question_id": target_id,
+                "kind": question_kind(question),
+                "prompt_sha256": _text_sha256(prompt),
+                **lineage,
                 "answer_state": answer_state,
                 "message_content_sha256": question_message_hashes,
                 "evidence_ids": bound_evidence_ids,
@@ -123,12 +182,14 @@ class DurableReviewInputManifest(BaseModel):
         plan_sha256 = _sha256(
             [
                 {
-                    "id": question.id,
-                    "kind": question.kind,
-                    "prompt_sha256": _sha256(question.prompt),
+                    "id": question_id(question),
+                    "kind": question_kind(question),
+                    "prompt_sha256": _text_sha256(
+                        published_question_text(state, question)
+                    ),
                     "focus_sha256": _sha256(question.focus),
                 }
-                for question in plan.questions
+                for question in published_plan_questions
             ]
         )
         manifest_payload = {

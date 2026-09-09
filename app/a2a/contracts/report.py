@@ -18,3 +18,4 @@ class ReportArtifactPayload(DomainArtifact):
     action_plan: list[dict[str, Any]] = Field(default_factory=list)
     evaluation_refs: list[str] = Field(default_factory=list)
     report_policy_version: str = Field(min_length=1)
+    report_payload: dict[str, Any] = Field(default_factory=dict)

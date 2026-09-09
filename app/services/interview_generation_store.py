@@ -17,6 +17,10 @@ from app.services.postgres_identifiers import (
 )
 from app.services.postgres_schema import resolve_schema_mode, validate_relations
 from app.services.workflow_thread_lock import GenerationLeaseLost
+from app.domain.interview.question_intent import (
+    MAIN_QUESTION_FALLBACK_REASON_CODES,
+    MAIN_QUESTION_SAFE_REASON_CODES,
+)
 
 
 class GenerationAlreadyCompleted(RuntimeError):
@@ -45,6 +49,18 @@ class InterviewGeneration:
     decision_prompt_sha256: str | None = None
     generation_prompt_version: str | None = None
     generation_prompt_sha256: str | None = None
+    generation_kind: str = "followup"
+    identity_sha256: str | None = None
+    intent_sha256: str | None = None
+    context_sha256: str | None = None
+    knowledge_scope_sha256: str | None = None
+    generator_version: str | None = None
+    result_mode: str | None = None
+    failure_reason_code: str | None = None
+    provider_invocation_count: int | None = None
+    generation_latency_ms: int | None = None
+    fallback_used: bool | None = None
+    safe_reason_code: str | None = None
 
 
 @dataclass(frozen=True)
@@ -56,6 +72,7 @@ class GenerationAttempt:
     lease_token: str
     fencing_version: int
     lease_expires_at: datetime
+    reclaimed_after_expiry: bool = False
 
 
 @dataclass(frozen=True)
@@ -119,12 +136,82 @@ class PostgresInterviewGenerationStore:
         decision_prompt_sha256: str | None = None,
         generation_prompt_version: str | None = None,
         generation_prompt_sha256: str | None = None,
+        generation_kind: str = "followup",
+        identity_sha256: str | None = None,
+        intent_sha256: str | None = None,
+        context_sha256: str | None = None,
+        knowledge_scope_sha256: str | None = None,
+        generator_version: str | None = None,
     ) -> InterviewGeneration:
-        generation_id = "generation-" + hashlib.sha256(
+        if generation_kind not in {"followup", "main_question"}:
+            raise ValueError("unsupported generation kind")
+        main_identity = (
+            identity_sha256,
+            intent_sha256,
+            context_sha256,
+            knowledge_scope_sha256,
+            generation_prompt_sha256,
+            generator_version,
+        )
+        if generation_kind == "main_question":
+            if any(
+                not isinstance(value, str) or len(value) != 64
+                for value in main_identity[:-1]
+            ) or not generator_version:
+                raise ValueError("main question generation identity is incomplete")
+        elif any(value is not None for value in main_identity[:4]) or generator_version is not None:
+            raise ValueError("followup generation cannot claim main question identity")
+        id_material = identity_sha256 or hashlib.sha256(
             f"{session_id}:{source_command_id}".encode("utf-8")
-        ).hexdigest()[:32]
+        ).hexdigest()
+        generation_id = "generation-" + id_material[:32]
         with self._connection() as connection:
             with connection.cursor() as cursor:
+                if generation_kind == "main_question":
+                    cursor.execute(
+                        self._sql(
+                            """
+                            SELECT generation_id, session_id, source_command_id,
+                                   question_id, status, active_attempt, final_text,
+                                   source_decision_id, decision_prompt_version,
+                                   decision_prompt_sha256, generation_prompt_version,
+                                   generation_prompt_sha256, generation_kind,
+                                   identity_sha256, intent_sha256, context_sha256,
+                                   knowledge_scope_sha256, generator_version,
+                                   result_mode, failure_reason_code,
+                                   provider_invocation_count,
+                                   generation_latency_ms, fallback_used,
+                                   safe_reason_code
+                            FROM {generations}
+                            WHERE identity_sha256 = %s
+                            """
+                        ),
+                        (identity_sha256,),
+                    )
+                    row = cursor.fetchone()
+                    if row is not None:
+                        if (
+                            row[1] != session_id
+                            or row[3] != question_id
+                            or tuple(row[12:18])
+                            != (
+                                generation_kind,
+                                identity_sha256,
+                                intent_sha256,
+                                context_sha256,
+                                knowledge_scope_sha256,
+                                generator_version,
+                            )
+                            or tuple(row[10:12])
+                            != (
+                                generation_prompt_version,
+                                generation_prompt_sha256,
+                            )
+                        ):
+                            raise GenerationInputConflict(
+                                "main question generation identity conflicts"
+                            )
+                        return self._generation_from_row(row)
                 cursor.execute(
                     self._sql(
                         """
@@ -133,11 +220,18 @@ class PostgresInterviewGenerationStore:
                             question_id, status, active_attempt,
                             source_decision_id, decision_prompt_version,
                             decision_prompt_sha256, generation_prompt_version,
-                            generation_prompt_sha256
+                               generation_prompt_sha256, generation_kind,
+                               identity_sha256, intent_sha256, context_sha256,
+                               knowledge_scope_sha256, generator_version,
+                               result_mode, failure_reason_code,
+                               provider_invocation_count,
+                               generation_latency_ms, fallback_used,
+                               safe_reason_code
                         )
                         VALUES (
                             %s, %s, %s, %s, 'pending', 1, %s::uuid,
-                            %s, %s, %s, %s
+                            %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
+                            NULL, NULL, NULL, NULL, NULL, NULL
                         )
                         ON CONFLICT (session_id, source_command_id) DO NOTHING
                         """
@@ -152,6 +246,12 @@ class PostgresInterviewGenerationStore:
                         decision_prompt_sha256,
                         generation_prompt_version,
                         generation_prompt_sha256,
+                        generation_kind,
+                        identity_sha256,
+                        intent_sha256,
+                        context_sha256,
+                        knowledge_scope_sha256,
+                        generator_version,
                     ),
                 )
                 cursor.execute(
@@ -161,7 +261,13 @@ class PostgresInterviewGenerationStore:
                                question_id, status, active_attempt, final_text,
                                source_decision_id, decision_prompt_version,
                                decision_prompt_sha256, generation_prompt_version,
-                               generation_prompt_sha256
+                               generation_prompt_sha256, generation_kind,
+                               identity_sha256, intent_sha256, context_sha256,
+                               knowledge_scope_sha256, generator_version,
+                               result_mode, failure_reason_code,
+                               provider_invocation_count,
+                               generation_latency_ms, fallback_used,
+                               safe_reason_code
                         FROM {generations}
                         WHERE session_id = %s AND source_command_id = %s
                         """
@@ -176,10 +282,19 @@ class PostgresInterviewGenerationStore:
                     generation_prompt_version,
                     generation_prompt_sha256,
                 )
+                expected_main_identity = (
+                    generation_kind,
+                    identity_sha256,
+                    intent_sha256,
+                    context_sha256,
+                    knowledge_scope_sha256,
+                    generator_version,
+                )
                 if (
                     row[3] != question_id
                     or stored_decision_id != source_decision_id
                     or tuple(row[8:12]) != expected_prompt_metadata
+                    or tuple(row[12:18]) != expected_main_identity
                 ):
                     raise GenerationInputConflict(
                         "source command generation input conflicts"
@@ -212,7 +327,8 @@ class PostgresInterviewGenerationStore:
                 cursor.execute(
                     self._sql(
                         """
-                        SELECT status, active_attempt FROM {generations}
+                        SELECT status, active_attempt, generation_kind
+                        FROM {generations}
                         WHERE generation_id = %s FOR UPDATE
                         """
                     ),
@@ -223,7 +339,13 @@ class PostgresInterviewGenerationStore:
                     raise ValueError("generation not found")
                 if generation[0] == "completed":
                     raise GenerationAlreadyCompleted(generation_id)
-                if attempt_number < generation[1] or attempt_number > 3:
+                max_attempt_number = (
+                    2 if generation[2] == "main_question" else 3
+                )
+                if (
+                    attempt_number < generation[1]
+                    or attempt_number > max_attempt_number
+                ):
                     raise GenerationLeaseConflict(generation_id)
                 cursor.execute(
                     self._sql(
@@ -303,39 +425,86 @@ class PostgresInterviewGenerationStore:
                     cursor.execute(
                         self._sql(
                             """
-                            SELECT a.status, a.lease_owner,
-                                   a.lease_expires_at <= NOW(),
-                                   g.status, g.active_attempt,
-                                   a.lease_token::text,
-                                   a.fencing_version,
-                                   a.lease_expires_at
-                            FROM {attempts} AS a
-                            JOIN {generations} AS g
-                              ON g.generation_id = a.generation_id
-                            WHERE a.generation_id = %s
-                              AND a.attempt_number = %s
-                            FOR UPDATE OF a, g
+                            SELECT status, active_attempt, generation_kind
+                            FROM {generations}
+                            WHERE generation_id = %s FOR UPDATE
+                            """
+                        ),
+                        (generation_id,),
+                    )
+                    generation = cursor.fetchone()
+                    if generation is None:
+                        raise GenerationLeaseConflict(generation_id)
+                    if generation[0] == "completed":
+                        raise GenerationAlreadyCompleted(generation_id)
+                    cursor.execute(
+                        self._sql(
+                            """
+                            SELECT status, lease_owner,
+                                   lease_expires_at <= NOW(),
+                                   lease_token::text, fencing_version,
+                                   lease_expires_at
+                            FROM {attempts}
+                            WHERE generation_id = %s AND attempt_number = %s
+                            FOR UPDATE
                             """
                         ),
                         (generation_id, attempt_number),
                     )
-                    row = cursor.fetchone()
-                    if row and row[3] == "completed":
-                        raise GenerationAlreadyCompleted(generation_id)
-                    if row and row[0] == "running":
-                        if not row[2]:
-                            if row[1] == worker_id:
+                    attempt = cursor.fetchone()
+                    if attempt and attempt[0] == "running":
+                        if not attempt[2]:
+                            if attempt[1] == worker_id:
                                 return GenerationAttempt(
                                     generation_id,
                                     attempt_number,
                                     "running",
                                     worker_id,
-                                    row[5],
-                                    int(row[6]),
-                                    row[7],
+                                    attempt[3],
+                                    int(attempt[4]),
+                                    attempt[5],
                                 )
                             raise GenerationLeaseConflict(generation_id)
-                        replacement = max(attempt_number, int(row[4])) + 1
+                        if generation[2] == "main_question":
+                            lease_token = str(uuid4())
+                            cursor.execute(
+                                self._sql(
+                                    """
+                                    UPDATE {attempts}
+                                    SET status = 'running', lease_owner = %s,
+                                        lease_token = %s::uuid,
+                                        fencing_version = fencing_version + 1,
+                                        lease_expires_at = NOW() + (%s * INTERVAL '1 second'),
+                                        last_error_code = 'worker_lost',
+                                        updated_at = NOW()
+                                    WHERE generation_id = %s
+                                      AND attempt_number = %s
+                                      AND status = 'running'
+                                      AND lease_expires_at <= NOW()
+                                    RETURNING generation_id, attempt_number, status,
+                                              lease_owner, lease_token::text,
+                                              fencing_version, lease_expires_at
+                                    """
+                                ),
+                                (
+                                    worker_id,
+                                    lease_token,
+                                    lease_seconds,
+                                    generation_id,
+                                    attempt_number,
+                                ),
+                            )
+                            reclaimed = cursor.fetchone()
+                            if reclaimed is None:
+                                raise GenerationLeaseConflict(generation_id)
+                            return GenerationAttempt(
+                                *reclaimed,
+                                reclaimed_after_expiry=True,
+                            )
+                        replacement = max(
+                            attempt_number,
+                            int(generation[1]),
+                        ) + 1
                         if replacement > 3:
                             raise GenerationLeaseConflict(generation_id)
                         cursor.execute(
@@ -482,9 +651,70 @@ class PostgresInterviewGenerationStore:
         *,
         lease_token: str,
         fencing_version: int,
+        result_mode: str | None = None,
+        failure_reason_code: str | None = None,
+        provider_invocation_count: int | None = None,
+        generation_latency_ms: int | None = None,
+        fallback_used: bool | None = None,
+        safe_reason_code: str | None = None,
     ) -> None:
+        if result_mode not in {None, "generated", "fallback"}:
+            raise ValueError("unsupported generation result mode")
+        if result_mode == "fallback" and not failure_reason_code:
+            raise ValueError("fallback result requires a reason code")
+        if result_mode != "fallback" and failure_reason_code is not None:
+            raise ValueError("failure reason is only valid for fallback")
+        diagnostics = (
+            provider_invocation_count,
+            generation_latency_ms,
+            fallback_used,
+            safe_reason_code,
+        )
+        if any(value is not None for value in diagnostics) and any(
+            value is None for value in diagnostics
+        ):
+            raise ValueError("generation diagnostics must be complete")
+        if provider_invocation_count is not None:
+            if result_mode is None:
+                raise ValueError(
+                    "generation diagnostics require an explicit result mode"
+                )
+            if isinstance(provider_invocation_count, bool) or not (
+                0 <= provider_invocation_count <= 2
+            ):
+                raise ValueError("provider invocation count must be between 0 and 2")
+            if (
+                isinstance(generation_latency_ms, bool)
+                or not isinstance(generation_latency_ms, int)
+                or generation_latency_ms < 0
+            ):
+                raise ValueError("generation latency must be a non-negative integer")
+            expected_fallback = result_mode == "fallback"
+            if fallback_used is not expected_fallback:
+                raise ValueError("fallback_used must match result mode")
+            expected_reason = failure_reason_code or "generated"
+            if safe_reason_code != expected_reason:
+                raise ValueError("safe reason code must match generation result")
+            if safe_reason_code not in MAIN_QUESTION_SAFE_REASON_CODES:
+                raise ValueError("safe reason code is not approved")
+            if (
+                failure_reason_code is not None
+                and failure_reason_code not in MAIN_QUESTION_FALLBACK_REASON_CODES
+            ):
+                raise ValueError("fallback reason code is not approved")
         with self._connection() as connection:
             with connection.cursor() as cursor:
+                cursor.execute(
+                    self._sql(
+                        """
+                        SELECT generation_id FROM {generations}
+                        WHERE generation_id = %s FOR UPDATE
+                        """
+                    ),
+                    (generation_id,),
+                )
+                if cursor.fetchone() is None:
+                    raise GenerationLeaseLost("generation no longer exists")
                 cursor.execute(
                     self._sql(
                         """
@@ -515,12 +745,26 @@ class PostgresInterviewGenerationStore:
                         """
                         UPDATE {generations}
                         SET status = 'completed', final_text = %s,
+                            result_mode = %s, failure_reason_code = %s,
+                            provider_invocation_count = %s,
+                            generation_latency_ms = %s,
+                            fallback_used = %s, safe_reason_code = %s,
                             completed_at = NOW(), updated_at = NOW()
                         WHERE generation_id = %s AND active_attempt = %s
                           AND status <> 'completed'
                         """
                     ),
-                    (final_text, generation_id, attempt_number),
+                    (
+                        final_text,
+                        result_mode,
+                        failure_reason_code,
+                        provider_invocation_count,
+                        generation_latency_ms,
+                        fallback_used,
+                        safe_reason_code,
+                        generation_id,
+                        attempt_number,
+                    ),
                 )
                 if cursor.rowcount != 1:
                     raise GenerationAlreadyCompleted(generation_id)
@@ -661,7 +905,13 @@ class PostgresInterviewGenerationStore:
                                question_id, status, active_attempt, final_text,
                                source_decision_id, decision_prompt_version,
                                decision_prompt_sha256, generation_prompt_version,
-                               generation_prompt_sha256
+                               generation_prompt_sha256, generation_kind,
+                               identity_sha256, intent_sha256, context_sha256,
+                               knowledge_scope_sha256, generator_version,
+                               result_mode, failure_reason_code,
+                               provider_invocation_count,
+                               generation_latency_ms, fallback_used,
+                               safe_reason_code
                         FROM {generations}
                         WHERE session_id = %s AND source_command_id = %s
                         """
@@ -681,7 +931,13 @@ class PostgresInterviewGenerationStore:
                                question_id, status, active_attempt, final_text,
                                source_decision_id, decision_prompt_version,
                                decision_prompt_sha256, generation_prompt_version,
-                               generation_prompt_sha256
+                               generation_prompt_sha256, generation_kind,
+                               identity_sha256, intent_sha256, context_sha256,
+                               knowledge_scope_sha256, generator_version,
+                               result_mode, failure_reason_code,
+                               provider_invocation_count,
+                               generation_latency_ms, fallback_used,
+                               safe_reason_code
                         FROM {generations}
                         WHERE generation_id = %s
                         """
@@ -708,6 +964,22 @@ class PostgresInterviewGenerationStore:
             decision_prompt_sha256=row[9],
             generation_prompt_version=row[10],
             generation_prompt_sha256=row[11],
+            generation_kind=row[12],
+            identity_sha256=row[13],
+            intent_sha256=row[14],
+            context_sha256=row[15],
+            knowledge_scope_sha256=row[16],
+            generator_version=row[17],
+            result_mode=row[18],
+            failure_reason_code=row[19],
+            provider_invocation_count=(
+                int(row[20]) if row[20] is not None else None
+            ),
+            generation_latency_ms=(
+                int(row[21]) if row[21] is not None else None
+            ),
+            fallback_used=row[22],
+            safe_reason_code=row[23],
         )
 
     def cleanup_completed_chunks(self, *, older_than: datetime) -> int:
@@ -786,6 +1058,18 @@ class PostgresInterviewGenerationStore:
                 cursor.execute(
                     self._sql(
                         """
+                        SELECT generation_kind FROM {generations}
+                        WHERE generation_id = %s FOR UPDATE
+                        """
+                    ),
+                    (generation_id,),
+                )
+                generation = cursor.fetchone()
+                if generation is None:
+                    raise GenerationLeaseLost("generation no longer exists")
+                cursor.execute(
+                    self._sql(
+                        """
                         UPDATE {attempts}
                         SET status = %s, last_error_code = %s,
                             lease_owner = NULL, lease_expires_at = NULL,
@@ -809,6 +1093,41 @@ class PostgresInterviewGenerationStore:
                 if cursor.rowcount != 1:
                     raise GenerationLeaseLost(
                         "generation attempt lease is no longer owned"
+                    )
+                if (
+                    generation[0] == "main_question"
+                    and status == "failed"
+                    and attempt_number < 2
+                ):
+                    cursor.execute(
+                        self._sql(
+                            """
+                            UPDATE {generations}
+                            SET status = 'pending', active_attempt = %s,
+                                updated_at = NOW()
+                            WHERE generation_id = %s
+                              AND generation_kind = 'main_question'
+                              AND active_attempt = %s
+                              AND status <> 'completed'
+                            """
+                        ),
+                        (attempt_number + 1, generation_id, attempt_number),
+                    )
+                    if cursor.rowcount != 1:
+                        raise GenerationLeaseConflict(
+                            "generation retry state changed concurrently"
+                        )
+                    cursor.execute(
+                        self._sql(
+                            """
+                            INSERT INTO {attempts} (
+                                generation_id, attempt_number, status
+                            )
+                            VALUES (%s, %s, 'pending')
+                            ON CONFLICT DO NOTHING
+                            """
+                        ),
+                        (generation_id, attempt_number + 1),
                     )
 
     def _insert_event(
@@ -835,6 +1154,8 @@ class PostgresInterviewGenerationStore:
         return cursor.rowcount == 1
 
     def _ensure_schema(self) -> None:
+        from psycopg2 import sql
+
         with self._connection() as connection:
             with connection.cursor() as cursor:
                 cursor.execute(
@@ -856,10 +1177,70 @@ class PostgresInterviewGenerationStore:
                             decision_prompt_sha256 TEXT,
                             generation_prompt_version TEXT,
                             generation_prompt_sha256 TEXT,
+                            generation_kind TEXT NOT NULL DEFAULT 'followup'
+                                CHECK (generation_kind IN ('followup','main_question')),
+                            identity_sha256 TEXT,
+                            intent_sha256 TEXT,
+                            context_sha256 TEXT,
+                            knowledge_scope_sha256 TEXT,
+                            generator_version TEXT,
+                            result_mode TEXT,
+                            failure_reason_code TEXT,
+                            provider_invocation_count INTEGER,
+                            generation_latency_ms BIGINT,
+                            fallback_used BOOLEAN,
+                            safe_reason_code TEXT,
                             created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
                             completed_at TIMESTAMPTZ,
                             updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-                            UNIQUE (session_id, source_command_id)
+                            UNIQUE (session_id, source_command_id),
+                            CHECK (
+                                generation_kind <> 'main_question'
+                                OR (
+                                    identity_sha256 IS NOT NULL
+                                    AND intent_sha256 IS NOT NULL
+                                    AND context_sha256 IS NOT NULL
+                                    AND knowledge_scope_sha256 IS NOT NULL
+                                    AND generation_prompt_sha256 IS NOT NULL
+                                    AND generator_version IS NOT NULL
+                                    AND (
+                                        result_mode IS NULL
+                                        OR result_mode = 'generated'
+                                           AND failure_reason_code IS NULL
+                                        OR result_mode = 'fallback'
+                                           AND failure_reason_code IS NOT NULL
+                                    )
+                                )
+                            ),
+                            CHECK (
+                                generation_kind <> 'main_question'
+                                OR status <> 'completed'
+                                OR (
+                                    result_mode IS NOT NULL
+                                    AND result_mode IN ('generated', 'fallback')
+                                    AND provider_invocation_count IS NOT NULL
+                                    AND provider_invocation_count BETWEEN 0 AND 2
+                                    AND generation_latency_ms IS NOT NULL
+                                    AND generation_latency_ms >= 0
+                                    AND fallback_used IS NOT NULL
+                                    AND fallback_used = (result_mode = 'fallback')
+                                    AND safe_reason_code IS NOT NULL
+                                    AND safe_reason_code IN (
+                                        'generated', 'empty_output',
+                                        'presentation_prefix', 'multiple_questions',
+                                        'unsafe_instruction', 'too_long',
+                                        'invented_claim_marker', 'intent_focus_missing',
+                                        'context_budget_exceeded',
+                                        'provider_auth_failed',
+                                        'provider_rate_limited', 'provider_timeout',
+                                        'provider_unavailable', 'total_timeout',
+                                        'provider_interrupted'
+                                    )
+                                    AND safe_reason_code = COALESCE(
+                                        failure_reason_code, 'generated'
+                                    )
+                                )
+                            )
                         )
                         """
                     )
@@ -877,6 +1258,18 @@ class PostgresInterviewGenerationStore:
                     "decision_prompt_sha256 TEXT",
                     "generation_prompt_version TEXT",
                     "generation_prompt_sha256 TEXT",
+                    "generation_kind TEXT NOT NULL DEFAULT 'followup'",
+                    "identity_sha256 TEXT",
+                    "intent_sha256 TEXT",
+                    "context_sha256 TEXT",
+                    "knowledge_scope_sha256 TEXT",
+                    "generator_version TEXT",
+                    "result_mode TEXT",
+                    "failure_reason_code TEXT",
+                    "provider_invocation_count INTEGER",
+                    "generation_latency_ms BIGINT",
+                    "fallback_used BOOLEAN",
+                    "safe_reason_code TEXT",
                 ):
                     cursor.execute(
                         self._sql(
@@ -884,11 +1277,90 @@ class PostgresInterviewGenerationStore:
                             + prompt_column
                         )
                     )
+                lineage_constraint = runtime_schema_identifier(
+                    self.table_prefix, "generations_jit_lineage_check"
+                )
+                cursor.execute(
+                    "SELECT 1 FROM pg_constraint "
+                    "WHERE conrelid=to_regclass(%s) AND conname=%s",
+                    (f"public.{self.generations_table}", lineage_constraint),
+                )
+                if cursor.fetchone() is None:
+                    cursor.execute(
+                        sql.SQL(
+                            "ALTER TABLE {generations} "
+                            "ADD CONSTRAINT {constraint} CHECK ("
+                            "generation_kind <> 'main_question' OR ("
+                            "identity_sha256 IS NOT NULL AND "
+                            "intent_sha256 IS NOT NULL AND "
+                            "context_sha256 IS NOT NULL AND "
+                            "knowledge_scope_sha256 IS NOT NULL AND "
+                            "generation_prompt_sha256 IS NOT NULL AND "
+                            "generator_version IS NOT NULL AND ("
+                            "result_mode IS NULL OR "
+                            "result_mode = 'generated' AND failure_reason_code IS NULL OR "
+                            "result_mode = 'fallback' AND failure_reason_code IS NOT NULL"
+                            ")))"
+                        ).format(
+                            generations=sql.Identifier(self.generations_table),
+                            constraint=sql.Identifier(lineage_constraint),
+                        )
+                    )
+                diagnostics_constraint = runtime_schema_identifier(
+                    self.table_prefix, "generations_jit_diagnostics_v2_check"
+                )
+                cursor.execute(
+                    "SELECT 1 FROM pg_constraint "
+                    "WHERE conrelid=to_regclass(%s) AND conname=%s",
+                    (f"public.{self.generations_table}", diagnostics_constraint),
+                )
+                if cursor.fetchone() is None:
+                    cursor.execute(
+                        sql.SQL(
+                            "ALTER TABLE {generations} "
+                            "ADD CONSTRAINT {constraint} CHECK ("
+                            "generation_kind <> 'main_question' OR "
+                            "status <> 'completed' OR ("
+                            "result_mode IS NOT NULL AND "
+                            "result_mode IN ('generated', 'fallback') AND "
+                            "provider_invocation_count IS NOT NULL AND "
+                            "provider_invocation_count BETWEEN 0 AND 2 AND "
+                            "generation_latency_ms IS NOT NULL AND "
+                            "generation_latency_ms >= 0 AND "
+                            "fallback_used IS NOT NULL AND "
+                            "fallback_used = (result_mode = 'fallback') AND "
+                            "safe_reason_code IS NOT NULL AND "
+                            "safe_reason_code IN ("
+                            "'generated','empty_output','presentation_prefix',"
+                            "'multiple_questions','unsafe_instruction','too_long',"
+                            "'invented_claim_marker','intent_focus_missing',"
+                            "'context_budget_exceeded','provider_auth_failed',"
+                            "'provider_rate_limited','provider_timeout',"
+                            "'provider_unavailable','total_timeout',"
+                            "'provider_interrupted') AND "
+                            "safe_reason_code = COALESCE("
+                            "failure_reason_code, 'generated')))"
+                        ).format(
+                            generations=sql.Identifier(self.generations_table),
+                            constraint=sql.Identifier(diagnostics_constraint),
+                        )
+                    )
+                main_identity_index = runtime_schema_identifier(
+                    self.table_prefix, "generations_main_identity_unique"
+                )
+                cursor.execute(
+                    sql.SQL(
+                        "CREATE UNIQUE INDEX IF NOT EXISTS {index} "
+                        "ON {generations}(identity_sha256) "
+                        "WHERE identity_sha256 IS NOT NULL"
+                    ).format(
+                        index=sql.Identifier(main_identity_index),
+                        generations=sql.Identifier(self.generations_table),
+                    )
+                )
                 source_decision_index = runtime_schema_identifier(
                     self.table_prefix, "generations_source_decision_unique"
                 )
-                from psycopg2 import sql
-
                 cursor.execute(
                     sql.SQL(
                         "CREATE UNIQUE INDEX IF NOT EXISTS {index} "

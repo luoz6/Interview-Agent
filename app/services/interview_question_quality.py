@@ -472,6 +472,18 @@ def assess_interview_question_quality(
     )
 
 
+def hard_interview_question_quality_findings(
+    questions: Sequence[QuestionQualityInput | object],
+) -> tuple[QuestionQualitySignal, ...]:
+    """Return the allowlisted Hard findings shared by enforcement and repair."""
+
+    return tuple(
+        finding
+        for finding in assess_interview_question_quality(questions).hard_violations
+        if finding.code in HARD_QUESTION_QUALITY_CODES
+    )
+
+
 def _first_present(
     value: object, *names: str, default: Any = None
 ) -> Any:

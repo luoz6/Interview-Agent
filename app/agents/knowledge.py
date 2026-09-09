@@ -17,11 +17,14 @@ from app.services.knowledge_query import build_knowledge_queries
 from app.services.llm import InterviewLLM
 from app.services.prep import (
     InterviewPlan,
+    PlanGenerationValidationError,
     attach_prep_context,
     enforce_generated_interview_question_quality,
     enforce_generated_interview_plan,
+    enforce_generated_intent_plan,
     validate_launchable_interview_plan,
 )
+from app.runtime.config.environment import environment_value
 
 if TYPE_CHECKING:
     from app.domain.knowledge.source_scope import KnowledgeSourceScope
@@ -130,11 +133,26 @@ class KnowledgeAgent:
         except (TypeError, ValueError):
             supports_context = False
             supports_configuration = False
+            supports_intent_only = False
+        else:
+            supports_intent_only = (
+                "intent_only" in signature.parameters or supports_kwargs
+            )
+        intent_only = str(
+            environment_value("INTERVIEW_JIT_MAIN_QUESTION_ENABLED", "false")
+        ).strip().lower() == "true"
+        if intent_only and not supports_intent_only:
+            raise PlanGenerationValidationError(
+                "provider_intent_mode_unsupported",
+                "JIT plan generation requires a native intent provider contract",
+            )
         kwargs = {}
         if supports_context:
             kwargs["knowledge_context"] = knowledge_context
         if supports_configuration and configuration is not None:
             kwargs["configuration"] = configuration
+        if supports_intent_only:
+            kwargs["intent_only"] = intent_only
         return llm.generate_plan(job_description, resume_text, **kwargs)
 
     @staticmethod
@@ -142,6 +160,15 @@ class KnowledgeAgent:
         plan: InterviewPlan,
         configuration: PlanConfigurationSnapshot | None,
     ) -> InterviewPlan:
+        if plan._intent_draft_questions:
+            return enforce_generated_intent_plan(plan, configuration)
+        if str(
+            environment_value("INTERVIEW_JIT_MAIN_QUESTION_ENABLED", "false")
+        ).strip().lower() == "true":
+            raise PlanGenerationValidationError(
+                "provider_intent_payload_missing",
+                "JIT plan generation requires a native intent payload",
+            )
         if configuration is None:
             launchable = validate_launchable_interview_plan(plan)
             return enforce_generated_interview_question_quality(launchable)

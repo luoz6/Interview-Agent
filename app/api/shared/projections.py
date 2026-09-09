@@ -9,13 +9,8 @@ from app.services.prep import (
 def plan_revision_payload(revision) -> dict:
     """Project one immutable plan revision into the public API contract."""
 
-    legacy = public_interview_plan_payload(v2_plan_to_legacy(revision.plan))
     public_plan = public_interview_plan_v2_payload(revision.plan)
-    if "prep_context" in legacy:
-        public_plan["prep_context"] = legacy["prep_context"]
-    else:
-        public_plan.pop("prep_context", None)
-    return {
+    payload = {
         "plan_family_id": revision.plan_family_id,
         "plan_revision_id": revision.plan_revision_id,
         "revision": revision.revision,
@@ -25,8 +20,20 @@ def plan_revision_payload(revision) -> dict:
             revision.plan
         ).model_dump(mode="json"),
         "plan": public_plan,
-        "legacy_plan": legacy,
     }
+    if revision.plan.schema_version == "interview-plan-v2":
+        legacy = public_interview_plan_payload(v2_plan_to_legacy(revision.plan))
+        if "prep_context" in legacy:
+            public_plan["prep_context"] = legacy["prep_context"]
+        else:
+            public_plan.pop("prep_context", None)
+        payload["legacy_plan"] = legacy
+    else:
+        # A V3 Intent cannot be represented as a legacy plan without inventing
+        # final question wording. Prep clients consume `plan` directly.
+        public_plan.pop("prep_context", None)
+        payload["legacy_plan"] = None
+    return payload
 
 
 __all__ = ["plan_revision_payload"]

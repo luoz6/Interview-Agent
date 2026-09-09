@@ -468,7 +468,7 @@ test("React interview focus mode and answer draft survive refresh", async ({ pag
   await page.keyboard.press("Escape");
   await expect(page.locator(".question-rail")).toBeVisible();
   await page.getByRole("button", { name: "提交回答" }).click();
-  await expect(page.locator(".agent-console")).toContainText("trade-off");
+  await expect(page.locator(".agent-console")).toContainText("Explain Redis cache consistency.");
 });
 
 test("skip requires a second action before one authoritative request", async ({ page, request }) => {

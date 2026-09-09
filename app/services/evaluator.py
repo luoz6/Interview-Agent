@@ -3,6 +3,12 @@ from pydantic import BaseModel
 from app.graphs.interview_state import InterviewState
 from app.services.llm import InterviewLLM
 from app.services.prep import InterviewQuestion
+from app.services.published_question import (
+    published_question_ids,
+    published_question_text,
+    question_id,
+    question_kind,
+)
 from app.services.report import (
     DimensionScores,
     InterviewFeedback,
@@ -79,16 +85,24 @@ class ShadowEvaluator:
 
 
 def build_evaluation_chunks(state: InterviewState) -> list[EvaluationChunk]:
+    questions = state["plan"].questions
+    if getattr(state["plan"], "schema_version", None) == "interview-plan-v3":
+        published_ids = published_question_ids(state)
+        questions = [
+            question
+            for question in questions
+            if question_id(question) in published_ids
+        ]
     return [
         EvaluationChunk(
-            question_id=question.id,
-            question_text=question.prompt,
-            question_kind=question.kind,
+            question_id=question_id(question),
+            question_text=published_question_text(state, question),
+            question_kind=question_kind(question),
             focus=question.focus,
             answer_state=_answer_state_for_question(state, question),
             messages=_messages_for_question(state, question),
         )
-        for question in state["plan"].questions
+        for question in questions
     ]
 
 
@@ -221,11 +235,12 @@ def _answer_state_for_question(
     state: InterviewState,
     question: InterviewQuestion,
 ) -> str:
-    if question.id in state.get("skipped_question_ids", []):
+    target_id = question_id(question)
+    if target_id in state.get("skipped_question_ids", []):
         return "skipped"
     has_answer = any(
         message["role"] == "candidate"
-        and message["question_id"] == question.id
+        and message["question_id"] == target_id
         and message["content"].strip()
         for message in state["messages"]
     )
@@ -297,10 +312,11 @@ def _messages_for_question(
     state: InterviewState,
     question: InterviewQuestion,
 ) -> list[dict[str, str]]:
+    target_id = question_id(question)
     return [
         {"role": message["role"], "content": message["content"]}
         for message in state["messages"]
-        if message["question_id"] == question.id
+        if message["question_id"] == target_id
     ]
 
 

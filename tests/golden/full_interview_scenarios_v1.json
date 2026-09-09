@@ -1,0 +1,132 @@
+{
+  "schema_version": "full-interview-synthetic-scenarios-v1",
+  "scenario_version": "rm5-synthetic-scenarios-2026-08-18-v1",
+  "scenarios": [
+    {
+      "scenario_id": "redis-cache-consistency",
+      "job_description": "Synthetic backend role focused on Redis consistency, failure recovery, and observable services.",
+      "resume_text": "Synthetic profile with API caching, idempotent jobs, and service monitoring practice.",
+      "job_tags": ["redis", "system-design"],
+      "single_question_gap_topic": "measurable_outcomes",
+      "fixture_plan": {
+        "title": "Synthetic Redis consistency interview",
+        "questions": [
+          {"id": "redis-q1", "kind": "technical", "prompt": "如何处理 Redis 缓存与数据库的一致性？", "focus": "Redis consistency"},
+          {"id": "redis-q2", "kind": "technical", "prompt": "缓存删除失败时如何恢复？", "focus": "recovery"},
+          {"id": "redis-q3", "kind": "system-design", "prompt": "如何验证一致性方案的效果？", "focus": "metrics"}
+        ]
+      },
+      "answer_branches": [
+        {"branch_id": "redis-consistency", "topic": "redis-consistency", "keywords": ["redis", "缓存", "一致性"], "answers": ["先提交数据库事务，再删除缓存，并设置短期过期时间。", "删除失败写入补偿队列，由幂等消费者重放。", "对补偿积压和不一致抽样结果设置告警。"]},
+        {"branch_id": "redis-recovery", "topic": "recovery", "keywords": ["失败", "恢复", "补偿", "回滚"], "answers": ["失败事件进入补偿队列并限制重试次数。", "超过重试上限进入死信并触发人工检查。"]},
+        {"branch_id": "redis-metrics", "topic": "metrics", "keywords": ["验证", "指标", "监控", "效果"], "answers": ["抽样比对缓存和数据库结果，并监控队列积压。"]}
+      ],
+      "default_answers": ["先说明约束，再给出执行步骤、失败边界和验证方式。", "补充一个备选方案并说明适用条件。"]
+    },
+    {
+      "scenario_id": "message-delivery-reliability",
+      "job_description": "Synthetic backend role focused on message delivery reliability, retries, and idempotency.",
+      "resume_text": "Synthetic profile with queue consumers, retry policies, and operational alerts.",
+      "job_tags": ["kafka", "system-design"],
+      "single_question_gap_topic": "measurable_outcomes",
+      "fixture_plan": {
+        "title": "Synthetic message reliability interview",
+        "questions": [
+          {"id": "queue-q1", "kind": "technical", "prompt": "如何保证消息至少处理一次且业务结果不重复？", "focus": "idempotency"},
+          {"id": "queue-q2", "kind": "technical", "prompt": "重试持续失败时如何处理？", "focus": "recovery"},
+          {"id": "queue-q3", "kind": "system-design", "prompt": "如何衡量消息链路是否健康？", "focus": "metrics"}
+        ]
+      },
+      "answer_branches": [
+        {"branch_id": "queue-idempotency", "topic": "idempotency", "keywords": ["消息", "重复", "幂等", "至少"], "answers": ["用业务幂等键和状态表保护副作用，再提交消费位点。", "并发重复请求通过唯一约束合并。"]},
+        {"branch_id": "queue-recovery", "topic": "recovery", "keywords": ["失败", "重试", "死信", "恢复"], "answers": ["指数退避后进入死信队列，并保留可审计的重放入口。", "重放前校验幂等状态并限制批次。"]},
+        {"branch_id": "queue-metrics", "topic": "metrics", "keywords": ["衡量", "健康", "指标", "积压"], "answers": ["监控消费延迟、积压和死信数量，但阈值需要基于压测确定。"]}
+      ],
+      "default_answers": ["先给出交付语义，再说明幂等、失败处理和验证。", "未知参数使用待压测占位，不虚构数字。"]
+    },
+    {
+      "scenario_id": "api-latency-diagnosis",
+      "job_description": "Synthetic API role focused on latency diagnosis, capacity, and safe remediation.",
+      "resume_text": "Synthetic profile with request tracing, query tuning, and controlled releases.",
+      "job_tags": ["python", "fastapi"],
+      "single_question_gap_topic": "recovery_strategy",
+      "fixture_plan": {
+        "title": "Synthetic API latency interview",
+        "questions": [
+          {"id": "latency-q1", "kind": "technical", "prompt": "API p95 延迟升高时如何定位？", "focus": "diagnosis"},
+          {"id": "latency-q2", "kind": "technical", "prompt": "确认数据库瓶颈后如何安全优化？", "focus": "tradeoff"},
+          {"id": "latency-q3", "kind": "system-design", "prompt": "优化发布后如何验证和回滚？", "focus": "recovery"}
+        ]
+      },
+      "answer_branches": [
+        {"branch_id": "latency-diagnosis", "topic": "diagnosis", "keywords": ["延迟", "定位", "p95", "慢"], "answers": ["先按路由分解追踪耗时，再关联数据库、外部依赖和队列等待。", "用同一时间窗对比基线并排除采样偏差。"]},
+        {"branch_id": "latency-tradeoff", "topic": "tradeoff", "keywords": ["数据库", "优化", "索引", "瓶颈"], "answers": ["先用执行计划验证索引收益，再评估写放大和锁等待代价。", "通过小流量灰度观察真实负载。"]},
+        {"branch_id": "latency-recovery", "topic": "recovery", "keywords": ["回滚", "发布", "恢复", "验证"], "answers": ["验证 p95 和错误率，但回滚触发条件还需要补充。"]}
+      ],
+      "default_answers": ["按证据、假设、实验和结果组织排查。", "变更使用灰度并保留可逆路径。"]
+    },
+    {
+      "scenario_id": "database-schema-migration",
+      "job_description": "Synthetic data platform role focused on online schema migration and rollback safety.",
+      "resume_text": "Synthetic profile with transactional data services and staged database changes.",
+      "job_tags": ["postgresql", "system-design"],
+      "single_question_gap_topic": "measurable_outcomes",
+      "fixture_plan": {
+        "title": "Synthetic schema migration interview",
+        "questions": [
+          {"id": "migration-q1", "kind": "system-design", "prompt": "如何在线迁移一个高流量表结构？", "focus": "migration"},
+          {"id": "migration-q2", "kind": "technical", "prompt": "双写阶段如何处理一致性风险？", "focus": "consistency"},
+          {"id": "migration-q3", "kind": "technical", "prompt": "何时可以安全切换和清理旧字段？", "focus": "verification"}
+        ]
+      },
+      "answer_branches": [
+        {"branch_id": "migration-stages", "topic": "migration", "keywords": ["迁移", "表结构", "在线", "字段"], "answers": ["先扩展兼容字段，再回填、双读校验、切流，最后延迟清理。", "每一步独立发布并保持向后兼容。"]},
+        {"branch_id": "migration-consistency", "topic": "consistency", "keywords": ["双写", "一致性", "风险"], "answers": ["用事务外盒记录待同步事件，并周期性核对新旧值。", "失败记录进入可重放队列。"]},
+        {"branch_id": "migration-verification", "topic": "verification", "keywords": ["切换", "清理", "安全", "何时"], "answers": ["确认无旧版本实例并完成抽样比对，但观察窗口尚未量化。"]}
+      ],
+      "default_answers": ["采用扩展、迁移、切换、收缩四阶段。", "每阶段都设置停止条件和回滚入口。"]
+    },
+    {
+      "scenario_id": "regional-incident-recovery",
+      "job_description": "Synthetic reliability role focused on regional incidents, failover, and recovery verification.",
+      "resume_text": "Synthetic profile with service degradation, incident response, and post-incident learning.",
+      "job_tags": ["system-design", "general"],
+      "single_question_gap_topic": "tradeoff_analysis",
+      "fixture_plan": {
+        "title": "Synthetic incident recovery interview",
+        "questions": [
+          {"id": "incident-q1", "kind": "behavioral", "prompt": "区域故障发生后最先做什么？", "focus": "response"},
+          {"id": "incident-q2", "kind": "system-design", "prompt": "如何执行跨区域故障转移？", "focus": "failover"},
+          {"id": "incident-q3", "kind": "behavioral", "prompt": "恢复后如何确认风险已经收敛？", "focus": "verification"}
+        ]
+      },
+      "answer_branches": [
+        {"branch_id": "incident-response", "topic": "response", "keywords": ["故障", "最先", "发生", "响应"], "answers": ["先确认影响范围并冻结高风险变更，再按预案降级非核心功能。", "建立统一事件时间线和负责人。"]},
+        {"branch_id": "incident-failover", "topic": "failover", "keywords": ["跨区域", "转移", "切换"], "answers": ["先验证备用区域容量和数据复制状态，再分批切换流量。", "未充分比较一致性和恢复速度的取舍。"]},
+        {"branch_id": "incident-verification", "topic": "verification", "keywords": ["恢复后", "确认", "收敛", "验证"], "answers": ["持续观察错误率、延迟和数据校验结果，并完成事后复盘。"]}
+      ],
+      "default_answers": ["先控制影响，再恢复服务，最后验证数据和业务状态。", "决策过程保留时间线和证据。"]
+    },
+    {
+      "scenario_id": "tenfold-traffic-growth",
+      "job_description": "Synthetic system design role focused on tenfold traffic growth and capacity evolution.",
+      "resume_text": "Synthetic profile with stateless APIs, queues, caching, and capacity testing.",
+      "job_tags": ["system-design", "redis"],
+      "single_question_gap_topic": "recovery_strategy",
+      "fixture_plan": {
+        "title": "Synthetic capacity interview",
+        "questions": [
+          {"id": "scale-q1", "kind": "system-design", "prompt": "流量增长十倍时先判断哪些瓶颈？", "focus": "capacity"},
+          {"id": "scale-q2", "kind": "system-design", "prompt": "如何安排扩容和架构演进顺序？", "focus": "architecture"},
+          {"id": "scale-q3", "kind": "technical", "prompt": "扩容失败时如何降级和恢复？", "focus": "recovery"}
+        ]
+      },
+      "answer_branches": [
+        {"branch_id": "scale-capacity", "topic": "capacity", "keywords": ["十倍", "瓶颈", "容量", "流量"], "answers": ["先建立入口 QPS、CPU、连接池、存储吞吐和队列积压的容量模型。", "用压测确认第一个饱和点。"]},
+        {"branch_id": "scale-architecture", "topic": "architecture", "keywords": ["扩容", "架构", "演进", "顺序"], "answers": ["先消除单点并横向扩展无状态服务，再处理数据分区和异步削峰。", "每一步都以瓶颈证据为触发。"]},
+        {"branch_id": "scale-recovery", "topic": "recovery", "keywords": ["失败", "降级", "恢复", "回滚"], "answers": ["优先保护核心写路径并关闭非关键功能，但恢复条件还需要明确。"]}
+      ],
+      "default_answers": ["先做容量建模和压测，再按瓶颈顺序演进。", "保留降级开关和回滚步骤。"]
+    }
+  ]
+}

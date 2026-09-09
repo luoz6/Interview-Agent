@@ -72,6 +72,18 @@ _V1_TO_V26_CHECKSUMS = (
     "08abeaf24e4a0cab3ad61b02bcdd7fb3cd1254f629e9fbaf4bb95947967bb932",
 )
 
+_V27_TO_V29_MIGRATION_IDS = (
+    "question_memory_resolved_target_v1_v27",
+    "context_compression_failure_state_v1_v28",
+    "row_serialization_versions_v1_v29",
+)
+
+_V27_TO_V29_CHECKSUMS = (
+    "19d394dce8c8dd30a7e4b5c70cd5bdbc635d295c85c3575148bf10b77f6faf49",
+    "24e79fce0d063c8f4a2ef9829364936377f63537514cb188b7da4fed6a008d6e",
+    "2ecd73ec4fea59b106d840cf3571141f1cc99e8cf34c4733e5425097bb1ccb13",
+)
+
 
 def test_question_memory_target_is_a_required_nullable_positive_column():
     relation = "interview_question_memory_refs"
@@ -91,18 +103,22 @@ def test_question_memory_target_is_a_required_nullable_positive_column():
     )
 
 
-def test_v27_migration_is_append_only_and_preserves_v1_to_v26_checksums():
+def test_v30_migration_is_append_only_and_preserves_v1_to_v29_checksums():
     specs = schema_contract.RUNTIME_MIGRATIONS
 
-    assert tuple(spec.migration_id for spec in specs[:26]) == (
-        _V1_TO_V26_MIGRATION_IDS
+    assert tuple(spec.migration_id for spec in specs[:29]) == (
+        _V1_TO_V26_MIGRATION_IDS + _V27_TO_V29_MIGRATION_IDS
     )
-    assert tuple(spec.checksum for spec in specs[:26]) == _V1_TO_V26_CHECKSUMS
-    assert len(specs) == 29
+    assert tuple(spec.checksum for spec in specs[:29]) == (
+        _V1_TO_V26_CHECKSUMS + _V27_TO_V29_CHECKSUMS
+    )
+    assert len(specs) == 30
     assert specs[26].migration_id == "question_memory_resolved_target_v1_v27"
     assert specs[27].migration_id == "context_compression_failure_state_v1_v28"
     assert specs[28].migration_id == "row_serialization_versions_v1_v29"
-    assert schema_contract.LATEST_RUNTIME_MIGRATION is specs[28]
+    assert specs[29].migration_id == "interview_jit_main_question_v1_v30"
+    assert specs[29].checksum == schema_contract.RUNTIME_SCHEMA_V30_CHECKSUM
+    assert schema_contract.LATEST_RUNTIME_MIGRATION is specs[29]
 
     manifest = getattr(schema_contract, "RUNTIME_SCHEMA_V27_MANIFEST", None)
     checksum = getattr(schema_contract, "RUNTIME_SCHEMA_V27_CHECKSUM", None)
@@ -133,9 +149,16 @@ def test_v27_target_migration_precedes_v28_runtime_and_runs_target_upgrade():
     latest = schema_contract.LATEST_RUNTIME_MIGRATION
     assert migrations.RUNTIME_MIGRATION_ID == latest.migration_id
     assert migrations.RUNTIME_MIGRATION_MANIFEST == (
-        schema_contract.RUNTIME_SCHEMA_V29_MANIFEST
+        schema_contract.RUNTIME_SCHEMA_V30_MANIFEST
     )
     assert migrations.RUNTIME_MIGRATION_CHECKSUM == latest.checksum
+    assert latest.migration_id == "interview_jit_main_question_v1_v30"
+    assert latest.checksum == hashlib.sha256(
+        schema_contract.RUNTIME_SCHEMA_V30_MANIFEST.encode("utf-8")
+    ).hexdigest()
+    assert json.loads(schema_contract.RUNTIME_SCHEMA_V30_MANIFEST)[
+        "base_schema_checksum"
+    ] == _V27_TO_V29_CHECKSUMS[-1]
     assert json.loads(manifest)["base_schema_checksum"] == (
         _V1_TO_V26_CHECKSUMS[-1]
     )

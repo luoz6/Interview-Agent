@@ -28,7 +28,7 @@ class FrozenMemoryModel(BaseModel):
 
 class InterviewGraphMemoryConfig(FrozenMemoryModel):
     runtime_enabled: bool = True
-    version: Literal["langgraph-v1", "langgraph-v2"] = "langgraph-v1"
+    version: Literal["langgraph-v1", "langgraph-v2", "langgraph-v3"] = "langgraph-v1"
     rollout_percent: int = Field(default=0, ge=0, le=100)
 
 
@@ -810,14 +810,14 @@ def _validate_effective_config(config: EffectiveMemoryConfig) -> None:
     if graph.rollout_percent > 0 and not graph.runtime_enabled:
         raise ValueError("interview graph rollout requires runtime enabled")
     if (
-        graph.version == "langgraph-v2"
+        graph.version in {"langgraph-v2", "langgraph-v3"}
         and graph.rollout_percent > 0
         and (
             config.budget.mode != "enforce"
             or not config.budget.enforcement.interview
         )
     ):
-        raise ValueError("langgraph-v2 rollout requires interview budget enforcement")
+        raise ValueError("durable v2/v3 rollout requires interview budget enforcement")
     if config.compression.evidence and not (
         config.compression.interview_question_memory
         or config.compression.review

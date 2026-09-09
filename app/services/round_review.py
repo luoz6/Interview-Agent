@@ -1,4 +1,8 @@
 from app.graphs.interview_state import InterviewState
+from app.services.published_question import (
+    published_question_text,
+    question_id as published_question_id,
+)
 
 
 def build_single_question_review_state(
@@ -6,7 +10,11 @@ def build_single_question_review_state(
     question_id: str,
 ) -> InterviewState:
     question = next(
-        (question for question in state["plan"].questions if question.id == question_id),
+        (
+            question
+            for question in state["plan"].questions
+            if published_question_id(question) == question_id
+        ),
         None,
     )
     if question is None:
@@ -14,7 +22,7 @@ def build_single_question_review_state(
 
     prompt_message = {
         "role": "interviewer",
-        "content": question.prompt,
+        "content": published_question_text(state, question),
         "question_id": question_id,
     }
     messages = [
@@ -27,7 +35,7 @@ def build_single_question_review_state(
             message for message in messages if message != prompt_message
         ]
 
-    return {
+    review_state = {
         "session_id": state["session_id"],
         "plan": state["plan"].model_copy(update={"questions": [question]}),
         "current_index": 1,
@@ -47,6 +55,19 @@ def build_single_question_review_state(
             for skipped_id in state.get("skipped_question_ids", [])
             if skipped_id == question_id
         ],
-        "started_at": state["started_at"],
-        "finished_at": state.get("finished_at") or state["started_at"],
+        "started_at": state.get("started_at"),
+        "finished_at": state.get("finished_at") or state.get("started_at"),
     }
+    if getattr(state["plan"], "schema_version", None) == "interview-plan-v3":
+        review_state.update(
+            {
+                "workflow_engine": "langgraph-v3",
+                "graph_schema_version": state.get(
+                    "graph_schema_version", "langgraph-v3"
+                ),
+                "rendered_questions": dict(
+                    state.get("rendered_questions") or {}
+                ),
+            }
+        )
+    return review_state

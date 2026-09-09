@@ -66,6 +66,11 @@ FOLLOWUP_CONTEXT_POLICY = OperationContextPolicy(
     input_cap_tokens=12_000,
     max_output_tokens=120,
 )
+MAIN_QUESTION_CONTEXT_POLICY = OperationContextPolicy(
+    operation="examiner.generate_main_question",
+    input_cap_tokens=12_000,
+    max_output_tokens=160,
+)
 QUESTION_REVIEW_CONTEXT_POLICY = OperationContextPolicy(
     operation="shadow_reviewer.evaluate",
     input_cap_tokens=16_000,
@@ -345,6 +350,7 @@ def context_enforcement_enabled(operation: str) -> bool:
     return {
         PLAN_CONTEXT_POLICY.operation: enforcement.prep,
         FOLLOWUP_CONTEXT_POLICY.operation: enforcement.interview,
+        MAIN_QUESTION_CONTEXT_POLICY.operation: enforcement.interview,
         QUESTION_REVIEW_CONTEXT_POLICY.operation: enforcement.review,
         REPORT_CONTEXT_POLICY.operation: enforcement.report,
     }.get(operation, False)

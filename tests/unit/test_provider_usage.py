@@ -71,9 +71,64 @@ def test_provider_model_is_retained_when_usage_is_missing():
 
     assert consume_provider_context_metadata() == {
         "provider_model": "deepseek-v4-pro",
+        "provider_response_models": ["deepseek-v4-pro"],
         "provider_unmetered_attempt_count": 1,
         "provider_usage_available": False,
     }
+
+
+def test_response_identity_is_hashed_and_never_persisted_raw():
+    reset_provider_context_metadata()
+    publish_provider_response(
+        SimpleNamespace(
+            id="provider-response-secret-123",
+            usage_metadata={
+                "input_tokens": 1,
+                "output_tokens": 2,
+                "cached_input_tokens": 0,
+            },
+            response_metadata={"model_name": "deepseek-v4-pro"},
+        )
+    )
+
+    metadata = consume_provider_context_metadata()
+    assert metadata["provider_response_id_sha256s"]
+    assert "provider-response-secret-123" not in repr(metadata)
+    assert len(metadata["provider_response_id_sha256s"][0]) == 64
+
+
+def test_provider_response_models_are_retained_for_drift_detection():
+    reset_provider_context_metadata()
+    publish_provider_response(
+        SimpleNamespace(
+            id="response-1",
+            usage_metadata={
+                "input_tokens": 1,
+                "output_tokens": 1,
+                "cached_input_tokens": 0,
+            },
+            response_metadata={"model_name": "deepseek-v4-pro"},
+        )
+    )
+    publish_provider_response(
+        SimpleNamespace(
+            id="response-2",
+            usage_metadata={
+                "input_tokens": 1,
+                "output_tokens": 1,
+                "cached_input_tokens": 0,
+            },
+            response_metadata={"model_name": "deepseek-v3"},
+        )
+    )
+
+    metadata = consume_provider_context_metadata()
+    assert metadata["provider_response_models"] == [
+        "deepseek-v4-pro",
+        "deepseek-v3",
+    ]
+    assert "response-1" not in repr(metadata)
+    assert "response-2" not in repr(metadata)
 
 
 def test_one_metered_response_cannot_hide_an_earlier_unmetered_attempt():
@@ -133,6 +188,48 @@ def test_deepseek_cached_token_alias_is_normalized():
     )
 
     assert consume_provider_context_metadata()["provider_cached_input_tokens"] == 60
+
+
+def test_deepseek_cache_miss_alias_derives_cache_hit_tokens():
+    reset_provider_context_metadata()
+    begin_provider_attempt()
+    publish_provider_response(
+        SimpleNamespace(
+            response_metadata={
+                "model_name": "deepseek-v4-pro",
+                "token_usage": {
+                    "prompt_tokens": 100,
+                    "completion_tokens": 20,
+                    "prompt_cache_miss_tokens": 100,
+                },
+            }
+        )
+    )
+
+    metadata = consume_provider_context_metadata()
+    assert metadata["provider_usage_available"] is True
+    assert metadata["provider_cached_input_tokens"] == 0
+
+
+def test_deepseek_missing_cache_detail_is_explicitly_defaulted_to_zero():
+    reset_provider_context_metadata()
+    begin_provider_attempt()
+    publish_provider_response(
+        SimpleNamespace(
+            response_metadata={
+                "model_name": "deepseek-v4-pro",
+                "token_usage": {
+                    "prompt_tokens": 100,
+                    "completion_tokens": 20,
+                },
+            }
+        )
+    )
+
+    metadata = consume_provider_context_metadata()
+    assert metadata["provider_usage_available"] is True
+    assert metadata["provider_cached_input_tokens"] == 0
+    assert metadata["provider_usage_cache_defaulted_count"] == 1
 
 
 def test_provider_usage_records_bucket_and_normalized_estimator_error():
@@ -236,6 +333,29 @@ def test_raw_fallback_and_multiple_attempts_aggregate_only_complete_usage():
     assert metadata["provider_input_tokens"] == 30
     assert metadata["provider_output_tokens"] == 5
     assert metadata["provider_cached_input_tokens"] == 1
+
+
+def test_deepseek_explicit_cache_from_later_candidate_wins_over_earlier_missing_detail():
+    reset_provider_context_metadata()
+    begin_provider_attempt()
+    publish_provider_response(
+        SimpleNamespace(
+            usage_metadata={
+                "input_tokens": 100,
+                "output_tokens": 20,
+            },
+            response_metadata={
+                "model_name": "deepseek-v4-pro",
+                "token_usage": {
+                    "prompt_tokens": 100,
+                    "completion_tokens": 20,
+                    "prompt_cache_hit_tokens": 70,
+                },
+            }
+        )
+    )
+    metadata = consume_provider_context_metadata()
+    assert metadata["provider_cached_input_tokens"] == 70
 
 
 def test_estimator_error_contract_distinguishes_under_exact_and_over():

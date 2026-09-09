@@ -2,9 +2,9 @@ from __future__ import annotations
 
 from app.services.report_eval_metrics import AttemptResult, calculate_metrics
 
-def make_attempt(case_id, group_id, quality_level, score, *, run_number=1, answer="answer", observed=None, required_observations=None, forbidden_claims=None, applicable_dimensions=None, expected_applicable_dimensions=None, fallback=False, output_text=""):
+def make_attempt(case_id, group_id, quality_level, score, *, run_number=1, answer="answer", observed=None, required_observations=None, forbidden_claims=None, applicable_dimensions=None, expected_applicable_dimensions=None, fallback=False, output_text="", provider_owned=None, backend_owned=None):
     dimensions = applicable_dimensions or ["depth"]
-    return AttemptResult(case_id=case_id, group_id=group_id, quality_level=quality_level, run_number=run_number, score=score, answer=answer, observed=[answer] if observed is None else observed, required_observations=required_observations or [], forbidden_claims=forbidden_claims or [], applicable_dimensions=dimensions, expected_applicable_dimensions=expected_applicable_dimensions if expected_applicable_dimensions is not None else dimensions, fallback=fallback, output_text=output_text)
+    return AttemptResult(case_id=case_id, group_id=group_id, quality_level=quality_level, run_number=run_number, score=score, answer=answer, observed=[answer] if observed is None else observed, required_observations=required_observations or [], forbidden_claims=forbidden_claims or [], applicable_dimensions=dimensions, expected_applicable_dimensions=expected_applicable_dimensions if expected_applicable_dimensions is not None else dimensions, fallback=fallback, output_text=output_text, provider_owned=provider_owned or {}, backend_owned=backend_owned or {})
 
 def test_balanced_gate_passes_for_ordered_grounded_attempts():
     metrics = calculate_metrics([make_attempt("s", "g", "strong", 90), make_attempt("m", "g", "medium", 65), make_attempt("i", "g", "incorrect", 20)], expected_attempt_count=3)
@@ -63,7 +63,7 @@ def test_fallback_rate_above_five_percent_blocks_release():
 
 def test_forbidden_claim_is_blocking():
     item = make_attempt("s", "g", "strong", 90, forbidden_claims=["invented metric"], output_text="invented metric")
-    assert calculate_metrics([item], expected_attempt_count=1).blocking_failures[0]["type"] == "forbidden_claim"
+    assert calculate_metrics([item], expected_attempt_count=1).blocking_failures[0]["type"] == "provider_forbidden_claim"
 
 
 def test_forbidden_claim_present_in_candidate_answer_is_not_model_hallucination():
@@ -78,6 +78,28 @@ def test_forbidden_claim_present_in_candidate_answer_is_not_model_hallucination(
         output_text="???????????",
     )
     assert calculate_metrics([item], expected_attempt_count=1).blocking_failures == []
+
+
+def test_provider_and_backend_forbidden_claims_are_routed_to_separate_owners():
+    item = make_attempt(
+        "s",
+        "g",
+        "strong",
+        90,
+        answer="answer",
+        forbidden_claims=["provider overclaim", "backend overclaim"],
+        provider_owned={"rationale": "provider overclaim"},
+        backend_owned={"answer_guidance": "backend overclaim"},
+    )
+
+    metrics = calculate_metrics([item], expected_attempt_count=1)
+    failures = metrics.blocking_failures
+    assert {failure["type"] for failure in failures} == {
+        "provider_forbidden_claim",
+        "backend_guidance_forbidden_claim",
+    }
+    assert metrics.provider_forbidden_claim_count == 1
+    assert metrics.backend_guidance_forbidden_claim_count == 1
 
 def test_dimension_mismatch_is_blocking():
     item = make_attempt("s", "g", "strong", 90, applicable_dimensions=["depth"], expected_applicable_dimensions=["depth", "architecture"])

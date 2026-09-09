@@ -58,7 +58,7 @@ const defaultConfiguration = {
   expected_followup_budget: 5,
   max_followups_per_question: 2,
   generator_version: "plan-generator-v2",
-  followup_policy_version: "fixed_v1",
+  followup_policy_version: "adaptive_v1",
 };
 
 function revisionResponse(revision = 1, overrides = {}) {
@@ -1647,6 +1647,68 @@ describe("StartPage editable plan workflow", () => {
     expect(screen.getByRole("radio", { name: "60 分钟" })).toBeChecked();
     expect(screen.getByRole("button", { name: "开始本次面试" })).toBeEnabled();
     expect(screen.getByText("配置已同步")).toBeInTheDocument();
+  });
+
+  it("requires regeneration when a restored revision still uses the legacy fixed policy", async () => {
+    const user = userEvent.setup();
+    const legacyConfiguration = {
+      ...defaultConfiguration,
+      followup_policy_version: "fixed_v1",
+    };
+    const baseResponse = revisionResponse(1);
+    window.localStorage.setItem("interview-agent:draft-id", "draft_fixed_policy");
+    window.localStorage.setItem(
+      "interview-agent:plan-configuration-v1",
+      JSON.stringify(legacyConfiguration),
+    );
+    fetchMock
+      .mockImplementationOnce(() =>
+        response({
+          draft_id: "draft_fixed_policy",
+          job_description: "Restored platform role",
+          resume_text: "Restored platform resume",
+          job_tags: ["Platform"],
+          plan_status: "active",
+          plan_family_id: familyId,
+          latest_plan_revision_id: baseResponse.plan_revision_id,
+        }),
+      )
+      .mockImplementationOnce(() =>
+        response(
+          revisionResponse(1, {
+            plan: {
+              ...baseResponse.plan,
+              configuration_snapshot: legacyConfiguration,
+            },
+          }),
+        ),
+      );
+
+    render(<StartPage />);
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+    await user.click(screen.getByRole("tab", { name: "计划" }));
+    await screen.findByText("R1");
+    expect(screen.getByText("待重新生成")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "开始本次面试" })).toBeDisabled();
+
+    await user.click(screen.getByRole("button", { name: "应用配置并重新生成" }));
+    const dialog = screen.getByRole("dialog", {
+      name: "使用新配置重新生成计划？",
+    });
+    const regenerated = revisionResponse(2);
+    fetchMock.mockImplementationOnce(() => response(regenerated));
+    await user.click(
+      within(dialog).getByRole("button", { name: "确认采用新配置" }),
+    );
+
+    await screen.findByText("R2");
+    const regenerateCall = fetchMock.mock.calls.find(([path]) =>
+      path.includes(`/api/interview-plans/${familyId}/regenerate`),
+    );
+    const requestBody = JSON.parse(regenerateCall[1].body);
+    expect(requestBody.configuration.followup_policy_version).toBe("adaptive_v1");
+    expect(screen.getByRole("button", { name: "开始本次面试" })).toBeEnabled();
   });
 
   it("confirms before a manual draft restore can replace the current canvas", async () => {

@@ -4,7 +4,6 @@ import argparse
 import hashlib
 import json
 import os
-import subprocess
 import sys
 import time
 from datetime import datetime, timezone
@@ -19,8 +18,13 @@ from app.services.followup_provider_preflight import (
     discover_deepseek_provider,
     estimate_provider_cost,
 )
+from app.services.evaluator_candidate_identity import (
+    EvaluatorCandidateIdentity,
+    capture_evaluator_candidate_identity,
+)
 from app.services.initial_question_eval import (
     InitialQuestionEvalAttempt,
+    InitialQuestionFailedGenerationLifecycle,
     InitialQuestionProviderArtifact,
     InitialQuestionReview,
     PlanContextBudgetEvidence,
@@ -52,8 +56,14 @@ from app.services.job_tags import extract_job_tags
 from app.services.llm import (
     LLMConfig,
     OpenAIInterviewLLM,
+    PLAN_GENERATION_PROMPT_SHA256,
+    PLAN_GENERATION_PROMPT_VERSION,
+    PLAN_QUALITY_REPAIR_PROMPT_SHA256,
+    PLAN_QUALITY_REPAIR_PROMPT_VERSION,
     resolve_plan_output_mode,
+    verify_plan_generation_prompt_identity,
 )
+from app.services.interview_question_quality import HARD_QUESTION_QUALITY_CODES
 from app.services.prep import attach_prep_context
 from app.services.provider_usage import (
     consume_provider_context_metadata,
@@ -123,6 +133,12 @@ def main(argv: list[str] | None = None) -> int:
         raise SystemExit("--smoke-case-count must be positive")
     if args.context_window_tokens is not None and args.context_window_tokens <= 0:
         raise SystemExit("--context-window-tokens must be positive")
+    try:
+        plan_generation_prompt_sha256 = verify_plan_generation_prompt_identity()
+    except RuntimeError as exc:
+        raise SystemExit("plan generation prompt integrity check failed") from exc
+    if plan_generation_prompt_sha256 != PLAN_GENERATION_PROMPT_SHA256:
+        raise SystemExit("plan generation prompt integrity check failed")
 
     dataset_path = args.dataset.resolve()
     gate_path = args.gate_config.resolve()
@@ -147,7 +163,7 @@ def main(argv: list[str] | None = None) -> int:
     gate_config = load_gate_config(gate_path)
     authorization = load_provider_authorization(authorization_path)
     plan_output_mode = resolve_plan_output_mode(authorization.provider.model_id)
-    candidate_revision, candidate_tree, worktree_clean = _candidate_identity()
+    candidate_identity = _candidate_identity()
     run_id = args.run_id or datetime.now(timezone.utc).strftime(
         "initial-question-t57-%Y%m%dT%H%M%SZ"
     )
@@ -181,12 +197,18 @@ def main(argv: list[str] | None = None) -> int:
             "gate_config_sha256": _sha256_file(gate_path),
             "authorization_id": authorization.authorization_id,
             "authorization_sha256": _sha256_file(authorization_path),
-            "candidate_revision": candidate_revision,
-            "candidate_tree": candidate_tree,
-            "worktree_clean": worktree_clean,
+            **candidate_identity.manifest_fields(),
             "provider": authorization.provider.name,
             "model": authorization.provider.model_id,
             "plan_output_mode": plan_output_mode,
+            "plan_generation_prompt_version": PLAN_GENERATION_PROMPT_VERSION,
+            "plan_generation_prompt_sha256": plan_generation_prompt_sha256,
+            "quality_repair_prompt_version": PLAN_QUALITY_REPAIR_PROMPT_VERSION,
+            "quality_repair_prompt_sha256": PLAN_QUALITY_REPAIR_PROMPT_SHA256,
+            "initial_hard_finding_codes": [],
+            "quality_repair_triggered": False,
+            "quality_repair_succeeded": None,
+            "post_repair_hard_finding_codes": None,
             "base_url": authorization.provider.base_url,
             "provider_called": False,
             "first_data_request_sent": False,
@@ -202,6 +224,7 @@ def main(argv: list[str] | None = None) -> int:
             "input_tokens": 0,
             "output_tokens": 0,
             "cached_input_tokens": 0,
+            "provider_response_id_sha256s": [],
             "estimated_cost": 0.0,
             "quality_status": "NOT_RUN",
             "decision": "RUNNING",
@@ -227,6 +250,16 @@ def main(argv: list[str] | None = None) -> int:
                 manifest,
                 ["PROVIDER_OR_MODEL_MISMATCH"],
                 "saved response identity is outside the unified authorization",
+            )
+        if (
+            artifact.source == "local_redacted_provider_output"
+            and not _artifact_repair_prompt_identity_is_current(artifact)
+        ):
+            return _finish_blocked(
+                store,
+                manifest,
+                ["PLAN_REPAIR_PROMPT_IDENTITY_MISMATCH"],
+                "saved response repair prompt identity is not current",
             )
         _write_json(store.run_dir / "normalized-saved-replay.json", artifact.model_dump(mode="json"))
         selected_ids = {case.case_id for case in selected.cases}
@@ -288,6 +321,7 @@ def main(argv: list[str] | None = None) -> int:
         manifest["provider_called"] = artifact.outbound_requests_attempted > 0
         manifest["first_data_request_sent"] = artifact.outbound_requests_attempted > 0
         _apply_usage_manifest(manifest, artifact)
+        _apply_repair_lifecycle_manifest(manifest, artifact)
         if all(
             isinstance(manifest.get(field), int)
             and not isinstance(manifest.get(field), bool)
@@ -333,6 +367,7 @@ def main(argv: list[str] | None = None) -> int:
         attempts = list(artifact.attempts)
         provider_price = preflight.discovery.prices[authorization.provider.model_id]
 
+    _apply_repair_lifecycle_manifest(manifest, artifact)
     metrics = calculate_initial_question_metrics(selected, attempts, gate_config=gate_config)
     metrics["provider_usage"]["recorded_source_invocations"] = (
         artifact.outbound_requests_attempted
@@ -440,6 +475,9 @@ def _record_live_provider_responses(
         )
     )
     attempts: list[InitialQuestionEvalAttempt] = []
+    failed_generation_lifecycles: list[
+        InitialQuestionFailedGenerationLifecycle
+    ] = []
     stops: list[str] = []
     outbound_requests_attempted = 0
     outbound_requests_metered = 0
@@ -463,17 +501,41 @@ def _record_live_provider_responses(
                 )
             except Exception:
                 metadata = consume_provider_context_metadata()
-                outbound_requests_attempted += int(
-                    metadata.get("provider_attempt_count", 0)
+                invocations = int(metadata.get("provider_attempt_count", 0))
+                metered = int(metadata.get("provider_metered_attempt_count", 0))
+                response_id_sha256s = tuple(
+                    value
+                    for value in metadata.get("provider_response_id_sha256s", ())
+                    if isinstance(value, str)
                 )
-                outbound_requests_metered += int(
-                    metadata.get("provider_metered_attempt_count", 0)
-                )
-                stops.append(
+                persisted_response_id_sha256s = response_id_sha256s[:metered]
+                outbound_requests_attempted += invocations
+                outbound_requests_metered += metered
+                lifecycle = _repair_lifecycle_from_metadata(metadata)
+                stop = (
                     "USAGE_METERING_UNAVAILABLE"
-                    if metadata.get("provider_attempt_count")
-                    != metadata.get("provider_metered_attempt_count", 0)
+                    if invocations != metered
                     else "REPEATED_PROVIDER_FAILURE"
+                )
+                stops.append(stop)
+                if len(response_id_sha256s) != metered:
+                    stops.append("RESPONSE_ID_EVIDENCE_UNAVAILABLE")
+                    stop = "RESPONSE_ID_EVIDENCE_UNAVAILABLE"
+                if lifecycle["quality_repair_triggered"] is None:
+                    stops.append("REPAIR_LIFECYCLE_UNAVAILABLE")
+                    stop = "REPAIR_LIFECYCLE_UNAVAILABLE"
+                failed_generation_lifecycles.append(
+                    InitialQuestionFailedGenerationLifecycle(
+                        case_id=case.case_id,
+                        run_number=run_number,
+                        partition=case.partition,
+                        hard_stop_condition=stop,
+                        provider_invocations=invocations,
+                        provider_metered_invocations=metered,
+                        provider_retries=max(0, invocations - 1),
+                        response_id_sha256s=persisted_response_id_sha256s,
+                        **lifecycle,
+                    )
                 )
                 break
             latency = time.perf_counter() - started
@@ -483,16 +545,94 @@ def _record_live_provider_responses(
             outbound_requests_attempted += invocations
             outbound_requests_metered += metered
             token_usage = _complete_provider_token_usage(metadata)
+            response_id_sha256s = tuple(
+                value
+                for value in metadata.get("provider_response_id_sha256s", ())
+                if isinstance(value, str)
+            )
+            lifecycle = _repair_lifecycle_from_metadata(metadata)
             if (
                 not metadata.get("provider_usage_available")
                 or metered != invocations
                 or token_usage is None
             ):
                 stops.append("USAGE_METERING_UNAVAILABLE")
+                hard_stop_condition = "USAGE_METERING_UNAVAILABLE"
+                if len(response_id_sha256s) != metered:
+                    stops.append("RESPONSE_ID_EVIDENCE_UNAVAILABLE")
+                    hard_stop_condition = "RESPONSE_ID_EVIDENCE_UNAVAILABLE"
+                failed_generation_lifecycles.append(
+                    InitialQuestionFailedGenerationLifecycle(
+                        case_id=case.case_id,
+                        run_number=run_number,
+                        partition=case.partition,
+                        hard_stop_condition=hard_stop_condition,
+                        provider_invocations=invocations,
+                        provider_metered_invocations=metered,
+                        provider_retries=max(0, invocations - 1),
+                        response_id_sha256s=response_id_sha256s,
+                        **lifecycle,
+                    )
+                )
+                break
+            if len(response_id_sha256s) != invocations:
+                stops.append("RESPONSE_ID_EVIDENCE_UNAVAILABLE")
+                failed_generation_lifecycles.append(
+                    InitialQuestionFailedGenerationLifecycle(
+                        case_id=case.case_id,
+                        run_number=run_number,
+                        partition=case.partition,
+                        hard_stop_condition="RESPONSE_ID_EVIDENCE_UNAVAILABLE",
+                        provider_invocations=invocations,
+                        provider_metered_invocations=metered,
+                        provider_retries=max(0, invocations - 1),
+                        response_id_sha256s=response_id_sha256s,
+                        **lifecycle,
+                    )
+                )
+                break
+            if lifecycle["quality_repair_triggered"] is None:
+                stops.append("REPAIR_LIFECYCLE_UNAVAILABLE")
+                failed_generation_lifecycles.append(
+                    InitialQuestionFailedGenerationLifecycle(
+                        case_id=case.case_id,
+                        run_number=run_number,
+                        partition=case.partition,
+                        hard_stop_condition="REPAIR_LIFECYCLE_UNAVAILABLE",
+                        provider_invocations=invocations,
+                        provider_metered_invocations=metered,
+                        provider_retries=max(0, invocations - 1),
+                        response_id_sha256s=response_id_sha256s,
+                        **lifecycle,
+                    )
+                )
                 break
             provider_model = metadata.get("provider_model")
-            if provider_model != authorization.provider.model_id:
+            observed_models = metadata.get("provider_response_models", [])
+            if (
+                provider_model != authorization.provider.model_id
+                or (
+                    isinstance(observed_models, list)
+                    and any(
+                    model != authorization.provider.model_id
+                    for model in observed_models
+                    )
+                )
+            ):
                 stops.append("PROVIDER_OR_MODEL_MISMATCH")
+                failed_generation_lifecycles.append(
+                    InitialQuestionFailedGenerationLifecycle(
+                        case_id=case.case_id,
+                        run_number=run_number,
+                        partition=case.partition,
+                        hard_stop_condition="PROVIDER_OR_MODEL_MISMATCH",
+                        provider_invocations=invocations,
+                        provider_metered_invocations=metered,
+                        provider_retries=max(0, invocations - 1),
+                        response_id_sha256s=response_id_sha256s,
+                        **lifecycle,
+                    )
+                )
                 break
             grounded = attach_prep_context(
                 legacy,
@@ -547,6 +687,8 @@ def _record_live_provider_responses(
                     cached_input_tokens=token_usage["provider_cached_input_tokens"],
                     latency_seconds=latency,
                     response_sha256=plan_sha256,
+                    response_id_sha256s=response_id_sha256s,
+                    **lifecycle,
                 )
             )
         if stops:
@@ -562,6 +704,7 @@ def _record_live_provider_responses(
         outbound_requests_attempted=outbound_requests_attempted,
         outbound_requests_metered=outbound_requests_metered,
         attempts=tuple(attempts),
+        failed_generation_lifecycles=tuple(failed_generation_lifecycles),
     )
 
 
@@ -618,7 +761,10 @@ def _apply_usage_manifest(
     attempts = artifact.attempts
     attempted = artifact.outbound_requests_attempted
     metered = artifact.outbound_requests_metered
-    retries = sum(item.provider_retries for item in attempts)
+    retries = sum(item.provider_retries for item in attempts) + sum(
+        item.provider_retries
+        for item in getattr(artifact, "failed_generation_lifecycles", ())
+    )
     usage_fully_observed = (
         attempted == sum(item.provider_invocations for item in attempts)
         and all(
@@ -650,8 +796,148 @@ def _apply_usage_manifest(
             "input_tokens": total("input_tokens"),
             "output_tokens": total("output_tokens"),
             "cached_input_tokens": total("cached_input_tokens"),
+            "provider_response_id_sha256s": [
+                value
+                for item in attempts
+                for value in getattr(item, "response_id_sha256s", ())
+            ] + [
+                value
+                for item in getattr(artifact, "failed_generation_lifecycles", ())
+                for value in getattr(item, "response_id_sha256s", ())
+            ],
             "estimated_cost": 0.0 if attempted == 0 else None,
         }
+    )
+
+
+def _repair_lifecycle_from_metadata(metadata: dict) -> dict[str, object]:
+    unknown = {
+        "initial_hard_finding_codes": None,
+        "quality_repair_triggered": None,
+        "quality_repair_succeeded": None,
+        "post_repair_hard_finding_codes": None,
+        "quality_repair_prompt_version": PLAN_QUALITY_REPAIR_PROMPT_VERSION,
+        "quality_repair_prompt_sha256": PLAN_QUALITY_REPAIR_PROMPT_SHA256,
+    }
+    initial = metadata.get("initial_hard_finding_codes")
+    triggered = metadata.get("quality_repair_triggered")
+    succeeded = metadata.get("quality_repair_succeeded")
+    post = metadata.get("post_repair_hard_finding_codes")
+    version = metadata.get("quality_repair_prompt_version")
+    prompt_sha256 = metadata.get("quality_repair_prompt_sha256")
+    allowed = frozenset(HARD_QUESTION_QUALITY_CODES)
+    if (
+        not isinstance(initial, list)
+        or any(not isinstance(code, str) or code not in allowed for code in initial)
+        or len(initial) != len(set(initial))
+        or not isinstance(triggered, bool)
+        or (succeeded is not None and not isinstance(succeeded, bool))
+        or (
+            post is not None
+            and (
+                not isinstance(post, list)
+                or any(
+                    not isinstance(code, str) or code not in allowed
+                    for code in post
+                )
+                or len(post) != len(set(post))
+            )
+        )
+        or version != PLAN_QUALITY_REPAIR_PROMPT_VERSION
+        or prompt_sha256 != PLAN_QUALITY_REPAIR_PROMPT_SHA256
+    ):
+        return unknown
+    if (
+        (not triggered and (initial or succeeded is not None or post is not None))
+        or (triggered and not initial)
+        or (succeeded is True and post != [])
+        or (succeeded is False and post is None)
+        or (succeeded is None and post is not None)
+    ):
+        return unknown
+    return {
+        "initial_hard_finding_codes": tuple(initial),
+        "quality_repair_triggered": triggered,
+        "quality_repair_succeeded": succeeded,
+        "post_repair_hard_finding_codes": (
+            None if post is None else tuple(post)
+        ),
+        "quality_repair_prompt_version": version,
+        "quality_repair_prompt_sha256": prompt_sha256,
+    }
+
+
+def _apply_repair_lifecycle_manifest(
+    manifest: dict,
+    artifact: InitialQuestionProviderArtifact,
+) -> None:
+    records = [*artifact.attempts, *artifact.failed_generation_lifecycles]
+    if any(item.quality_repair_triggered is None for item in records):
+        manifest.update(
+            {
+                "initial_hard_finding_codes": None,
+                "quality_repair_triggered": None,
+                "quality_repair_succeeded": None,
+                "post_repair_hard_finding_codes": None,
+            }
+        )
+        return
+    initial_codes = sorted(
+        {
+            code
+            for item in records
+            for code in (item.initial_hard_finding_codes or ())
+        }
+    )
+    triggered_records = [item for item in records if item.quality_repair_triggered]
+    if not triggered_records:
+        manifest.update(
+            {
+                "initial_hard_finding_codes": initial_codes,
+                "quality_repair_triggered": False,
+                "quality_repair_succeeded": None,
+                "post_repair_hard_finding_codes": None,
+            }
+        )
+        return
+    outcome_unknown = any(
+        item.quality_repair_succeeded is None for item in triggered_records
+    )
+    post_unknown = any(
+        item.post_repair_hard_finding_codes is None for item in triggered_records
+    )
+    manifest.update(
+        {
+            "initial_hard_finding_codes": initial_codes,
+            "quality_repair_triggered": True,
+            "quality_repair_succeeded": (
+                None
+                if outcome_unknown
+                else all(item.quality_repair_succeeded for item in triggered_records)
+            ),
+            "post_repair_hard_finding_codes": (
+                None
+                if post_unknown
+                else sorted(
+                    {
+                        code
+                        for item in triggered_records
+                        for code in (item.post_repair_hard_finding_codes or ())
+                    }
+                )
+            ),
+        }
+    )
+
+
+def _artifact_repair_prompt_identity_is_current(
+    artifact: InitialQuestionProviderArtifact,
+) -> bool:
+    records = [*artifact.attempts, *artifact.failed_generation_lifecycles]
+    return bool(records) and all(
+        item.quality_repair_prompt_version == PLAN_QUALITY_REPAIR_PROMPT_VERSION
+        and item.quality_repair_prompt_sha256 == PLAN_QUALITY_REPAIR_PROMPT_SHA256
+        for item in records
     )
 
 
@@ -677,22 +963,8 @@ def _diagnostic_evidence_origin(mode: str, scope: str) -> str:
     return "provider_smoke" if scope == "smoke" else "provider_diagnostic"
 
 
-def _candidate_identity() -> tuple[str, str, bool]:
-    revision = _git("rev-parse", "HEAD")
-    tree = _git("show", "-s", "--format=%T", "HEAD")
-    clean = not _git("status", "--porcelain")
-    return revision, tree, clean
-
-
-def _git(*args: str) -> str:
-    return subprocess.run(
-        ["git", *args],
-        cwd=ROOT,
-        check=True,
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-    ).stdout.strip()
+def _candidate_identity() -> EvaluatorCandidateIdentity:
+    return capture_evaluator_candidate_identity(ROOT)
 
 
 def _artifact_store_is_writable(store: EvaluationArtifactStore) -> bool:

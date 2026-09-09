@@ -6,6 +6,7 @@ from uuid import uuid4
 
 from app.graphs.durable_interview_state import make_durable_initial_state
 from app.graphs.durable_interview_state_v2 import make_durable_initial_state_v2
+from app.graphs.durable_interview_state_v3 import make_durable_initial_state_v3
 from app.graphs.interview_state import (
     choose_workflow_engine,
     default_memory_policy_for_engine,
@@ -37,6 +38,10 @@ PENDING_ACTION_BY_NODE = {
     "fallback_followup": "organizing_followup",
     "terminate_followup_generation": "committing_state",
     "commit_next_question": "committing_state",
+    "advance_to_next_main_question": "preparing_main_question",
+    "prepare_main_question": "preparing_main_question",
+    "generate_main_question": "preparing_main_question",
+    "commit_rendered_main_question": "committing_state",
     "project_state": "committing_state",
 }
 
@@ -81,15 +86,31 @@ class InterviewWorkflowService:
         job_tags: list[str],
         plan_binding=None,
         session_id: str | None = None,
+        bootstrap: bool = True,
     ):
         session_id = session_id or str(uuid4())
-        engine = choose_workflow_engine(
-            session_id,
-            runtime_store=self.runtime_store,
-            runtime_enabled=self.runtime_enabled,
-            rollout_percent=self.rollout_percent,
-            durable_version=self.default_graph_version,
-        )
+        is_v3 = getattr(plan, "schema_version", None) == "interview-plan-v3"
+        if is_v3:
+            if (
+                self.runtime_store != "postgres"
+                or not self.runtime_enabled
+                or self.default_graph_version != "langgraph-v3"
+            ):
+                raise RuntimeError(
+                    "interview-plan-v3 requires enabled langgraph-v3 PostgreSQL runtime"
+                )
+            self.graph_registry.get("langgraph-v3")
+            engine = "langgraph-v3"
+        else:
+            engine = choose_workflow_engine(
+                session_id,
+                runtime_store=self.runtime_store,
+                runtime_enabled=self.runtime_enabled,
+                rollout_percent=self.rollout_percent,
+                durable_version=self.default_graph_version,
+            )
+            if engine == "langgraph-v3":
+                raise ValueError("langgraph-v3 requires interview-plan-v3")
         memory_policy_version = self.memory_policy_resolver(engine)
         if engine == "legacy":
             return self.legacy_store.start(
@@ -101,20 +122,47 @@ class InterviewWorkflowService:
                 memory_policy_version=memory_policy_version,
                 plan_binding=plan_binding,
             )
-        self.legacy_store.insert_durable_session_shell(
-            session_id=session_id,
-            plan=plan,
-            job_description=job_description,
-            resume_text=resume_text,
-            job_tags=job_tags,
-            graph_version=self.default_graph_version,
-            memory_policy_version=memory_policy_version,
-            plan_binding=plan_binding,
-        )
-        self.ensure_interview_bootstrapped(session_id, plan=plan)
+        if engine == "langgraph-v3":
+            with self.legacy_store.unit_of_work() as unit_of_work:
+                self.legacy_store.insert_session_in_transaction(
+                    unit_of_work.cursor,
+                    session_id=session_id,
+                    plan=plan,
+                    job_description=job_description,
+                    resume_text=resume_text,
+                    job_tags=job_tags,
+                    graph_version=engine,
+                    memory_policy_version=memory_policy_version,
+                    plan_binding=plan_binding,
+                )
+                self.workflow_store.enqueue_bootstrap_with_cursor(
+                    unit_of_work.cursor, session_id
+                )
+                unit_of_work.commit()
+        else:
+            self.legacy_store.insert_durable_session_shell(
+                session_id=session_id,
+                plan=plan,
+                job_description=job_description,
+                resume_text=resume_text,
+                job_tags=job_tags,
+                graph_version=self.default_graph_version,
+                memory_policy_version=memory_policy_version,
+                plan_binding=plan_binding,
+            )
+        if bootstrap:
+            self.ensure_interview_bootstrapped(session_id, plan=plan)
         return self.legacy_store._to_turn(
             self.legacy_store.get(session_id), follow_up=None
         )
+
+    def bootstrap_first_question(self, session_id: str):
+        """Start or resume the canonical V3 bootstrap Generation."""
+
+        state = self.legacy_store.get(session_id)
+        if state.get("workflow_engine") != "langgraph-v3":
+            raise ValueError("bootstrap stream requires a langgraph-v3 session")
+        return self.ensure_interview_bootstrapped(session_id)
 
     def graph_for_version(self, version: str):
         return self.graph_registry.get(version)
@@ -173,8 +221,17 @@ class InterviewWorkflowService:
                 raise ValueError("durable graph version is missing")
             resolved_plan = plan or public_state["plan"]
             plan_binding = session_plan_binding_from_state(public_state)
-            initial_state = (
-                make_durable_initial_state_v2(
+            if version == "langgraph-v3":
+                initial_state = make_durable_initial_state_v3(
+                    session_id,
+                    resolved_plan,
+                    plan_binding=plan_binding,
+                    job_description=public_state["job_description"],
+                    resume_text=public_state["resume_text"],
+                    job_tags=list(public_state["job_tags"]),
+                )
+            elif version == "langgraph-v2":
+                initial_state = make_durable_initial_state_v2(
                     session_id,
                     resolved_plan,
                     memory_policy_version=public_state[
@@ -182,13 +239,12 @@ class InterviewWorkflowService:
                     ],
                     plan_binding=plan_binding,
                 )
-                if version == "langgraph-v2"
-                else make_durable_initial_state(
+            else:
+                initial_state = make_durable_initial_state(
                     session_id,
                     resolved_plan,
                     plan_binding=plan_binding,
                 )
-            )
             canonical = json.dumps(
                 {
                     "graph_schema_version": version,
@@ -209,6 +265,21 @@ class InterviewWorkflowService:
                 require_unstarted=not bool(snapshot.values),
             )
             if snapshot.values:
+                bootstrap_nodes = {
+                    "initialize_session",
+                    "prepare_main_question",
+                    "generate_main_question",
+                    "commit_rendered_main_question",
+                    "project_state",
+                }
+                pending_nodes = tuple(snapshot.next or ())
+                if version == "langgraph-v3" and pending_nodes and all(
+                    node in bootstrap_nodes for node in pending_nodes
+                ):
+                    result = graph.invoke(None, config=config)
+                    if ownership is not None:
+                        ownership.ensure_owned()
+                    return result
                 if ownership is not None:
                     ownership.ensure_owned()
                 return snapshot.values
@@ -336,6 +407,46 @@ class InterviewWorkflowService:
             snapshot.get("workflow_engine"),
         )
         values = graph_state.values
+        is_v3_snapshot = (
+            values.get("workflow_engine") == "langgraph-v3"
+            or snapshot.get("workflow_engine") == "langgraph-v3"
+        )
+        if is_v3_snapshot:
+            rendered_questions = values.get("rendered_questions") or {}
+            current_rendered_question_id = values.get(
+                "current_rendered_question_id"
+            )
+            rendered = (
+                rendered_questions.get(current_rendered_question_id)
+                if isinstance(rendered_questions, dict)
+                and isinstance(current_rendered_question_id, str)
+                else None
+            )
+            snapshot["status"] = values.get(
+                "interview_status",
+                snapshot.get("status", "preparing_first_question"),
+            )
+            snapshot["current_index"] = int(values.get("current_index") or 0)
+            snapshot["current_question"] = (
+                {
+                    "id": rendered["question_id"],
+                    "kind": _v3_question_kind(values, rendered["question_id"]),
+                    "prompt": rendered["text"],
+                    "render_state": "available",
+                    "generation_id": rendered["generation_id"],
+                }
+                if isinstance(rendered, dict) and rendered.get("text")
+                else None
+            )
+            if values.get("plan_snapshot"):
+                snapshot["questions"] = _v3_public_question_navigation(values)
+            if snapshot["status"] == "preparing_first_question":
+                snapshot["active_command_id"] = "bootstrap"
+                snapshot["active_stream_url"] = (
+                    f"/api/interviews/{session_id}/bootstrap/stream"
+                )
+            if isinstance(rendered, dict):
+                snapshot["active_generation_id"] = rendered.get("generation_id")
         snapshot.update(
             interview_assistance_metadata(
                 self.legacy_store.get(session_id),
@@ -345,8 +456,16 @@ class InterviewWorkflowService:
         )
         active_command_id = values.get("active_command_id")
         generation_id = values.get("generation_id")
-        snapshot["active_command_id"] = active_command_id
-        snapshot["active_generation_id"] = generation_id
+        if not (
+            is_v3_snapshot
+            and snapshot.get("status") == "preparing_first_question"
+        ):
+            snapshot["active_command_id"] = active_command_id
+        if not (
+            is_v3_snapshot
+            and isinstance(snapshot.get("current_question"), dict)
+        ):
+            snapshot["active_generation_id"] = generation_id
         snapshot["active_attempt_number"] = values.get(
             "generation_attempt"
         )
@@ -410,3 +529,39 @@ def _followup_ui_state(values, *, next_node, policy_version: str) -> str:
     }:
         return "decision_pending"
     return "generation_pending"
+
+
+def _v3_question_kind(values, question_id: str) -> str:
+    for intent in values.get("plan_snapshot", {}).get("questions", []):
+        if intent.get("question_id") == question_id:
+            return str(intent.get("kind") or "technical")
+    return "technical"
+
+
+def _v3_public_question_navigation(values) -> list[dict[str, Any]]:
+    current_index = int(values.get("current_index") or 0)
+    rendered_questions = values.get("rendered_questions") or {}
+    skipped = set(values.get("skipped_question_ids") or [])
+    items = []
+    for index, intent in enumerate(
+        values.get("plan_snapshot", {}).get("questions", [])
+    ):
+        question_id = str(intent.get("question_id") or "")
+        rendered = rendered_questions.get(question_id)
+        item = {
+            "id": question_id,
+            "kind": intent.get("kind"),
+            "state": (
+                "skipped"
+                if question_id in skipped
+                else "answered"
+                if index < current_index
+                else "current"
+                if index == current_index and rendered
+                else "pending"
+            ),
+        }
+        if index == current_index and isinstance(rendered, dict):
+            item["prompt"] = rendered.get("text")
+        items.append(item)
+    return items

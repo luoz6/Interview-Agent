@@ -59,9 +59,10 @@ def test_composed_openapi_has_expected_unique_operation_inventory():
         if method in methods
     ]
 
-    # RAG Corpus exposes separate preview and create-version commands.
-    assert len(schema["paths"]) == 67
-    assert len(operations) == 75
+    # RAG Corpus has separate preview/create commands; V3 sessions add one
+    # replay-safe bootstrap stream used after the asynchronous 202 response.
+    assert len(schema["paths"]) == 68
+    assert len(operations) == 76
     assert len(operations) == len(set(operations))
 
 

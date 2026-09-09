@@ -4,7 +4,6 @@ import argparse
 import hashlib
 import json
 import os
-import subprocess
 import sys
 import time
 from datetime import datetime, timezone
@@ -16,12 +15,17 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from app.services.decision_store import InMemoryDecisionStore
+from app.services.decision_store import DecisionStoreConflict, InMemoryDecisionStore
+from app.services.evaluator_candidate_identity import (
+    EvaluatorCandidateIdentity,
+    capture_evaluator_candidate_identity,
+)
 from app.services.followup_decision_service import (
     DecisionProviderResult,
     FollowupDecisionExecutionService,
 )
 from app.services.followup_diagnostics import (
+    FOLLOWUP_DIAGNOSTICS_VERSION,
     FollowupDiagnosticInput,
     is_duplicate_followup_text,
 )
@@ -140,10 +144,12 @@ def main(argv: list[str] | None = None) -> int:
         scope=args.scope,
         smoke_case_count=args.smoke_case_count,
     )
+    incomplete_sequences = _incomplete_selected_sequences(full_dataset, selected)
     dataset_sha256 = _sha256_file(dataset_path)
     gate_config = load_gate_config(gate_path)
     authorization = load_provider_authorization(authorization_path)
-    candidate_revision, candidate_tree, worktree_clean = _candidate_identity()
+    candidate_identity = _candidate_identity()
+    worktree_clean = candidate_identity.worktree_clean
     complete_frozen_dataset = (
         args.scope == "full"
         and args.partition == "all"
@@ -176,9 +182,7 @@ def main(argv: list[str] | None = None) -> int:
                 "provider": "live_provider",
             }[args.mode],
             "formal_evidence_eligible": False,
-            "candidate_revision": candidate_revision,
-            "candidate_tree": candidate_tree,
-            "worktree_clean": worktree_clean,
+            **candidate_identity.manifest_fields(),
             "dataset_id": full_dataset.dataset_id,
             "dataset_sha256": dataset_sha256,
             "selected_case_count": len(selected.cases),
@@ -196,15 +200,20 @@ def main(argv: list[str] | None = None) -> int:
             "decision_prompt_sha256": FOLLOWUP_DECISION_PROMPT_SHA256,
             "generation_prompt_version": FOLLOWUP_GENERATION_PROMPT_VERSION,
             "generation_prompt_sha256": FOLLOWUP_GENERATION_PROMPT_SHA256,
+            "followup_diagnostics_version": FOLLOWUP_DIAGNOSTICS_VERSION,
             "provider_called": False,
+            "first_data_request_sent": False,
             "discovery_requests": 0,
             "planned_inference_requests": None,
             "inference_attempted": 0,
             "inference_metered": 0,
+            "provider_metered_invocations": 0,
+            "provider_invocations_this_run": 0,
             "retries": 0,
             "input_tokens": None,
             "output_tokens": None,
             "cached_input_tokens": None,
+            "provider_response_id_sha256s": [],
             "estimated_cost": None,
             "hard_stop_conditions": [],
             "quality_status": "NOT_RUN",
@@ -213,6 +222,24 @@ def main(argv: list[str] | None = None) -> int:
     )
     manifest = store.read_manifest()
     usage_complete = False
+
+    if incomplete_sequences:
+        manifest.update(
+            {
+                "selection_incomplete_sequences": incomplete_sequences,
+                "planned_inference_requests": 0,
+            }
+        )
+        return _finish_blocked(
+            store,
+            manifest,
+            hard_stops=["EVALUATOR_SELECTION_INCOMPLETE_SEQUENCE"],
+            detail=(
+                "selected cases split one or more multi-step sequences; "
+                "selection was rejected before Provider discovery"
+            ),
+            decision="BLOCKED_EVALUATOR_SELECTION_CONTRACT",
+        )
 
     if args.mode == "fixture-replay":
         artifact = build_synthetic_fixture_replay(
@@ -273,13 +300,25 @@ def main(argv: list[str] | None = None) -> int:
                 detail="real Provider preflight stopped before the first data request",
             )
         assert key is not None
-        artifact, live_stops = _record_live_provider_responses(
-            selected,
-            dataset_sha256=dataset_sha256,
-            authorization=authorization,
-            api_key=key,
-            timeout_seconds=args.request_timeout_seconds,
-        )
+        try:
+            artifact, live_stops = _record_live_provider_responses(
+                selected,
+                dataset_sha256=dataset_sha256,
+                authorization=authorization,
+                api_key=key,
+                timeout_seconds=args.request_timeout_seconds,
+            )
+        except Exception as exc:
+            manifest["provider_capture_exception_type"] = type(exc).__name__
+            return _finish_blocked(
+                store,
+                manifest,
+                hard_stops=["EVALUATOR_PROVIDER_CAPTURE_EXCEPTION"],
+                detail=(
+                    "Provider capture raised an unexpected evaluator exception "
+                    "before a complete replay artifact could be written"
+                ),
+            )
         _write_json_atomic(
             store.run_dir / "saved-provider-replay.json",
             artifact.model_dump(mode="json"),
@@ -290,6 +329,7 @@ def main(argv: list[str] | None = None) -> int:
                 for case in artifact.cases
             )
         )
+        manifest["first_data_request_sent"] = manifest["provider_called"]
         usage_complete = _apply_provider_usage(
             manifest,
             artifact,
@@ -442,7 +482,9 @@ class _RecordingDecisionProvider:
                     output_tokens=getattr(exc, "output_tokens", None),
                     cached_input_tokens=getattr(exc, "cached_input_tokens", None),
                     provider_model=getattr(exc, "provider_model", None),
-                    provider_response_id=getattr(exc, "provider_response_id", None),
+                    provider_response_id_sha256=_hash_provider_response_id(
+                        getattr(exc, "provider_response_id", None)
+                    ),
                     latency_seconds=time.perf_counter() - started,
                 )
             )
@@ -463,7 +505,9 @@ class _RecordingDecisionProvider:
                 output_tokens=result.output_tokens,
                 cached_input_tokens=result.cached_input_tokens,
                 provider_model=result.provider_model,
-                provider_response_id=result.provider_response_id,
+                provider_response_id_sha256=_hash_provider_response_id(
+                    result.provider_response_id
+                ),
                 latency_seconds=time.perf_counter() - started,
             )
         )
@@ -507,7 +551,10 @@ def _record_live_provider_responses(
             # hard stop. Keep live evaluation to one Decision attempt; retry
             # behavior is exercised by saved-output replay without risking an
             # unmetered second outbound request.
-            store=InMemoryDecisionStore(max_attempts=1),
+            store=InMemoryDecisionStore(
+                max_attempts=1,
+                lease_seconds=max(60, int(timeout_seconds) + 30),
+            ),
             provider=recording,
         )
         request = _diagnostic_request(case)
@@ -520,6 +567,9 @@ def _record_live_provider_responses(
         except ProviderModelMismatchError:
             result = None
             hard_stops.append("PROVIDER_OR_MODEL_MISMATCH")
+        except DecisionStoreConflict:
+            result = None
+            hard_stops.append("DECISION_STORE_FENCING_CONFLICT")
         generation_attempts: list[SavedGenerationAttempt] = []
         if any(
             item.input_tokens is None
@@ -570,7 +620,9 @@ def _record_live_provider_responses(
                         output_tokens=generation.output_tokens,
                         cached_input_tokens=generation.cached_input_tokens,
                         provider_model=generation.provider_model,
-                        provider_response_id=generation.provider_response_id,
+                        provider_response_id_sha256=_hash_provider_response_id(
+                            generation.provider_response_id
+                        ),
                         latency_seconds=time.perf_counter() - generation_started,
                     )
                 )
@@ -599,6 +651,7 @@ def _record_live_provider_responses(
         if hard_stops:
             break
     artifact = SavedFollowupProviderArtifact(
+        followup_diagnostics_version=FOLLOWUP_DIAGNOSTICS_VERSION,
         source="local_redacted_provider_output",
         dataset_id=dataset.dataset_id,
         dataset_sha256=dataset_sha256,
@@ -682,7 +735,19 @@ def _smoke_cases(
     *,
     limit: int,
 ) -> list[InterviewQualityCase]:
+    units = _selection_units(cases)
     selected: list[InterviewQualityCase] = []
+    selected_ids: set[str] = set()
+
+    def add_unit(unit: list[InterviewQualityCase]) -> bool:
+        if any(case.case_id in selected_ids for case in unit):
+            return False
+        if len(selected) + len(unit) > limit:
+            return False
+        selected.extend(unit)
+        selected_ids.update(case.case_id for case in unit)
+        return True
+
     desired = [
         "normal",
         "provider_timeout",
@@ -693,23 +758,81 @@ def _smoke_cases(
     for mode in desired:
         match = next(
             (
-                case
-                for case in cases
-                if case.input["provider_fixture"]["mode"] == mode
-                and case not in selected
+                unit
+                for unit in units
+                if any(
+                    case.input["provider_fixture"]["mode"] == mode
+                    for case in unit
+                )
+                and not any(case.case_id in selected_ids for case in unit)
+                and len(selected) + len(unit) <= limit
             ),
             None,
         )
         if match is not None:
-            selected.append(match)
+            add_unit(match)
         if len(selected) >= limit:
             return selected
-    for case in cases:
-        if case not in selected:
-            selected.append(case)
+    for unit in units:
+        add_unit(unit)
         if len(selected) >= limit:
             break
     return selected
+
+
+def _selection_units(
+    cases: list[InterviewQualityCase],
+) -> list[list[InterviewQualityCase]]:
+    sequence_members: dict[str, list[InterviewQualityCase]] = {}
+    for case in cases:
+        sequence_id = case.input.get("sequence_id")
+        if sequence_id is not None:
+            sequence_members.setdefault(str(sequence_id), []).append(case)
+
+    units: list[list[InterviewQualityCase]] = []
+    emitted_sequences: set[str] = set()
+    for case in cases:
+        sequence_id = case.input.get("sequence_id")
+        if sequence_id is None:
+            units.append([case])
+            continue
+        key = str(sequence_id)
+        if key in emitted_sequences:
+            continue
+        emitted_sequences.add(key)
+        units.append(
+            sorted(
+                sequence_members[key],
+                key=lambda item: int(item.input["sequence_step"]),
+            )
+        )
+    return units
+
+
+def _incomplete_selected_sequences(
+    full_dataset: InterviewQualityDataset,
+    selected: InterviewQualityDataset,
+) -> list[dict[str, object]]:
+    complete_members: dict[str, list[InterviewQualityCase]] = {}
+    for case in full_dataset.cases:
+        sequence_id = case.input.get("sequence_id")
+        if sequence_id is not None:
+            complete_members.setdefault(str(sequence_id), []).append(case)
+
+    selected_ids = {case.case_id for case in selected.cases}
+    incomplete: list[dict[str, object]] = []
+    for sequence_id, members in sorted(complete_members.items()):
+        expected_ids = {case.case_id for case in members}
+        present_ids = expected_ids & selected_ids
+        if present_ids and present_ids != expected_ids:
+            incomplete.append(
+                {
+                    "sequence_id": sequence_id,
+                    "selected_case_ids": sorted(present_ids),
+                    "missing_case_ids": sorted(expected_ids - present_ids),
+                }
+            )
+    return incomplete
 
 
 def _diagnostic_request(case: InterviewQualityCase) -> FollowupDiagnosticInput:
@@ -777,10 +900,18 @@ def _apply_provider_usage(
             "planned_inference_requests": planned,
             "inference_attempted": attempted,
             "inference_metered": metered,
+            "provider_metered_invocations": metered,
             "retries": retries,
             "input_tokens": complete_sum("input_tokens"),
             "output_tokens": complete_sum("output_tokens"),
             "cached_input_tokens": complete_sum("cached_input_tokens"),
+            "provider_response_id_sha256s": [
+                value
+                for attempt in attempts
+                for value in ([attempt.provider_response_id_sha256]
+                              if attempt.provider_response_id_sha256
+                              else [])
+            ],
         }
     )
     return (
@@ -790,6 +921,7 @@ def _apply_provider_usage(
         and manifest["input_tokens"] is not None
         and manifest["output_tokens"] is not None
         and manifest["cached_input_tokens"] is not None
+        and len(manifest["provider_response_id_sha256s"]) == attempted
     )
 
 
@@ -799,8 +931,11 @@ def _finish_blocked(
     *,
     hard_stops: list[str],
     detail: str,
+    decision: str | None = None,
 ) -> int:
-    decision = "BLOCKED_" + (hard_stops[0] if hard_stops else "UNKNOWN")
+    decision = decision or "BLOCKED_" + (
+        hard_stops[0] if hard_stops else "UNKNOWN"
+    )
     manifest.update(
         {
             "updated_at": _utc_now(),
@@ -846,22 +981,14 @@ def _sha256_file(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
-def _candidate_identity() -> tuple[str, str, bool]:
-    revision = _git("rev-parse", "HEAD")
-    tree = _git("show", "-s", "--format=%T", "HEAD")
-    clean = not _git("status", "--porcelain")
-    return revision, tree, clean
+def _hash_provider_response_id(value: object) -> str | None:
+    if not isinstance(value, str) or not value:
+        return None
+    return hashlib.sha256(value.encode("utf-8")).hexdigest()
 
 
-def _git(*args: str) -> str:
-    return subprocess.run(
-        ["git", *args],
-        cwd=ROOT,
-        check=True,
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-    ).stdout.strip()
+def _candidate_identity() -> EvaluatorCandidateIdentity:
+    return capture_evaluator_candidate_identity(ROOT)
 
 
 def _utc_now() -> str:

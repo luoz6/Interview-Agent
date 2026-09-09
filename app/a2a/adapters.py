@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from app.a2a.contracts.evaluation import EvaluationArtifactPayload
+from app.a2a.contracts.evaluation_set import EvaluationArtifactSetPayload
 from app.a2a.contracts.followup import FollowupArtifactPayload
 from app.a2a.contracts.grounding import GroundingArtifactPayload
 from app.a2a.contracts.plan import InterviewPlanArtifactPayload
@@ -120,6 +121,45 @@ def register_reviewer_adapter(
 
     server.register(agent_id="interview-reviewer", skill="evaluate-answer", handler=handler)
 
+    def evaluate_interview_handler(request: dict[str, Any], execution_context):
+        from app.agents.shadow_reviewer import ShadowReviewerAgent
+
+        reviewer = ShadowReviewerAgent(
+            llm=llm,
+            vector_store=vector_store,
+            execution_runner=execution_runner,
+        )
+        report = reviewer.evaluate_attempt(
+            request["state"],
+            execution_context=execution_context,
+        )
+        evaluations = [
+            EvaluationArtifactPayload(
+                question_id=feedback.question_id,
+                score=feedback.score,
+                dimensions=feedback.dimension_scores.model_dump(),
+                strengths=list(feedback.highlights or []),
+                weaknesses=[feedback.critique] if feedback.critique else [],
+                gap={},
+                evidence_refs=[ref.chunk_id for ref in feedback.references],
+                confidence=None,
+                evaluation_policy_version="review-policy-v1",
+                evaluation_status=(
+                    "evaluated"
+                    if feedback.score is not None
+                    else "insufficient_evidence"
+                ),
+            )
+            for feedback in report.feedbacks
+        ]
+        return EvaluationArtifactSetPayload(evaluations=evaluations)
+
+    server.register(
+        agent_id="interview-reviewer",
+        skill="evaluate-interview",
+        handler=evaluate_interview_handler,
+    )
+
 
 def register_report_coach_adapter(
     server: LocalA2AServer,
@@ -160,6 +200,7 @@ def register_report_coach_adapter(
             action_plan=[item.model_dump(mode="json") for item in report.priority_actions],
             evaluation_refs=[feedback.question_id for feedback in report.feedbacks],
             report_policy_version="report-policy-v1",
+            report_payload=report.model_dump(mode="json"),
         )
 
     server.register(agent_id="report-coach", skill="generate-report", handler=handler)

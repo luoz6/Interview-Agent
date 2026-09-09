@@ -35,6 +35,7 @@ import {
   editableQuestions,
   hasLocalChanges,
   interviewPlanReducer,
+  isIntentPlan,
   isLatestValidPlan,
   normalizePlanResponse,
   planEditorStatus,
@@ -74,6 +75,7 @@ import "../styles/pages/prep.css";
 
 const DRAFT_KEYS = ["interview-agent:draft-id", "interviewDraftId"];
 const CONFIGURATION_KEY = "interview-agent:plan-configuration-v1";
+const PLAN_GENERATION_TIMEOUT_MS = 300000;
 const MAX_TEXT_LENGTH = 50000;
 const SOURCE_FILE_ACCEPT = [
   ".pdf",
@@ -124,6 +126,18 @@ const QUESTION_KIND_LABELS = {
   follow_up: "追问",
   "follow-up": "追问",
 };
+
+const ASSESSMENT_GOAL_OPTIONS = [
+  ["ownership", "责任边界"],
+  ["implementation_depth", "实现深度"],
+  ["failure_mode", "故障场景"],
+  ["recovery", "恢复方案"],
+  ["tradeoff", "方案取舍"],
+  ["scale", "规模能力"],
+  ["reliability", "可靠性"],
+  ["observability", "可观测性"],
+  ["collaboration", "协作沟通"],
+];
 
 function readLocalStorage(key) {
   try {
@@ -356,6 +370,7 @@ function PlanQuestion({
   onMove,
   onRegenerate,
   onDelete,
+  intentMode = false,
 }) {
   const kind =
     QUESTION_KIND_LABELS[question.question_type] ||
@@ -369,8 +384,9 @@ function PlanQuestion({
   }[bindingStatus] || bindingStatus;
   const textId = "plan-question-" + question.question_id;
   const focusId = textId + "-focus";
-  const saveDisabled =
-    busy || !dirty || !draft.question_text.trim() || !draft.focus.trim();
+  const saveDisabled = intentMode
+    ? busy || !dirty || !draft.focus.trim() || !draft.assessment_goals.length
+    : busy || !dirty || !draft.question_text.trim() || !draft.focus.trim();
   return (
     <li className="start-plan-question" data-dirty={dirty || undefined}>
       <form
@@ -407,28 +423,30 @@ function PlanQuestion({
             </button>
           </div>
         </header>
-        <label className="start-plan-edit-label" htmlFor={textId}>
-          问题内容
-        </label>
-        <textarea
-          id={textId}
-          value={draft.question_text}
-          onChange={(event) =>
-            onDraft(question.question_id, "question_text", event.target.value)
-          }
-          disabled={busy}
-          rows={4}
-          aria-describedby={textId + "-hint"}
-        />
-        <div className="start-plan-question-hint" id={textId + "-hint"}>
-          <span>
-            {draft.question_text.length.toLocaleString()} 字 · 建议包含一个清晰任务和可追问边界
-          </span>
-          {question.origin === "custom" ? <strong>自定义题</strong> : null}
-          {question.origin === "regenerated" ? <strong>已换题</strong> : null}
-        </div>
+        {!intentMode ? <>
+          <label className="start-plan-edit-label" htmlFor={textId}>问题内容</label>
+          <textarea
+            id={textId}
+            value={draft.question_text}
+            onChange={(event) => onDraft(question.question_id, "question_text", event.target.value)}
+            disabled={busy}
+            rows={4}
+            aria-describedby={textId + "-hint"}
+          />
+          <div className="start-plan-question-hint" id={textId + "-hint"}>
+            <span>{draft.question_text.length.toLocaleString()} 字 · 建议包含一个清晰任务和可追问边界</span>
+            {question.origin === "custom" ? <strong>自定义题</strong> : null}
+            {question.origin === "regenerated" ? <strong>已换题</strong> : null}
+          </div>
+        </> : (
+          <div className="start-plan-question-hint" id={textId + "-hint"}>
+            <span>实际问法会在进入本题时，结合之前的回答现场生成。</span>
+            {question.origin === "custom" ? <strong>自定义考察目标</strong> : null}
+            {question.origin === "regenerated" ? <strong>已更换目标</strong> : null}
+          </div>
+        )}
         <label className="start-plan-edit-label" htmlFor={focusId}>
-          考察重点
+          {intentMode ? "考察方向" : "考察重点"}
         </label>
         <input
           id={focusId}
@@ -439,6 +457,34 @@ function PlanQuestion({
           }
           disabled={busy}
         />
+        {intentMode ? (
+          <fieldset className="start-intent-goals">
+            <legend>观察目标（选择 1 至 4 项）</legend>
+            <div>
+              {ASSESSMENT_GOAL_OPTIONS.map(([value, label]) => {
+                const selected = draft.assessment_goals.includes(value);
+                const limitReached = !selected && draft.assessment_goals.length >= 4;
+                return (
+                  <label key={value} data-selected={selected || undefined}>
+                    <input
+                      type="checkbox"
+                      checked={selected}
+                      disabled={busy || limitReached}
+                      onChange={() => onDraft(
+                        question.question_id,
+                        "assessment_goals",
+                        selected
+                          ? draft.assessment_goals.filter((goal) => goal !== value)
+                          : [...draft.assessment_goals, value],
+                      )}
+                    />
+                    <span>{label}</span>
+                  </label>
+                );
+              })}
+            </div>
+          </fieldset>
+        ) : null}
         <footer className="start-plan-question-actions">
           <div>
             <button
@@ -897,6 +943,7 @@ export function StartPage() {
   const [customQuestion, setCustomQuestion] = useState({
     question_text: "",
     focus: "",
+    assessment_goals: ["implementation_depth"],
   });
   const [configuration, setConfiguration] = useState(getStoredConfiguration);
   const [memoryStatus, setMemoryStatus] = useState(null);
@@ -925,6 +972,7 @@ export function StartPage() {
 
   const plan = editor.serverPlan;
   const questions = editableQuestions(plan);
+  const intentMode = isIntentPlan(plan);
   const configurationSnapshot = useMemo(
     () => plan?.plan?.configuration_snapshot || null,
     [plan?.plan?.configuration_snapshot],
@@ -1239,10 +1287,14 @@ export function StartPage() {
     }
     if (!validateSources()) return;
     setStatus("generating");
-    setNotice({ tone: "info", text: "正在提取岗位约束、候选人经历与可用知识证据。" });
+    setNotice({
+      tone: "info",
+      text: "正在提取岗位约束、候选人经历与可用知识证据；真实模型生成可能需要几分钟，请勿重复点击。",
+    });
     try {
       const nextPlan = await requestJson("/api/prep", {
         method: "POST",
+        timeoutMs: PLAN_GENERATION_TIMEOUT_MS,
         body: JSON.stringify({
           job_description: jobDescription,
           resume_text: resumeText,
@@ -1575,7 +1627,7 @@ export function StartPage() {
     if (!question) return;
     const draft = questionDraft(editor, question);
     const operations = [];
-    if (draft.question_text !== question.question_text) {
+    if (!intentMode && draft.question_text !== question.question_text) {
       operations.push({
         op: "edit_question_text",
         question_id: questionId,
@@ -1589,6 +1641,16 @@ export function StartPage() {
         focus: draft.focus,
       });
     }
+    if (
+      intentMode &&
+      JSON.stringify(draft.assessment_goals) !== JSON.stringify(question.assessment_goals)
+    ) {
+      operations.push({
+        op: "edit_assessment_goals",
+        question_id: questionId,
+        assessment_goals: draft.assessment_goals,
+      });
+    }
     if (!operations.length) {
       dispatchEditor({ type: "DISCARD_LOCAL_QUESTION", questionId });
       return;
@@ -1597,7 +1659,7 @@ export function StartPage() {
       kind: "edit_question",
       questionId,
       send: (operationRequestId) => patchPlan(operations, operationRequestId),
-      successText: "题目修改已保存为新的计划修订。",
+      successText: intentMode ? "考察目标已保存为新的计划修订。" : "题目修改已保存为新的计划修订。",
       localDrafts: draftsWithout(questionId),
     });
   }
@@ -1678,8 +1740,8 @@ export function StartPage() {
     event.preventDefault();
     const questionText = customQuestion.question_text.trim();
     const focus = customQuestion.focus.trim();
-    if (!questionText || !focus) {
-      setNotice({ tone: "error", text: "自定义题需要同时填写问题内容和考察重点。" });
+    if ((!intentMode && !questionText) || !focus || (intentMode && !customQuestion.assessment_goals.length)) {
+      setNotice({ tone: "error", text: intentMode ? "请填写考察方向，并至少选择一个观察目标。" : "自定义题需要同时填写问题内容和考察重点。" });
       return;
     }
     const difficulty =
@@ -1690,10 +1752,12 @@ export function StartPage() {
         patchPlan(
           [
             {
-              op: "add_custom_question",
-              question_text: questionText,
+              op: intentMode ? "add_custom_intent" : "add_custom_question",
+              ...(!intentMode ? { question_text: questionText } : {}),
               focus,
-              question_type: "technical",
+              ...(intentMode
+                ? { kind: "technical", assessment_goals: customQuestion.assessment_goals }
+                : { question_type: "technical" }),
               difficulty,
               expected_minutes: 6,
               expected_followups: 0,
@@ -1701,10 +1765,10 @@ export function StartPage() {
           ],
           operationRequestId,
         ),
-      successText: "自定义题已保存；它明确标记为未绑定知识证据。",
+      successText: intentMode ? "自定义考察目标已保存。实际问法将在面试中生成。" : "自定义题已保存；它明确标记为未绑定知识证据。",
     });
     if (succeeded) {
-      setCustomQuestion({ question_text: "", focus: "" });
+      setCustomQuestion({ question_text: "", focus: "", assessment_goals: ["implementation_depth"] });
       setCustomOpen(false);
     }
   }
@@ -2203,26 +2267,23 @@ export function StartPage() {
                     {customOpen ? (
                       <form className="start-custom-question" onSubmit={addCustomQuestion}>
                         <header>
-                          <div><span>自定义题</span><strong>添加明确的考察任务</strong></div>
+                          <div><span>{intentMode ? "自定义考察目标" : "自定义题"}</span><strong>添加明确的考察任务</strong></div>
                           <button type="button" onClick={() => setCustomOpen(false)} aria-label="关闭自定义题表单">
                             <X size={16} weight="bold" aria-hidden="true" />
                           </button>
                         </header>
-                        <label htmlFor="custom-question-text">问题内容</label>
-                        <textarea
-                          id="custom-question-text"
-                          rows={3}
-                          value={customQuestion.question_text}
-                          onChange={(event) =>
-                            setCustomQuestion((value) => ({
-                              ...value,
-                              question_text: event.target.value,
-                            }))
-                          }
-                          disabled={busy}
-                        />
-                        <span>{customQuestion.question_text.length.toLocaleString()} 字 · 不会伪造知识 grounding</span>
-                        <label htmlFor="custom-question-focus">考察重点</label>
+                        {!intentMode ? <>
+                          <label htmlFor="custom-question-text">问题内容</label>
+                          <textarea
+                            id="custom-question-text"
+                            rows={3}
+                            value={customQuestion.question_text}
+                            onChange={(event) => setCustomQuestion((value) => ({ ...value, question_text: event.target.value }))}
+                            disabled={busy}
+                          />
+                          <span>{customQuestion.question_text.length.toLocaleString()} 字 · 不会伪造知识 grounding</span>
+                        </> : null}
+                        <label htmlFor="custom-question-focus">{intentMode ? "考察方向" : "考察重点"}</label>
                         <input
                           id="custom-question-focus"
                           type="text"
@@ -2235,6 +2296,32 @@ export function StartPage() {
                           }
                           disabled={busy}
                         />
+                        {intentMode ? (
+                          <fieldset className="start-intent-goals">
+                            <legend>观察目标（选择 1 至 4 项）</legend>
+                            <div>
+                              {ASSESSMENT_GOAL_OPTIONS.map(([value, label]) => {
+                                const selected = customQuestion.assessment_goals.includes(value);
+                                return (
+                                  <label key={value} data-selected={selected || undefined}>
+                                    <input
+                                      type="checkbox"
+                                      checked={selected}
+                                      disabled={busy || (!selected && customQuestion.assessment_goals.length >= 4)}
+                                      onChange={() => setCustomQuestion((current) => ({
+                                        ...current,
+                                        assessment_goals: selected
+                                          ? current.assessment_goals.filter((goal) => goal !== value)
+                                          : [...current.assessment_goals, value],
+                                      }))}
+                                    />
+                                    <span>{label}</span>
+                                  </label>
+                                );
+                              })}
+                            </div>
+                          </fieldset>
+                        ) : null}
                         <button type="submit" disabled={busy}>
                           <Plus size={15} weight="bold" aria-hidden="true" />
                           添加并保存
@@ -2308,6 +2395,7 @@ export function StartPage() {
                             onMove={moveQuestion}
                             onRegenerate={regenerateQuestion}
                             onDelete={confirmDeleteQuestion}
+                            intentMode={intentMode}
                           />
                         ))}
                       </ol>

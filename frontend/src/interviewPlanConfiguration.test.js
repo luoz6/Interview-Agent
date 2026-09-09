@@ -42,8 +42,19 @@ describe("interview plan configuration presets", () => {
       expected_followup_budget: 5,
       max_followups_per_question: 2,
       generator_version: "plan-generator-v2",
-      followup_policy_version: "fixed_v1",
+      followup_policy_version: "adaptive_v1",
     });
+  });
+
+  it("migrates the legacy fixed follow-up default to adaptive", () => {
+    const legacySnapshot = {
+      ...planConfigurationPayload(createPlanConfiguration()),
+      followup_policy_version: "fixed_v1",
+    };
+
+    expect(createPlanConfiguration(legacySnapshot).followup_policy_version).toBe(
+      "adaptive_v1",
+    );
   });
 
   it("recomputes counts and follow-up estimates from safe choices", () => {

@@ -42,6 +42,9 @@ class ProviderPayloadResult(BaseModel):
     question_results: list[CanonicalQuestionResult]
     reference_lookup: dict[str, dict[str, str]]
     provider_reference_ids: list[str]
+    provider_owned_question_results: list[dict[str, Any]] = Field(
+        default_factory=list
+    )
 
 
 def normalize_provider_payload(
@@ -83,11 +86,87 @@ def normalize_provider_payload(
         for item in raw_results
         if isinstance(item, dict)
     ]
+    provider_owned_question_results = [
+        _provider_owned_question_result(item, default_highlights=shared_highlights)
+        for item in raw_results
+        if isinstance(item, dict)
+    ]
     return ProviderPayloadResult(
         question_results=question_results,
         reference_lookup=reference_lookup,
         provider_reference_ids=provider_reference_ids,
+        provider_owned_question_results=provider_owned_question_results,
     )
+
+
+def _provider_owned_question_result(
+    item: dict[str, Any],
+    *,
+    default_highlights: list[str],
+) -> dict[str, Any]:
+    """Keep only text and identifiers actually supplied by the Provider."""
+
+    observed = [
+        str(value).strip()
+        for evidence in item.get("dimension_evidence", [])
+        if isinstance(evidence, dict)
+        for value in evidence.get("observed", [])
+        if str(value).strip()
+    ]
+    highlights = [
+        str(value).strip()
+        for value in item.get("highlights", [])
+        if str(value).strip()
+    ] or list(default_highlights)
+    reference_ids: list[str] = []
+    for value in item.get("reference_chunk_ids", []):
+        if isinstance(value, str) and value and value not in reference_ids:
+            reference_ids.append(value)
+    for reference in item.get("references", []):
+        value = (
+            reference
+            if isinstance(reference, str)
+            else reference.get("chunk_id")
+            if isinstance(reference, dict)
+            else None
+        )
+        if isinstance(value, str) and value and value not in reference_ids:
+            reference_ids.append(value)
+    for gap in item.get("gaps", []):
+        value = gap.get("reference_chunk_id") if isinstance(gap, dict) else None
+        if isinstance(value, str) and value and value not in reference_ids:
+            reference_ids.append(value)
+    rationale = str(item.get("rationale") or "").strip()
+    if not rationale:
+        strengths = [
+            str(value).strip()
+            for value in item.get("strengths", [])
+            if str(value).strip()
+        ]
+        weaknesses = [
+            str(value).strip()
+            for value in item.get("weaknesses", [])
+            if str(value).strip()
+        ]
+        rationale = " ".join([*strengths, *weaknesses])
+    critique = str(item.get("critique") or "").strip()
+    if not critique:
+        critique = next(
+            (
+                str(value).strip()
+                for value in item.get("weaknesses", [])
+                if str(value).strip()
+            ),
+            "",
+        )
+    return {
+        "question_id": str(item.get("question_id") or ""),
+        "observed": observed,
+        "rationale": rationale,
+        "critique": critique,
+        "highlights": highlights,
+        "reference_ids": reference_ids,
+    }
 
 
 def collect_provider_reference_ids(payload: dict[str, Any]) -> list[str]:

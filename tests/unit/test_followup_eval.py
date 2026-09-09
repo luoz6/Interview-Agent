@@ -13,6 +13,7 @@ from app.services.followup_eval import (
     fixed_policy_attempts,
     replay_saved_provider_artifact,
 )
+from app.services.followup_diagnostics import FOLLOWUP_DIAGNOSTICS_VERSION
 from app.services.interview_quality_dataset import load_interview_quality_dataset
 from app.services.interview_quality_gate import load_gate_config
 
@@ -46,6 +47,8 @@ def test_full_fixture_replay_passes_automated_gates_but_not_review():
     )
 
     assert artifact.source == "synthetic_fixture"
+    assert artifact.schema_version == "followup-provider-replay-v2"
+    assert artifact.followup_diagnostics_version == FOLLOWUP_DIAGNOSTICS_VERSION
     assert metrics["dataset_case_count"] == 100
     assert metrics["automated_status"] == "PASS"
     assert metrics["quality_status"] == "BLOCKED_PENDING_INDEPENDENT_REVIEW"
@@ -65,6 +68,22 @@ def test_full_fixture_replay_passes_automated_gates_but_not_review():
     assert parse_rate["status"] == "PASS"
     assert len(metrics["parse_failures"]) == 2
     assert metrics["partition_action_comparison"]["blind-test"]["case_count"] == 30
+
+
+def test_saved_replay_artifact_requires_explicit_diagnostics_identity():
+    dataset, artifact, _ = dataset_and_replay()
+    payload = artifact.model_dump(mode="json")
+    payload.pop("followup_diagnostics_version")
+
+    with pytest.raises(ValidationError, match="followup_diagnostics_version"):
+        SavedFollowupProviderArtifact.model_validate(payload)
+
+    legacy = artifact.model_dump(mode="json")
+    legacy["schema_version"] = "followup-provider-replay-v1"
+    with pytest.raises(ValidationError, match="schema_version"):
+        SavedFollowupProviderArtifact.model_validate(legacy)
+
+    assert artifact.dataset_id == dataset.dataset_id
 
 
 def test_sequence_replay_proves_zero_to_two_limit_and_terminal_zero_calls():
@@ -131,6 +150,44 @@ def test_user_visible_repetition_remains_a_blocking_quality_failure():
     assert metrics["quality_status"] == "FAIL_AUTOMATED"
 
 
+def test_user_visible_question_metrics_use_displayed_question_denominator():
+    dataset, _, adaptive = dataset_and_replay()
+    target = next(
+        item
+        for item in adaptive
+        if item.expected_action == "next_question"
+        and item.followup_count_before == 0
+    )
+    case = next(case for case in dataset.cases if case.case_id == target.case_id)
+    displayed_question = f"请继续说明 {case.input['focus']} 的具体边界？"
+    adaptive[adaptive.index(target)] = target.model_copy(
+        update={
+            "predicted_action": "follow_up",
+            "runtime_action": "follow_up",
+            "generated_question": displayed_question,
+            "displayed_question": displayed_question,
+            "followup_count_after": 1,
+        }
+    )
+
+    metrics = calculate_followup_metrics(
+        dataset,
+        [*fixed_policy_attempts(dataset), *adaptive],
+        gate_config=load_gate_config(),
+    )
+    displayed_count = sum(item.displayed_question is not None for item in adaptive)
+    by_key = {item["metric_key"]: item for item in metrics["metric_evaluations"]}
+
+    for metric_key in (
+        "followup_quality.latest_answer_relevance_rate",
+        "followup_quality.repeat_original_question_rate",
+        "followup_quality.multi_question_rate",
+        "followup_quality.reference_answer_leak_count",
+    ):
+        assert by_key[metric_key]["sample_size"] == displayed_count
+    assert by_key["followup_quality.latest_answer_relevance_rate"]["actual"] <= 1.0
+
+
 def test_saved_replay_rejects_dataset_hash_drift_and_incomplete_coverage():
     dataset, artifact, _ = dataset_and_replay()
     dataset_sha256 = hashlib.sha256(DATASET_PATH.read_bytes()).hexdigest()
@@ -153,6 +210,7 @@ def test_saved_replay_rejects_dataset_hash_drift_and_incomplete_coverage():
 def test_real_saved_output_requires_provider_identity():
     with pytest.raises(ValidationError, match="Provider and model identity"):
         SavedFollowupProviderArtifact(
+            followup_diagnostics_version=FOLLOWUP_DIAGNOSTICS_VERSION,
             source="local_redacted_provider_output",
             dataset_id="followup-decision-quality-v2",
             dataset_sha256="a" * 64,
@@ -164,6 +222,7 @@ def test_complete_real_saved_output_requires_usage_and_matching_model():
     dataset, fixture, _ = dataset_and_replay()
     case = fixture.cases[0]
     real = {
+        "followup_diagnostics_version": FOLLOWUP_DIAGNOSTICS_VERSION,
         "source": "local_redacted_provider_output",
         "dataset_id": dataset.dataset_id,
         "dataset_sha256": fixture.dataset_sha256,

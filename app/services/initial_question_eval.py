@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any, Literal
 from uuid import NAMESPACE_URL, uuid5
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, StrictBool, model_validator
 
 from app.services.context_budget import PLAN_CONTEXT_POLICY
 from app.services.interview_plan_budget import (
@@ -17,6 +17,7 @@ from app.services.interview_plan_budget import (
     assess_interview_plan_budget,
 )
 from app.services.interview_plan_knowledge import unbound_question_knowledge
+from app.services.interview_question_quality import HARD_QUESTION_QUALITY_CODES
 from app.services.interview_plan_revision import (
     InterviewPlanQuestionV2,
     InterviewPlanV2,
@@ -132,6 +133,17 @@ class InitialQuestionEvalAttempt(BaseModel):
     cached_input_tokens: int | None = Field(default=None, ge=0)
     latency_seconds: float = Field(default=0, ge=0)
     response_sha256: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
+    response_id_sha256s: tuple[str, ...] = Field(default=())
+    initial_hard_finding_codes: tuple[str, ...] = ()
+    quality_repair_triggered: StrictBool = False
+    quality_repair_succeeded: StrictBool | None = None
+    post_repair_hard_finding_codes: tuple[str, ...] | None = None
+    quality_repair_prompt_version: str | None = Field(
+        default=None, pattern=r"^[a-z0-9][a-z0-9.-]{0,127}$"
+    )
+    quality_repair_prompt_sha256: str | None = Field(
+        default=None, pattern=r"^[0-9a-f]{64}$"
+    )
 
     @model_validator(mode="after")
     def validate_attempt(self):
@@ -144,6 +156,12 @@ class InitialQuestionEvalAttempt(BaseModel):
             raise ValueError("reviews must cover every question once in plan order")
         if self.provider_metered_invocations > self.provider_invocations:
             raise ValueError("metered invocations cannot exceed total invocations")
+        _validate_repair_lifecycle(
+            initial_hard_finding_codes=self.initial_hard_finding_codes,
+            quality_repair_triggered=self.quality_repair_triggered,
+            quality_repair_succeeded=self.quality_repair_succeeded,
+            post_repair_hard_finding_codes=self.post_repair_hard_finding_codes,
+        )
         if self.execution_source == "live_provider":
             if not self.provider_name or not self.provider_model:
                 raise ValueError("live Provider attempts require Provider identity")
@@ -159,16 +177,80 @@ class InitialQuestionEvalAttempt(BaseModel):
                 raise ValueError("live Provider attempts require token usage")
             if self.latency_seconds <= 0 or self.response_sha256 is None:
                 raise ValueError("live Provider attempts require latency and response hash")
+            if len(self.response_id_sha256s) != self.provider_invocations:
+                raise ValueError(
+                    "live Provider attempts require one response-id hash per invocation"
+                )
+            if any(
+                not isinstance(value, str)
+                or re.fullmatch(r"[0-9a-f]{64}", value) is None
+                for value in self.response_id_sha256s
+            ):
+                raise ValueError("response-id hashes must be SHA-256 values")
+            if (
+                self.quality_repair_prompt_version is None
+                or self.quality_repair_prompt_sha256 is None
+            ):
+                raise ValueError("live Provider attempts require repair prompt identity")
         elif self.provider_invocations or self.provider_metered_invocations:
             raise ValueError("offline replay cannot claim live Provider invocations")
+        return self
+
+
+class InitialQuestionFailedGenerationLifecycle(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    case_id: str
+    run_number: int = Field(ge=1)
+    partition: Literal["train", "dev", "blind-test"]
+    hard_stop_condition: Literal[
+        "REPEATED_PROVIDER_FAILURE",
+        "USAGE_METERING_UNAVAILABLE",
+        "RESPONSE_ID_EVIDENCE_UNAVAILABLE",
+        "PROVIDER_OR_MODEL_MISMATCH",
+        "REPAIR_LIFECYCLE_UNAVAILABLE",
+    ]
+    provider_invocations: int = Field(ge=0)
+    provider_metered_invocations: int = Field(ge=0)
+    provider_retries: int = Field(ge=0)
+    response_id_sha256s: tuple[str, ...] = Field(default=())
+    initial_hard_finding_codes: tuple[str, ...] | None
+    quality_repair_triggered: StrictBool | None
+    quality_repair_succeeded: StrictBool | None
+    post_repair_hard_finding_codes: tuple[str, ...] | None
+    quality_repair_prompt_version: str = Field(
+        pattern=r"^[a-z0-9][a-z0-9.-]{0,127}$"
+    )
+    quality_repair_prompt_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+
+    @model_validator(mode="after")
+    def validate_lifecycle(self):
+        if self.provider_metered_invocations > self.provider_invocations:
+            raise ValueError("failed lifecycle metering exceeds invocations")
+        if self.provider_retries != max(0, self.provider_invocations - 1):
+            raise ValueError("failed lifecycle retry accounting is inconsistent")
+        if len(self.response_id_sha256s) > self.provider_metered_invocations:
+            raise ValueError("failed lifecycle response hashes exceed metered calls")
+        if any(
+            not isinstance(value, str)
+            or re.fullmatch(r"[0-9a-f]{64}", value) is None
+            for value in self.response_id_sha256s
+        ):
+            raise ValueError("failed lifecycle response-id hashes must be SHA-256 values")
+        _validate_repair_lifecycle(
+            initial_hard_finding_codes=self.initial_hard_finding_codes,
+            quality_repair_triggered=self.quality_repair_triggered,
+            quality_repair_succeeded=self.quality_repair_succeeded,
+            post_repair_hard_finding_codes=self.post_repair_hard_finding_codes,
+        )
         return self
 
 
 class InitialQuestionProviderArtifact(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    schema_version: Literal["initial-question-provider-replay-v1"] = (
-        "initial-question-provider-replay-v1"
+    schema_version: Literal["initial-question-provider-replay-v2"] = (
+        "initial-question-provider-replay-v2"
     )
     source: Literal["synthetic_fixture", "local_redacted_provider_output"]
     dataset_id: Literal["initial-question-quality-v2"]
@@ -180,12 +262,21 @@ class InitialQuestionProviderArtifact(BaseModel):
     outbound_requests_attempted: int = Field(default=0, ge=0)
     outbound_requests_metered: int = Field(default=0, ge=0)
     attempts: tuple[InitialQuestionEvalAttempt, ...]
+    failed_generation_lifecycles: tuple[
+        InitialQuestionFailedGenerationLifecycle, ...
+    ] = ()
 
     @model_validator(mode="after")
     def validate_capture(self):
         keys = [(item.case_id, item.run_number) for item in self.attempts]
         if len(keys) != len(set(keys)):
             raise ValueError("Provider replay attempt keys must be unique")
+        failed_keys = [
+            (item.case_id, item.run_number)
+            for item in self.failed_generation_lifecycles
+        ]
+        if len(failed_keys) != len(set(failed_keys)) or set(keys) & set(failed_keys):
+            raise ValueError("failed generation lifecycle keys must be unique")
         if self.capture_status == "hard_stopped" and not self.hard_stop_conditions:
             raise ValueError("hard-stopped captures require stop conditions")
         if self.capture_status == "complete" and self.hard_stop_conditions:
@@ -199,17 +290,80 @@ class InitialQuestionProviderArtifact(BaseModel):
                 item.provider_model != self.model_id for item in self.attempts
             ):
                 raise ValueError("saved response model metadata does not match artifact")
-            if self.capture_status == "complete" and (
-                self.outbound_requests_attempted
-                != sum(item.provider_invocations for item in self.attempts)
-                or self.outbound_requests_metered != self.outbound_requests_attempted
+            recorded_attempts = sum(
+                item.provider_invocations for item in self.attempts
+            ) + sum(
+                item.provider_invocations
+                for item in self.failed_generation_lifecycles
+            )
+            recorded_metered = sum(
+                item.provider_metered_invocations for item in self.attempts
+            ) + sum(
+                item.provider_metered_invocations
+                for item in self.failed_generation_lifecycles
+            )
+            if (
+                self.outbound_requests_attempted != recorded_attempts
+                or self.outbound_requests_metered != recorded_metered
             ):
-                raise ValueError("complete captures require exact request accounting")
+                raise ValueError("Provider captures require exact request accounting")
+            if self.capture_status == "complete" and self.failed_generation_lifecycles:
+                raise ValueError("complete captures cannot contain failed lifecycles")
+            if self.capture_status == "complete":
+                response_hash_count = sum(
+                    len(item.response_id_sha256s) for item in self.attempts
+                )
+                if response_hash_count != self.outbound_requests_metered:
+                    raise ValueError(
+                        "complete Provider captures require one response-id hash per metered call"
+                    )
         elif self.provider_name is not None or self.model_id is not None:
             raise ValueError("synthetic fixtures cannot claim Provider identity")
         elif self.outbound_requests_attempted or self.outbound_requests_metered:
             raise ValueError("synthetic fixtures cannot claim outbound requests")
+        elif self.failed_generation_lifecycles:
+            raise ValueError("synthetic fixtures cannot claim failed live generations")
         return self
+
+
+def _validate_repair_lifecycle(
+    *,
+    initial_hard_finding_codes: tuple[str, ...] | None,
+    quality_repair_triggered: bool | None,
+    quality_repair_succeeded: bool | None,
+    post_repair_hard_finding_codes: tuple[str, ...] | None,
+) -> None:
+    if quality_repair_triggered is None:
+        if (
+            initial_hard_finding_codes is not None
+            or quality_repair_succeeded is not None
+            or post_repair_hard_finding_codes is not None
+        ):
+            raise ValueError("unknown repair lifecycle cannot claim findings")
+        return
+    if initial_hard_finding_codes is None:
+        raise ValueError("known repair lifecycle requires initial finding evidence")
+    allowed = frozenset(HARD_QUESTION_QUALITY_CODES)
+    for values in (
+        initial_hard_finding_codes,
+        post_repair_hard_finding_codes or (),
+    ):
+        if len(values) != len(set(values)) or any(code not in allowed for code in values):
+            raise ValueError("repair lifecycle contains a non-allowlisted Hard finding")
+    if not quality_repair_triggered and (
+        initial_hard_finding_codes
+        or quality_repair_succeeded is not None
+        or post_repair_hard_finding_codes is not None
+    ):
+        raise ValueError("non-triggered repair lifecycle cannot claim findings")
+    if quality_repair_triggered and not initial_hard_finding_codes:
+        raise ValueError("triggered repair lifecycle requires initial findings")
+    if quality_repair_succeeded is True and post_repair_hard_finding_codes != ():
+        raise ValueError("successful repair lifecycle requires zero post findings")
+    if quality_repair_succeeded is False and post_repair_hard_finding_codes is None:
+        raise ValueError("failed repair lifecycle requires known post findings")
+    if quality_repair_succeeded is None and post_repair_hard_finding_codes is not None:
+        raise ValueError("unknown repair lifecycle cannot claim post findings")
 
 
 def calculate_initial_question_metrics(

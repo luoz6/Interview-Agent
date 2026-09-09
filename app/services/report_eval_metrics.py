@@ -16,6 +16,7 @@ QualityLevel = Literal["strong", "medium", "incorrect", "off_topic", "empty"]
 QUALITY_ORDER = {"strong": 4, "medium": 3, "incorrect": 2, "off_topic": 1, "empty": 0}
 
 class AttemptResult(BaseModel):
+    schema_version: str = "report-quality-evaluation-attempt-v1"
     case_id: str
     group_id: str
     quality_level: QualityLevel
@@ -31,6 +32,14 @@ class AttemptResult(BaseModel):
     applicable_dimensions: list[str] = Field(default_factory=list)
     expected_applicable_dimensions: list[str] = Field(default_factory=list)
     fallback: bool = False
+    provider_owned: dict = Field(default_factory=dict)
+    backend_owned: dict = Field(default_factory=dict)
+    provider_forbidden_claim: bool = False
+    backend_guidance_forbidden_claim: bool = False
+    provider_forbidden_claims_detected: list[str] = Field(default_factory=list)
+    backend_guidance_forbidden_claims_detected: list[str] = Field(
+        default_factory=list
+    )
     output_text: str = ""
 
 class EvaluationMetrics(BaseModel):
@@ -52,6 +61,8 @@ class EvaluationMetrics(BaseModel):
     expected_attempt_count: int
     failed_gates: list[str] = Field(default_factory=list)
     blocking_failures: list[dict] = Field(default_factory=list)
+    provider_forbidden_claim_count: int = Field(default=0, ge=0)
+    backend_guidance_forbidden_claim_count: int = Field(default=0, ge=0)
 
 def normalize_text(value: str) -> str:
     return re.sub(r"[^\w\u4e00-\u9fff]+", "", value.lower())
@@ -129,6 +140,13 @@ def calculate_metrics(
         if result["gate"]["status"] != "PASS"
     )
     blocking = _blocking(items, expected_attempt_count)
+    provider_forbidden_claim_count = sum(
+        failure["type"] == "provider_forbidden_claim" for failure in blocking
+    )
+    backend_guidance_forbidden_claim_count = sum(
+        failure["type"] == "backend_guidance_forbidden_claim"
+        for failure in blocking
+    )
     out_of_range = [_range_failure(item) for item in items if not _interval_hit(item)]
     strong_below = [
         _range_failure(item)
@@ -160,6 +178,10 @@ def calculate_metrics(
         expected_attempt_count=expected_attempt_count,
         failed_gates=failed,
         blocking_failures=blocking,
+        provider_forbidden_claim_count=provider_forbidden_claim_count,
+        backend_guidance_forbidden_claim_count=(
+            backend_guidance_forbidden_claim_count
+        ),
     )
 
 def _ranking(items):
@@ -202,16 +224,70 @@ def _blocking(items, expected):
     failures = []
     if len(items) != expected: failures.append({"type": "incomplete_attempts", "completed": len(items), "expected": expected})
     for a in items:
-        output = normalize_text(" ".join([*a.observed, a.output_text]))
-        answer = normalize_text(a.answer)
-        for claim in a.forbidden_claims:
-            normalized_claim = normalize_text(claim)
-            if normalized_claim and normalized_claim in output and normalized_claim not in answer:
-                failures.append({"type": "forbidden_claim", "case_id": a.case_id, "run_number": a.run_number, "claim": claim})
+        provider_claims, backend_claims = classify_forbidden_claims(a)
+        for claim in provider_claims:
+            failures.append({"type": "provider_forbidden_claim", "case_id": a.case_id, "run_number": a.run_number, "claim": claim, "owner": "provider"})
+        for claim in backend_claims:
+            failures.append({"type": "backend_guidance_forbidden_claim", "case_id": a.case_id, "run_number": a.run_number, "claim": claim, "owner": "backend_answer_guidance"})
         if set(a.applicable_dimensions) != set(a.expected_applicable_dimensions): failures.append({"type": "dimension_mismatch", "case_id": a.case_id, "run_number": a.run_number})
         if a.quality_level == "empty" and a.score not in {None, 0}: failures.append({"type": "empty_non_zero", "case_id": a.case_id, "run_number": a.run_number, "score": a.score})
         if a.quality_level != "empty" and a.score is None and not a.fallback: failures.append({"type": "unexpected_unscored", "case_id": a.case_id, "run_number": a.run_number})
     return failures
+
+
+def classify_forbidden_claims(
+    attempt: AttemptResult | dict,
+) -> tuple[list[str], list[str]]:
+    item = (
+        attempt
+        if isinstance(attempt, AttemptResult)
+        else AttemptResult.model_validate(attempt)
+    )
+    provider_owned = item.provider_owned or {
+        "observed": item.observed,
+        # Legacy output_text was the Provider-facing surface. New live
+        # attempts never mix Backend guidance into this compatibility field.
+        "rationale": item.output_text,
+    }
+    backend_owned = item.backend_owned or {}
+    provider_text = normalize_text(
+        " ".join(_owned_text_values(provider_owned, include_numeric=False))
+    )
+    backend_guidance = normalize_text(
+        str(backend_owned.get("answer_guidance") or "")
+    )
+    answer = normalize_text(item.answer)
+    provider_claims: list[str] = []
+    backend_claims: list[str] = []
+    for claim in item.forbidden_claims:
+        normalized_claim = normalize_text(claim)
+        if not normalized_claim or normalized_claim in answer:
+            continue
+        if normalized_claim in provider_text:
+            provider_claims.append(claim)
+        if normalized_claim in backend_guidance:
+            backend_claims.append(claim)
+    return provider_claims, backend_claims
+
+
+def _owned_text_values(value: object, *, include_numeric: bool) -> list[str]:
+    if isinstance(value, str):
+        return [value]
+    if isinstance(value, list):
+        return [
+            text
+            for item in value
+            for text in _owned_text_values(item, include_numeric=include_numeric)
+        ]
+    if isinstance(value, dict):
+        return [
+            text
+            for item in value.values()
+            for text in _owned_text_values(item, include_numeric=include_numeric)
+        ]
+    if include_numeric and isinstance(value, (int, float)) and not isinstance(value, bool):
+        return [str(value)]
+    return []
 
 
 def _interval_hit(item: AttemptResult) -> bool:

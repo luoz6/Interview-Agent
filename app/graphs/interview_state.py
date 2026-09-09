@@ -10,7 +10,7 @@ from app.services.session_plan_binding import (
 )
 
 
-WorkflowEngine = Literal["legacy", "langgraph-v1", "langgraph-v2"]
+WorkflowEngine = Literal["legacy", "langgraph-v1", "langgraph-v2", "langgraph-v3"]
 MemoryPolicyVersion = Literal[
     "deterministic-v1",
     "question-conversation-v1",
@@ -24,7 +24,7 @@ SUPPORTED_MEMORY_POLICY_VERSIONS = frozenset(
     }
 )
 SUPPORTED_INTERVIEW_GRAPH_VERSIONS = frozenset(
-    {"langgraph-v1", "langgraph-v2"}
+    {"langgraph-v1", "langgraph-v2", "langgraph-v3"}
 )
 
 
@@ -204,12 +204,72 @@ def build_initial_state(
     }
 
 
+def build_v3_session_shell_state(
+    *,
+    session_id: str,
+    plan,
+    job_description: str,
+    resume_text: str,
+    job_tags: list[str],
+    memory_policy_version: MemoryPolicyVersion,
+    plan_binding: SessionPlanBinding,
+) -> InterviewState:
+    """Build a durable V3 shell without inventing an interviewer prompt."""
+
+    if getattr(plan, "schema_version", None) != "interview-plan-v3":
+        raise ValueError("langgraph-v3 requires interview-plan-v3")
+    now = utc_now_iso()
+    return {
+        "session_id": session_id,
+        "plan": plan,
+        "current_index": 0,
+        "messages": [],
+        "decision": None,
+        "decision_id": None,
+        "decision_action": None,
+        "decision_reason_code": None,
+        "decision_gap_type": None,
+        "decision_gap_summary": None,
+        "followup_policy_version": (
+            (plan_binding.configuration_snapshot or {}).get(
+                "followup_policy_version", "fixed_v1"
+            )
+        ),
+        "current_followup_count": 0,
+        "closed_gap_ids": [],
+        "active_gap_id": None,
+        "termination_reason_code": None,
+        "termination_diagnostic": None,
+        "pending_output": None,
+        "status": "preparing_first_question",
+        "phase": "interview",
+        "phase_status": "pending",
+        "review_status": "idle",
+        "job_description": job_description,
+        "resume_text": resume_text,
+        "job_tags": job_tags,
+        "skipped_question_ids": [],
+        "started_at": now,
+        "finished_at": None,
+        "state_version": 0,
+        "checkpoint_version": 0,
+        "last_checkpoint_at": now,
+        "last_command_id": None,
+        "workflow_engine": "langgraph-v3",
+        "graph_schema_version": "langgraph-v3",
+        "projection_sha256": None,
+        "memory_policy_version": memory_policy_version,
+        "deletion_status": "active",
+        **plan_binding.model_dump(mode="json"),
+    }
+
+
 def default_memory_policy_for_engine(
     engine: WorkflowEngine,
 ) -> MemoryPolicyVersion:
     return (
         "question-conversation-v1"
-        if engine == "langgraph-v2"
+        if engine in {"langgraph-v2", "langgraph-v3"}
         else "deterministic-v1"
     )
 
@@ -219,7 +279,11 @@ def get_current_question(state: InterviewState) -> InterviewQuestion | None:
     questions = state["plan"].questions
     if current_index >= len(questions):
         return None
-    return questions[current_index]
+    question = questions[current_index]
+    # An intent is scheduling metadata, not a published interviewer question.
+    if getattr(question, "schema_version", None) == "question-intent-v1":
+        return None
+    return question
 
 
 def count_candidate_answers_for_question(

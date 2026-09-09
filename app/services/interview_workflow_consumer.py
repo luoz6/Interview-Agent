@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 
 from app.services.runtime_domain_events import (
+    InterviewBootstrapReadyEvent,
     InterviewCommandReadyEvent,
     InterviewRetryDueEvent,
 )
@@ -25,6 +26,10 @@ class InterviewWorkflowConsumer:
             return ConsumerOutcome(
                 self.workflow.resume_command(session_id, event.command_id)
             )
+        elif event_type == "interview_bootstrap_ready":
+            InterviewBootstrapReadyEvent.model_validate(payload)
+            self.workflow.bootstrap_first_question(session_id)
+            return ConsumerOutcome("completed")
         elif event_type == "interview_retry_due":
             event = InterviewRetryDueEvent.model_validate(payload)
             config = {"configurable": {"thread_id": session_id}}

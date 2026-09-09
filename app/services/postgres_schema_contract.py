@@ -1352,6 +1352,103 @@ RUNTIME_SCHEMA_V29_CHECKSUM = hashlib.sha256(
     RUNTIME_SCHEMA_V29_MANIFEST.encode("utf-8")
 ).hexdigest()
 
+# V30 installs the explicit JIT main-question identity and result lineage. It
+# also admits langgraph-v3 session shells; historical rows remain follow-up
+# generations via the database default and are never rewritten as JIT output.
+RUNTIME_REQUIRED_COLUMNS_BY_SUFFIX["_generations"] = (
+    RUNTIME_REQUIRED_COLUMNS_BY_SUFFIX["_generations"]
+    | frozenset(
+        {
+            "generation_kind",
+            "identity_sha256",
+            "intent_sha256",
+            "context_sha256",
+            "knowledge_scope_sha256",
+            "generator_version",
+            "result_mode",
+            "failure_reason_code",
+            "provider_invocation_count",
+            "generation_latency_ms",
+            "fallback_used",
+            "safe_reason_code",
+        }
+    )
+)
+# ``identity_sha256`` is globally canonical only inside the main-question
+# population. Requiring the partial unique index makes schema validation fail
+# closed if that ownership boundary disappears.
+RUNTIME_REQUIRED_INDEX_TOKENS_BY_SUFFIX["_generations"] = (
+    RUNTIME_REQUIRED_INDEX_TOKENS_BY_SUFFIX["_generations"]
+    + (frozenset({"unique", "identity_sha256", "where"}),)
+)
+RUNTIME_REQUIRED_CHECK_TOKENS_BY_SUFFIX["_generations"] = (
+    frozenset(
+        {
+            "generation_kind",
+            "main_question",
+            "identity_sha256",
+            "intent_sha256",
+            "context_sha256",
+            "knowledge_scope_sha256",
+            "generation_prompt_sha256",
+            "generator_version",
+            "result_mode",
+            "fallback",
+            "failure_reason_code",
+        }
+    ),
+    frozenset(
+        {
+            "main_question",
+            "completed",
+            "result_mode",
+            "generated",
+            "fallback",
+            "is",
+            "not",
+            "null",
+            "provider_invocation_count",
+            "generation_latency_ms",
+            "fallback_used",
+            "safe_reason_code",
+            "provider_timeout",
+            "provider_interrupted",
+        }
+    ),
+)
+RUNTIME_SCHEMA_V30_MANIFEST = json.dumps(
+    {
+        "base_schema_checksum": RUNTIME_SCHEMA_V29_CHECKSUM,
+        "jit_main_question": {
+            "graph_schema_version": "langgraph-v3",
+            "generation_kinds": ["followup", "main_question"],
+            "identity_fields": [
+                "session_id",
+                "question_id",
+                "intent_sha256",
+                "context_sha256",
+                "knowledge_scope_sha256",
+                "generation_prompt_sha256",
+                "generator_version",
+            ],
+            "result_modes": ["generated", "fallback"],
+            "result_diagnostics": [
+                "provider_invocation_count",
+                "generation_latency_ms",
+                "fallback_used",
+                "safe_reason_code",
+            ],
+            "generation_store_lifecycle_owner": True,
+        },
+        "transaction_mode": "transactional_with_idempotent_checkpointer_phase",
+    },
+    sort_keys=True,
+    separators=(",", ":"),
+)
+RUNTIME_SCHEMA_V30_CHECKSUM = hashlib.sha256(
+    RUNTIME_SCHEMA_V30_MANIFEST.encode("utf-8")
+).hexdigest()
+
 RUNTIME_MIGRATIONS = (
     PostgresMigrationSpec(
         migration_id="stage48_runtime_schema_v1",
@@ -1496,6 +1593,11 @@ RUNTIME_MIGRATIONS = (
     PostgresMigrationSpec(
         migration_id="row_serialization_versions_v1_v29",
         checksum=RUNTIME_SCHEMA_V29_CHECKSUM,
+        transaction_mode="transactional_with_idempotent_checkpointer_phase",
+    ),
+    PostgresMigrationSpec(
+        migration_id="interview_jit_main_question_v1_v30",
+        checksum=RUNTIME_SCHEMA_V30_CHECKSUM,
         transaction_mode="transactional_with_idempotent_checkpointer_phase",
     ),
 )

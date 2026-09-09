@@ -1529,6 +1529,7 @@ def build_interview_workflow_service():
         DurableInterviewGraphDependencies,
         build_durable_interview_graph,
         build_durable_interview_graph_for_schema,
+        build_durable_interview_graph_v3,
     )
     from app.graphs.durable_interview_state_v2 import DurableInterviewStateV2
     from app.services.interview_generation_store import (
@@ -1747,8 +1748,12 @@ def build_interview_workflow_service():
             checkpointer=saver,
         ),
     )
+    registry.register(
+        "langgraph-v3",
+        build_durable_interview_graph_v3(deps, checkpointer=saver),
+    )
     def memory_policy_for_engine(engine):
-        if engine != "langgraph-v2":
+        if engine not in {"langgraph-v2", "langgraph-v3"}:
             return "deterministic-v1"
         if not memory_readiness["consumption_ready"]:
             return "deterministic-v1"

@@ -22,6 +22,7 @@ class LocalA2AServer:
     def __init__(self, *, observability: AgentTaskLog | None = None) -> None:
         self._handlers: dict[tuple[str, str], SkillHandler] = {}
         self.observability = observability or AgentTaskLog()
+        self._tasks: dict[str, A2ATask] = {}
 
     def register(self, *, agent_id: str, skill: str, handler: SkillHandler) -> None:
         self._handlers[(agent_id, skill)] = handler
@@ -34,6 +35,9 @@ class LocalA2AServer:
         return self._handlers.get((agent_id, skill))
 
     def submit(self, task: A2ATask, *, execution_context: Any | None = None) -> A2AResult:
+        existing = self._find_idempotent_task(task)
+        if existing is not None:
+            return A2AResult(task=existing)
         handler = self._handlers.get((task.agent_id, task.skill))
         if handler is None:
             error = A2AError(
@@ -45,7 +49,9 @@ class LocalA2AServer:
                 internal_reason=f"{task.agent_id}:{task.skill} is not registered",
                 observability_code="unsupported_skill",
             )
-            result = A2AResult(task=self._with_error(task, error))
+            failed = self._with_error(task, error)
+            self._tasks[task.task_id] = failed
+            result = A2AResult(task=failed)
             self.observability.record(result.task)
             return result
 
@@ -56,26 +62,31 @@ class LocalA2AServer:
                 "updated_at": _utc_now_iso(),
             }
         )
+        self._tasks[task.task_id] = working
         try:
             artifact = handler(working.input, execution_context)
         except A2AAgentError as exc:
-            result = A2AResult(task=self._with_error(working, exc.to_artifact()))
+            failed = self._with_error(working, exc.to_artifact())
+            self._tasks[task.task_id] = failed
+            result = A2AResult(task=failed)
             self.observability.record(result.task)
             return result
         except Exception as exc:
+            failed = self._with_error(
+                working,
+                A2AError(
+                    code="unexpected_error",
+                    retryable=False,
+                    terminal=True,
+                    fallback_allowed=True,
+                    public_message="Agent execution failed.",
+                    internal_reason=str(exc),
+                    observability_code="unexpected_error",
+                ),
+            )
+            self._tasks[task.task_id] = failed
             result = A2AResult(
-                task=self._with_error(
-                    working,
-                    A2AError(
-                        code="unexpected_error",
-                        retryable=False,
-                        terminal=True,
-                        fallback_allowed=True,
-                        public_message="Agent execution failed.",
-                        internal_reason=str(exc),
-                        observability_code="unexpected_error",
-                    ),
-                )
+                task=failed,
             )
             self.observability.record(result.task)
             return result
@@ -88,30 +99,52 @@ class LocalA2AServer:
             }
         )
         result = A2AResult(task=completed)
+        self._tasks[task.task_id] = completed
         self.observability.record(result.task)
         return result
 
     def reject(self, task_id: str, *, reason: str) -> A2AResult:
-        task = A2ATask(
-            task_id=task_id,
-            agent_id="unknown",
-            skill="unknown",
-            status="rejected",
-            input={"reason": reason},
+        task = self._tasks.get(task_id)
+        if task is None:
+            task = A2ATask(task_id=task_id, agent_id="unknown", skill="unknown")
+        task = task.model_copy(
+            update={
+                "status": "rejected",
+                "updated_at": _utc_now_iso(),
+                "input": {**task.input, "reason": reason},
+            }
         )
+        self._tasks[task_id] = task
         self.observability.record(task)
         return A2AResult(task=task)
 
     def cancel(self, task_id: str, *, reason: str) -> A2AResult:
-        task = A2ATask(
-            task_id=task_id,
-            agent_id="unknown",
-            skill="unknown",
-            status="canceled",
-            input={"reason": reason},
+        task = self._tasks.get(task_id)
+        if task is None:
+            task = A2ATask(task_id=task_id, agent_id="unknown", skill="unknown")
+        task = task.model_copy(
+            update={
+                "status": "canceled",
+                "updated_at": _utc_now_iso(),
+                "input": {**task.input, "reason": reason},
+            }
         )
+        self._tasks[task_id] = task
         self.observability.record(task)
         return A2AResult(task=task)
+
+    def _find_idempotent_task(self, task: A2ATask) -> A2ATask | None:
+        key = task.idempotency_key
+        if not key:
+            return None
+        for existing in self._tasks.values():
+            if (
+                existing.idempotency_key == key
+                and existing.agent_id == task.agent_id
+                and existing.skill == task.skill
+            ):
+                return existing
+        return None
 
     @staticmethod
     def _with_error(task: A2ATask, error: A2AError) -> A2ATask:

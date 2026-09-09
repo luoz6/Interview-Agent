@@ -87,6 +87,9 @@ class DurableInterviewState(TypedDict):
     active_command_id: str | None
     active_decision_id: str | None
     decision_action: Literal["follow_up", "next_question"] | None
+    decision_answer_state: Literal[
+        "complete", "partial", "incorrect", "off_topic", "empty"
+    ] | None
     decision_reason_code: str | None
     decision_gap_type: str | None
     decision_gap_summary: str | None
@@ -131,6 +134,10 @@ class DurableInterviewState(TypedDict):
     configuration_snapshot: dict[str, Any] | None
     immutable_plan_snapshot: dict[str, Any]
     principal_memory_mode: Literal["inherit", "ignore"]
+    # V3 projection: immutable RenderedQuestion snapshot.  Legacy states keep
+    # this null and continue to read the plan prompt.
+    current_rendered_question_id: str | None
+    rendered_question: dict[str, Any] | None
 
 
 def make_durable_initial_state(
@@ -165,6 +172,7 @@ def make_durable_initial_state(
         "active_command_id": None,
         "active_decision_id": None,
         "decision_action": None,
+        "decision_answer_state": None,
         "decision_reason_code": None,
         "decision_gap_type": None,
         "decision_gap_summary": None,
@@ -209,4 +217,6 @@ def make_durable_initial_state(
         "configuration_snapshot": binding.configuration_snapshot,
         "immutable_plan_snapshot": binding.plan_snapshot,
         "principal_memory_mode": binding.principal_memory_mode,
+        "current_rendered_question_id": None,
+        "rendered_question": None,
     }

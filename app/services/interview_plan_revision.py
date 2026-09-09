@@ -7,10 +7,11 @@ import unicodedata
 from copy import deepcopy
 from datetime import datetime, timezone
 from typing import Any, Literal
-from uuid import UUID, uuid4
+from uuid import NAMESPACE_URL, UUID, uuid4, uuid5
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from app.domain.interview.question_intent import QuestionIntentV1
 from app.domain.knowledge.source_scope import (
     INTERVIEW_KNOWLEDGE_SCOPE_SCHEMA_VERSION,
     InterviewKnowledgeScopeSnapshot,
@@ -47,13 +48,16 @@ PlanCreatedReason = Literal[
     "initial_generation",
     "edit_question_text",
     "edit_focus",
+    "edit_assessment_goals",
     "move_question",
     "delete_question",
     "add_custom_question",
+    "add_custom_intent",
     "regenerate_question",
     "restore_revision",
     "regenerate_all",
     "batch_edit",
+    "convert_to_intent_plan",
 ]
 PlanSourceReferenceType = Literal["family", "draft", "session"]
 
@@ -155,7 +159,7 @@ def default_plan_configuration() -> PlanConfigurationSnapshot:
         },
         expected_followup_budget=5,
         generator_version=DEFAULT_PLAN_GENERATOR_VERSION,
-        followup_policy_version="fixed_v1",
+        followup_policy_version="adaptive_v1",
     )
 
 
@@ -290,31 +294,96 @@ class InterviewPlanV2(ImmutableModel):
 
     @model_validator(mode="after")
     def validate_plan(self):
-        expected_selection_sha256 = knowledge_scope_selection_sha256(
-            include_system_knowledge=self.knowledge_scope.include_system_knowledge,
-            selected_documents=self.knowledge_scope.selected_documents,
-        )
-        if self.knowledge_scope.selection_sha256 != expected_selection_sha256:
-            raise ValueError("knowledge scope selection_sha256 does not match scope")
-        if not (
-            MIN_SAFE_MAIN_QUESTION_COUNT
-            <= len(self.questions)
-            <= MAX_SAFE_MAIN_QUESTION_COUNT
-        ):
-            raise ValueError(
-                "interview-plan-v2 requires 1 to 10 questions"
-            )
-        ids = [question.question_id for question in self.questions]
-        if len(ids) != len(set(ids)):
-            raise ValueError("question_id must be unique")
-        positions = [question.position for question in self.questions]
-        if len(positions) != len(set(positions)):
-            raise ValueError("question position must be unique")
-        if sorted(positions) != list(range(1, len(self.questions) + 1)):
-            raise ValueError("question positions must be contiguous from 1")
-        if list(positions) != sorted(positions):
-            raise ValueError("questions must be ordered by position")
+        _validate_plan_structure(self, schema_version=self.schema_version)
         return self
+
+
+class InterviewPlanV3(ImmutableModel):
+    """Intent-only plan. Final interviewer wording is never stored here."""
+
+    schema_version: Literal["interview-plan-v3"] = "interview-plan-v3"
+    title: str = Field(min_length=1)
+    configuration_snapshot: PlanConfigurationSnapshot
+    knowledge_scope: InterviewKnowledgeScopeSnapshot = Field(
+        default_factory=legacy_interview_knowledge_scope_snapshot
+    )
+    questions: tuple[QuestionIntentV1, ...]
+    prep_context: dict[str, Any] | None = None
+
+    @field_validator("title", mode="before")
+    @classmethod
+    def normalize_title(cls, value: object) -> str:
+        if not isinstance(value, str) or not value.strip():
+            raise ValueError("title must not be blank")
+        return _normalize_string(value).strip()
+
+    @field_validator("questions", mode="before")
+    @classmethod
+    def normalize_questions(cls, value: object):
+        if not isinstance(value, (list, tuple)):
+            raise ValueError("questions must be a list or tuple")
+        normalized: list[QuestionIntentV1] = []
+        for item in value:
+            intent = QuestionIntentV1.model_validate(item)
+            binding = parse_question_knowledge_binding(intent.knowledge_binding)
+            normalized.append(
+                intent.model_copy(
+                    update={"knowledge_binding": binding.model_dump(mode="json")}
+                )
+            )
+        return tuple(normalized)
+
+    @field_validator("prep_context", mode="before")
+    @classmethod
+    def remove_legacy_question_text(cls, value: object) -> dict[str, Any] | None:
+        if value is None:
+            return None
+        if not isinstance(value, dict):
+            raise ValueError("prep_context must be an object")
+        context = deepcopy(value)
+        for hint in context.get("question_hints", []):
+            if isinstance(hint, dict):
+                for key in ("prompt", "question", "question_text"):
+                    hint.pop(key, None)
+        context.pop("questions", None)
+        return context
+
+    @model_validator(mode="after")
+    def validate_plan(self):
+        _validate_plan_structure(self, schema_version=self.schema_version)
+        return self
+
+
+InterviewPlanRevisionPayload = InterviewPlanV2 | InterviewPlanV3
+
+
+def _validate_plan_structure(
+    plan: InterviewPlanRevisionPayload,
+    *,
+    schema_version: str,
+) -> None:
+    expected_selection_sha256 = knowledge_scope_selection_sha256(
+        include_system_knowledge=plan.knowledge_scope.include_system_knowledge,
+        selected_documents=plan.knowledge_scope.selected_documents,
+    )
+    if plan.knowledge_scope.selection_sha256 != expected_selection_sha256:
+        raise ValueError("knowledge scope selection_sha256 does not match scope")
+    if not (
+        MIN_SAFE_MAIN_QUESTION_COUNT
+        <= len(plan.questions)
+        <= MAX_SAFE_MAIN_QUESTION_COUNT
+    ):
+        raise ValueError(f"{schema_version} requires 1 to 10 questions")
+    ids = [question.question_id for question in plan.questions]
+    if len(ids) != len(set(ids)):
+        raise ValueError("question_id must be unique")
+    positions = [question.position for question in plan.questions]
+    if len(positions) != len(set(positions)):
+        raise ValueError("question position must be unique")
+    if sorted(positions) != list(range(1, len(plan.questions) + 1)):
+        raise ValueError("question positions must be contiguous from 1")
+    if positions != sorted(positions):
+        raise ValueError("questions must be ordered by position")
 
 
 class PlanSourceRecord(ImmutableModel):
@@ -367,7 +436,7 @@ class InterviewPlanRevision(ImmutableModel):
     source_id: str
     source_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
     configuration_snapshot: PlanConfigurationSnapshot
-    plan: InterviewPlanV2
+    plan: InterviewPlanV2 | InterviewPlanV3 = Field(discriminator="schema_version")
     plan_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
     generator_version: str = Field(min_length=1)
     created_at: datetime
@@ -442,9 +511,27 @@ def plan_configuration_sha256(
     return canonical_sha256(model.model_dump(mode="json"))
 
 
-def plan_payload_sha256(plan: InterviewPlanV2 | dict[str, Any]) -> str:
-    payload = plan.model_dump(mode="json") if isinstance(plan, InterviewPlanV2) else plan
-    model = InterviewPlanV2.model_validate(payload)
+def parse_interview_plan(
+    plan: InterviewPlanRevisionPayload | dict[str, Any],
+) -> InterviewPlanRevisionPayload:
+    if isinstance(plan, (InterviewPlanV2, InterviewPlanV3)):
+        payload = plan.model_dump(mode="json")
+    elif isinstance(plan, dict):
+        payload = plan
+    else:
+        raise TypeError("interview plan must be a plan model or object")
+    schema_version = payload.get("schema_version")
+    if schema_version == "interview-plan-v2":
+        return InterviewPlanV2.model_validate(payload)
+    if schema_version == "interview-plan-v3":
+        return InterviewPlanV3.model_validate(payload)
+    raise ValueError("unsupported interview plan schema_version")
+
+
+def plan_payload_sha256(
+    plan: InterviewPlanRevisionPayload | dict[str, Any],
+) -> str:
+    model = parse_interview_plan(plan)
     return canonical_sha256(model.model_dump(mode="json"))
 
 
@@ -577,9 +664,194 @@ def legacy_plan_to_v2(
     ))
 
 
+_ASSESSMENT_GOAL_ORDER = (
+    "ownership",
+    "implementation_depth",
+    "failure_mode",
+    "recovery",
+    "tradeoff",
+    "scale",
+    "reliability",
+    "observability",
+    "collaboration",
+)
+_ASSESSMENT_GOAL_KEYWORDS = {
+    "ownership": ("ownership", "主导", "负责"),
+    "implementation_depth": ("implementation", "实现", "落地", "细节"),
+    "failure_mode": ("failure", "fault", "故障", "失败", "异常", "降级"),
+    "recovery": ("recover", "retry", "恢复", "重试", "补偿"),
+    "tradeoff": ("tradeoff", "trade-off", "权衡", "取舍"),
+    "scale": ("scale", "capacity", "扩展", "容量", "高并发"),
+    "reliability": ("reliability", "consistency", "可靠", "一致性", "幂等"),
+    "observability": ("observability", "monitor", "可观测", "监控", "告警"),
+    "collaboration": ("collaboration", "team", "协作", "团队"),
+}
+_DEFAULT_ASSESSMENT_GOALS = {
+    "project": ("ownership", "implementation_depth"),
+    "technical": ("implementation_depth", "tradeoff"),
+    "system-design": ("reliability", "scale", "tradeoff"),
+    "behavioral": ("ownership", "collaboration"),
+}
+
+
+def infer_assessment_goals(
+    *,
+    question_type: PlanQuestionType,
+    focus: str,
+    question_text: str = "",
+) -> tuple[str, ...]:
+    """Infer stable V1 observation goals for an explicit legacy conversion."""
+
+    haystack = _normalize_string(f"{focus}\n{question_text}").casefold()
+    selected = [
+        goal
+        for goal in _ASSESSMENT_GOAL_ORDER
+        if any(
+            keyword.casefold() in haystack
+            for keyword in _ASSESSMENT_GOAL_KEYWORDS[goal]
+        )
+    ]
+    for goal in _DEFAULT_ASSESSMENT_GOALS[question_type]:
+        if goal not in selected:
+            selected.append(goal)
+    return tuple(selected[:4])
+
+
+def v2_plan_to_v3(plan: InterviewPlanV2) -> InterviewPlanV3:
+    """Build an intent-only candidate without mutating the V2 revision."""
+
+    source = synchronize_plan_knowledge_context(
+        InterviewPlanV2.model_validate(plan.model_dump(mode="json"))
+    )
+    origin_map = {
+        "generated": "generated",
+        "edited": "custom",
+        "custom": "custom",
+        "regenerated": "regenerated",
+    }
+    return synchronize_plan_knowledge_context(
+        InterviewPlanV3(
+            title=source.title,
+            configuration_snapshot=source.configuration_snapshot,
+            knowledge_scope=source.knowledge_scope,
+            questions=tuple(
+                QuestionIntentV1(
+                    question_id=item.question_id,
+                    position=item.position,
+                    kind=item.question_type,
+                    focus=item.focus,
+                    difficulty=item.difficulty,
+                    assessment_goals=infer_assessment_goals(
+                        question_type=item.question_type,
+                        focus=item.focus,
+                        question_text=item.question_text,
+                    ),
+                    expected_minutes=item.expected_minutes,
+                    expected_followups=item.expected_followups,
+                    origin=origin_map[item.origin],
+                    knowledge_binding=item.knowledge_binding,
+                )
+                for item in source.questions
+            ),
+            prep_context=deepcopy(source.prep_context),
+        )
+    )
+
+
+def native_intent_plan_to_v3(
+    plan: InterviewPlanV2,
+    draft_questions: tuple[Any, ...],
+) -> InterviewPlanV3:
+    """Bind native Provider intents to local IDs, budgets, and evidence."""
+
+    source = synchronize_plan_knowledge_context(
+        InterviewPlanV2.model_validate(plan.model_dump(mode="json"))
+    )
+    if len(source.questions) != len(draft_questions):
+        raise ValueError("native intent count does not match the bound plan")
+    questions = []
+    for item, draft in zip(source.questions, draft_questions):
+        if item.question_type != draft.kind or item.focus != draft.focus:
+            raise ValueError("native intent changed during local binding")
+        questions.append(
+            QuestionIntentV1(
+                question_id=item.question_id,
+                position=item.position,
+                kind=draft.kind,
+                focus=draft.focus,
+                difficulty=draft.difficulty,
+                assessment_goals=draft.assessment_goals,
+                expected_minutes=item.expected_minutes,
+                expected_followups=item.expected_followups,
+                origin="generated",
+                knowledge_binding=item.knowledge_binding,
+            )
+        )
+    return synchronize_plan_knowledge_context(
+        InterviewPlanV3(
+            title=source.title,
+            configuration_snapshot=source.configuration_snapshot,
+            knowledge_scope=source.knowledge_scope,
+            questions=tuple(questions),
+            prep_context=deepcopy(source.prep_context),
+        )
+    )
+
+
+def legacy_plan_to_v3(
+    plan: Any,
+    *,
+    generator_version: str | None = None,
+    configuration_snapshot: PlanConfigurationSnapshot | None = None,
+    knowledge_scope: InterviewKnowledgeScopeSnapshot | None = None,
+) -> InterviewPlanV3:
+    """Create a deterministic V3 conversion candidate for preview and saving."""
+
+    converted = legacy_plan_to_v2(
+        plan,
+        generator_version=generator_version,
+        configuration_snapshot=configuration_snapshot,
+        knowledge_scope=knowledge_scope,
+    )
+    plan_seed = canonical_sha256(plan.model_dump(mode="json"))
+    stable_ids = tuple(
+        str(
+            uuid5(
+                NAMESPACE_URL,
+                f"interview-agent:legacy-plan-v3:{plan_seed}:{index}:{legacy.id}",
+            )
+        )
+        for index, legacy in enumerate(plan.questions, start=1)
+    )
+    id_map = {
+        item.question_id: stable_ids[index]
+        for index, item in enumerate(converted.questions)
+    }
+    context = deepcopy(converted.prep_context)
+    if context is not None:
+        for hint in context.get("question_hints", []):
+            question_id = hint.get("question_id")
+            if question_id in id_map:
+                hint["question_id"] = id_map[question_id]
+    stable_v2 = converted.model_copy(
+        update={
+            "questions": tuple(
+                item.model_copy(update={"question_id": stable_ids[index]})
+                for index, item in enumerate(converted.questions)
+            ),
+            "prep_context": context,
+        }
+    )
+    return v2_plan_to_v3(stable_v2)
+
+
 def v2_plan_to_legacy(plan: InterviewPlanV2) -> Any:
     from app.services.prep import InterviewPlan, InterviewQuestion, PrepContext
 
+    if not isinstance(plan, InterviewPlanV2):
+        raise ValueError(
+            "v3 intent plans cannot be projected to legacy final-question plans"
+        )
     plan = synchronize_plan_knowledge_context(plan)
     questions = [
         InterviewQuestion(
@@ -604,15 +876,17 @@ def v2_plan_to_legacy(plan: InterviewPlanV2) -> Any:
     return InterviewPlan(title=plan.title, questions=questions, prep_context=context)
 
 
-def synchronize_plan_knowledge_context(plan: InterviewPlanV2) -> InterviewPlanV2:
+def synchronize_plan_knowledge_context(
+    plan: InterviewPlanRevisionPayload,
+) -> InterviewPlanRevisionPayload:
     context = deepcopy(plan.prep_context)
-    normalized_questions: list[InterviewPlanQuestionV2] = []
+    normalized_questions: list[InterviewPlanQuestionV2 | QuestionIntentV1] = []
     for question in plan.questions:
         binding = revalidate_question_knowledge(
             question.knowledge_binding,
             context,
         )
-        if question.origin == "custom" and not (
+        if isinstance(plan, InterviewPlanV2) and question.origin == "custom" and not (
             binding.status == "unbound"
             and binding.reason_code == "custom_question"
         ):

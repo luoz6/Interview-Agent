@@ -34,6 +34,9 @@ class EvaluationRunner:
             case = lookup[case_id]
             session_id = f"stage40-{case_id}-{run_number}"
             trace_dir = self.artifact_store.attempt_directory(case_id, run_number)
+            if hasattr(self.evaluator, "begin_case_attempt"):
+                self.evaluator.begin_case_attempt()
+            started = time.perf_counter()
             try:
                 normalized = self._evaluate_with_retry(
                     case,
@@ -41,9 +44,42 @@ class EvaluationRunner:
                     run_number=run_number,
                     trace_dir=trace_dir,
                 )
+                if hasattr(self.evaluator, "complete_case_attempt"):
+                    normalized = self.evaluator.complete_case_attempt(
+                        normalized,
+                        latency_seconds=time.perf_counter() - started,
+                    )
             except Exception as exc:
                 if _is_budget_exhausted(exc):
+                    if hasattr(self.evaluator, "abandon_case_attempt"):
+                        self.evaluator.abandon_case_attempt()
                     raise
+                if (
+                    hasattr(self.evaluator, "fail_case_attempt")
+                    and not getattr(exc, "evidence_consumed", False)
+                ):
+                    exc = self.evaluator.fail_case_attempt(
+                        exc,
+                        latency_seconds=time.perf_counter() - started,
+                    )
+                if getattr(exc, "stop_evaluation", False):
+                    artifact_payload = dict(
+                        getattr(
+                            exc,
+                            "artifact_payload",
+                            {
+                                "hard_stop_condition": "PROVIDER_EVIDENCE_CONTRACT_FAILED"
+                            },
+                        )
+                    )
+                    artifact_payload.setdefault("case_id", case_id)
+                    artifact_payload.setdefault("run_number", run_number)
+                    self.artifact_store.write_error(
+                        case_id,
+                        run_number,
+                        artifact_payload,
+                    )
+                    raise exc
                 self.artifact_store.write_error(
                     case_id,
                     run_number,
@@ -71,6 +107,8 @@ class EvaluationRunner:
                     trace_dir=trace_dir,
                 )
                 if normalized.get("fallback") and attempt < 2:
+                    if hasattr(self.evaluator, "note_retry"):
+                        self.evaluator.note_retry()
                     self.sleep(min(2**attempt, 4))
                     continue
                 return normalized
@@ -79,6 +117,8 @@ class EvaluationRunner:
                     raise
                 if attempt == 2 or not _is_transient(exc):
                     raise
+                if hasattr(self.evaluator, "note_retry"):
+                    self.evaluator.note_retry()
                 self.sleep(min(2**attempt, 4))
         raise AssertionError("unreachable")
 

@@ -251,6 +251,7 @@ class LocalRuntimeEventSink:
             self.principal_memory_consumer.consume(payload)
             return
         if payload["event_type"] in {
+            "interview_bootstrap_ready",
             "interview_command_ready",
             "interview_retry_due",
         }:
@@ -290,6 +291,7 @@ class CeleryRuntimeEventSink:
     def publish(self, payload: dict[str, Any]) -> None:
         task_name = self.task_name
         if payload["event_type"] in {
+            "interview_bootstrap_ready",
             "interview_command_ready",
             "interview_retry_due",
         }:

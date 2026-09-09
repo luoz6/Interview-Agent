@@ -44,6 +44,7 @@ const questionStateLabels = {
 
 const runtimeLabels = {
   loading: "正在恢复会话",
+  preparing: "正在准备当前问题",
   active: "面试进行中",
   submitting: "正在处理回答",
   finishing: "正在结束面试",
@@ -53,6 +54,7 @@ const runtimeLabels = {
 
 const runtimeStates = {
   loading: "generating",
+  preparing: "generating",
   active: "ready",
   submitting: "generating",
   finishing: "generating",
@@ -152,12 +154,18 @@ export function QuestionNavigator({ snapshot }) {
         {(snapshot?.questions || []).map((question, index) => {
           const current = question.id === snapshot.current_question?.id;
           const state = current ? "current" : question.state || "pending";
+          const kind = question.kind ? (question.kind === "system-design" ? "系统设计" : question.kind === "technical" ? "技术" : question.kind === "project" ? "项目" : question.kind === "behavioral" ? "行为" : question.kind) : "待进行";
+          const label = current && question.prompt
+            ? question.prompt
+            : state === "answered" || state === "skipped"
+              ? question.prompt || `${kind}题`
+              : `${kind}题`;
           return (
             <li key={question.id} data-state={state} aria-current={current ? "step" : undefined}>
               <span className="interview-question-index" aria-hidden="true">
                 {state === "answered" ? <CheckCircle size={17} weight="fill" /> : <span>{String(index + 1).padStart(2, "0")}</span>}
               </span>
-              <div><strong title={question.prompt}>{question.prompt}</strong><small>{questionStateLabels[state] || state}</small></div>
+              <div><strong>{label}</strong><small>{questionStateLabels[state] || state}</small></div>
             </li>
           );
         })}
@@ -223,6 +231,7 @@ export function InterviewPage({ navigateToReportProcessing = defaultReportProces
   const [snapshot, setSnapshot] = useState(null);
   const [answer, setAnswer] = useState("");
   const [streamingText, setStreamingText] = useState("");
+  const [revealingQuestion, setRevealingQuestion] = useState(null);
   const [recoveredText, setRecoveredText] = useState("");
   const [status, setStatus] = useState("loading");
   const [activeOperation, setActiveOperation] = useState(null);
@@ -263,7 +272,10 @@ export function InterviewPage({ navigateToReportProcessing = defaultReportProces
       } else {
         setAnnounceAssistanceNotice(false);
       }
-      setStatus(data.status === "finished" ? "finished" : "active");
+      const preparingQuestion = data.status === "preparing_first_question"
+        || data.current_question?.render_state === "preparing"
+        || data.pending_action === "preparing_main_question";
+      setStatus(data.status === "finished" ? "finished" : preparingQuestion ? "preparing" : "active");
       setActiveOperation(null);
       if (data.status === "finished") {
         writeLocalStorage("interview-agent:last-report-session-id", sessionId);
@@ -417,6 +429,20 @@ export function InterviewPage({ navigateToReportProcessing = defaultReportProces
         resumeBuffer += data.delta || "";
         setStreamingText(resumeBuffer);
       },
+      question_reveal_reset: (data) => {
+        setStatus("preparing");
+        setActiveOperation("main_question");
+        setRevealingQuestion({ questionId: data.question_id, text: "" });
+      },
+      question_reveal_chunk: (data) => {
+        setRevealingQuestion((current) => ({
+          questionId: data.question_id || current?.questionId || null,
+          text: `${current?.text || ""}${data.delta || ""}`,
+        }));
+      },
+      question_reveal_done: () => {
+        setLiveMessage("当前问题已准备好，可以开始回答。");
+      },
     };
     fetch(apiUrl(streamUrl), { signal })
       .then(async (response) => {
@@ -459,6 +485,7 @@ export function InterviewPage({ navigateToReportProcessing = defaultReportProces
         setRecoveredText(resumeBuffer);
         setStreamingText("");
         await loadSnapshot({ deferActivation: true, signal });
+        setRevealingQuestion(null);
       })
       .catch(async (error) => {
         if (signal.aborted || error.name === "AbortError") return;
@@ -570,6 +597,15 @@ export function InterviewPage({ navigateToReportProcessing = defaultReportProces
     const handlers = {
       generation_reset: () => setStreamingText(""),
       chunk: (data) => setStreamingText((current) => current + (data.delta || "")),
+      question_reveal_reset: (data) => {
+        setActiveOperation("main_question");
+        setRevealingQuestion({ questionId: data.question_id, text: "" });
+      },
+      question_reveal_chunk: (data) => setRevealingQuestion((current) => ({
+        questionId: data.question_id || current?.questionId || null,
+        text: `${current?.text || ""}${data.delta || ""}`,
+      })),
+      question_reveal_done: () => setLiveMessage("下一题已准备好。"),
       conflict: (data) => {
         const detail = typeof data?.detail === "string" && data.detail.trim() ? data.detail : "面试状态已变化";
         throw new HttpError(detail, { status: 409, body: data });
@@ -593,6 +629,7 @@ export function InterviewPage({ navigateToReportProcessing = defaultReportProces
       setAnswer("");
       setStreamingText("");
       await loadSnapshot();
+      setRevealingQuestion(null);
       setLiveMessage("回答已提交，面试已进入下一步。");
     } catch (error) {
       await reconcileRequestFailure(error, {
@@ -609,16 +646,37 @@ export function InterviewPage({ navigateToReportProcessing = defaultReportProces
     setActiveOperation(type);
     setNotice(null);
     try {
-      await postJson(`/api/interviews/${encodeURIComponent(sessionId)}/${type}`, commandPayload());
+      const payload = commandPayload();
+      const accepted = await postJson(`/api/interviews/${encodeURIComponent(sessionId)}/${type}`, payload);
       if (type === "finish") {
         writeLocalStorage("interview-agent:last-report-session-id", sessionId);
         removeLocalStorage("interview-agent:last-active-session-id");
         window.location.assign(`/report-processing?session_id=${encodeURIComponent(sessionId)}`);
       } else {
+        if (accepted?.stream_url && accepted?.command_id) {
+          setStatus("preparing");
+          setActiveOperation("main_question");
+          const handlers = {
+            question_reveal_reset: (data) => setRevealingQuestion({ questionId: data.question_id, text: "" }),
+            question_reveal_chunk: (data) => setRevealingQuestion((current) => ({
+              questionId: data.question_id || current?.questionId || null,
+              text: `${current?.text || ""}${data.delta || ""}`,
+            })),
+            question_reveal_done: () => setLiveMessage("下一题已准备好。"),
+            conflict: (data) => { throw new HttpError("面试状态已更新，请重试。", { status: 409, body: data }); },
+            error: (data) => { throw streamFailure(data); },
+          };
+          let terminal = await followReconnect(accepted.command_id, null, handlers);
+          if (terminal.type === "reconnect") {
+            terminal = await followReconnect(accepted.command_id, terminal.data.last_event_id, handlers);
+          }
+          if (["error", "conflict"].includes(terminal.type)) throw streamFailure(terminal.data);
+        }
         const questionId = snapshot?.current_question?.id;
         removeLocalStorage(draftKey(sessionId, questionId));
         setAnswer("");
         await loadSnapshot();
+        setRevealingQuestion(null);
         setLiveMessage("当前题已跳过，面试已进入下一题。");
       }
     } catch (error) {
@@ -667,9 +725,14 @@ export function InterviewPage({ navigateToReportProcessing = defaultReportProces
   const tags = snapshot?.job_tags || [];
   const messages = snapshot?.messages || [];
   const recoveredAlreadyPersisted = recoveredText && messages.some((message) => message.content?.includes(recoveredText));
-  const disabled = ["loading", "submitting", "finishing", "error"].includes(status);
+  const disabled = ["loading", "preparing", "submitting", "finishing", "error"].includes(status);
   const shellClass = focusMode ? "interview-workspace is-focus-mode" : "interview-workspace";
   const question = snapshot?.current_question;
+  const questionPreparing = status === "preparing"
+    || snapshot?.status === "preparing_first_question"
+    || snapshot?.current_question?.render_state === "preparing"
+    || activeOperation === "main_question";
+  const visibleQuestionText = revealingQuestion?.text || question?.prompt || "";
   const currentQuestionIndex = useMemo(
     () => Math.max(0, (snapshot?.questions || []).findIndex((item) => item.id === question?.id)),
     [snapshot?.questions, question?.id],
@@ -714,7 +777,13 @@ export function InterviewPage({ navigateToReportProcessing = defaultReportProces
           <div className="interview-workspace-scroll">
             <section className="current-question" key={question?.id || "question-loading"} aria-labelledby="current-question-title">
               <div className="question-code" aria-hidden="true"><span>{question ? String(currentQuestionIndex + 1).padStart(2, "0") : "--"}</span><small>{question?.kind || "等待题目"}</small></div>
-              <div className="current-question-copy"><p><Crosshair size={14} weight="bold" aria-hidden="true" />{question?.focus || "正在确认考察点"}</p><h2 id="current-question-title">{question?.prompt || "正在加载当前问题"}</h2></div>
+              <div className="current-question-copy">
+                <p><Crosshair size={14} weight="bold" aria-hidden="true" />{questionPreparing ? "现场组织问题" : "当前问题"}</p>
+                <h2 id="current-question-title" aria-live="polite">
+                  {visibleQuestionText || (questionPreparing ? "正在结合之前的回答组织问题…" : "正在加载当前问题")}
+                </h2>
+                {questionPreparing ? <span className="interview-question-preparing"><SpinnerGap className="start-spinner" size={14} weight="bold" aria-hidden="true" />问题确认后即可作答</span> : null}
+              </div>
             </section>
 
             {snapshot?.user_notice_required && snapshot?.assistance_mode === "basic" ? (
@@ -785,7 +854,7 @@ export function InterviewPage({ navigateToReportProcessing = defaultReportProces
                   }
                 }}
                 maxLength="5000"
-                disabled={disabled || !question}
+                disabled={disabled || !question || questionPreparing || !visibleQuestionText}
                 aria-invalid={answerError ? "true" : undefined}
                 aria-describedby={answerError ? "answer-error answer-draft-state" : "answer-draft-state"}
                 placeholder="先说明你的判断，再展开方案、取舍、风险和验证方式……"
@@ -799,11 +868,11 @@ export function InterviewPage({ navigateToReportProcessing = defaultReportProces
               <div className="composer-foot">
                 <div id="answer-draft-state" className="composer-draft-state" data-ready={Boolean(answer)} title="草稿按当前会话与当前题目保存在本机浏览器"><ShieldCheck size={14} weight={answer ? "fill" : "regular"} aria-hidden="true" /><span>{answer ? "本机 · 当前题草稿已保存" : "按会话与当前题自动保存"}</span><strong>{answer.length} / 5000</strong></div>
                 <div className="action-row compact interview-actions">
-                  <button className="button button-primary interview-submit-button" type="submit" aria-busy={status === "submitting" && activeOperation === "answer" ? "true" : undefined} disabled={disabled || !question}>
+                  <button className="button button-primary interview-submit-button" type="submit" aria-busy={status === "submitting" && activeOperation === "answer" ? "true" : undefined} disabled={disabled || !question || questionPreparing || !visibleQuestionText}>
                     {status === "submitting" && activeOperation === "answer" ? <SpinnerGap className="start-spinner" size={17} weight="bold" aria-hidden="true" /> : <PaperPlaneTilt size={17} weight="fill" aria-hidden="true" />}
                     <span>{status === "submitting" && activeOperation === "answer" ? "正在提交" : "提交回答"}</span>
                   </button>
-                  <button className="button interview-skip-button" type="button" onClick={requestSkip} disabled={disabled || !question} data-state={skipArmed ? "confirm" : undefined}>
+                  <button className="button interview-skip-button" type="button" onClick={requestSkip} disabled={disabled || !question || questionPreparing || !visibleQuestionText} data-state={skipArmed ? "confirm" : undefined}>
                     <SkipForward size={16} weight="bold" aria-hidden="true" /><span>{skipArmed ? "确认跳过此题" : "跳过此题"}</span>
                   </button>
                   <button className="button interview-end-button" type="button" onClick={() => setDialog({ type: "finish" })} disabled={disabled}>
@@ -833,7 +902,7 @@ export function InterviewPage({ navigateToReportProcessing = defaultReportProces
               </section>
               <section className="context-panel context-focus">
                 <header><span>当前考察</span><h3>能力关注点</h3></header>
-                <p className="context-current-focus">{question?.focus || "当前题目尚未返回考察重点。"}</p>
+                <p className="context-current-focus">{questionPreparing ? "问题正在准备中，确认后即可开始回答。" : "围绕当前问句给出你的判断、依据、取舍和验证方式。"}</p>
                 {tags.length ? <div className="tag-row" aria-label="岗位标签">{tags.map((tag) => <span key={tag}>{tag}</span>)}</div> : null}
               </section>
               <section className="context-panel context-review">

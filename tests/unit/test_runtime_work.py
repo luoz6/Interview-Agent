@@ -1,5 +1,7 @@
 """Unit tests for runtime work error taxonomy and retry policy."""
 
+import httpx
+import openai
 import pytest
 
 from app.services.report import (
@@ -94,6 +96,24 @@ def test_builtin_provider_failures_share_the_runtime_classifier():
         "provider_auth_failed",
         False,
     )
+
+
+def test_openai_compatible_provider_failures_share_the_runtime_classifier():
+    request = httpx.Request("POST", "https://provider.invalid/v1/chat/completions")
+    response = httpx.Response(429, request=request)
+
+    assert classify_runtime_failure(
+        openai.APITimeoutError(request=request)
+    ) == RuntimeFailure("provider_timeout", True)
+    assert classify_runtime_failure(
+        openai.APIConnectionError(request=request)
+    ) == RuntimeFailure("provider_unavailable", True)
+    assert classify_runtime_failure(
+        openai.RateLimitError("limited", response=response, body=None)
+    ) == RuntimeFailure("provider_rate_limited", True)
+    assert classify_runtime_failure(
+        openai.AuthenticationError("unauthorized", response=response, body=None)
+    ) == RuntimeFailure("provider_auth_failed", False)
 
 
 def test_programming_and_domain_errors_are_not_retried():

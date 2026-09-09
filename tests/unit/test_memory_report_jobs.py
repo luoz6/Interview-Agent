@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from threading import Event
+from time import monotonic
 
 from app.services.memory_report_jobs import InMemoryReportJobStore
 
@@ -22,6 +23,40 @@ def test_memory_report_job_has_identity_and_runs_outside_response_lifecycle():
     assert job is not None
     assert job["status"] == "completed"
     assert job["heartbeat_at"] is not None
+
+
+def test_memory_report_job_heartbeats_while_runner_is_blocked():
+    started = Event()
+    release = Event()
+
+    def runner(_job):
+        started.set()
+        assert release.wait(timeout=2)
+
+    store = InMemoryReportJobStore(
+        runner=runner,
+        lease_seconds=1,
+        heartbeat_interval_seconds=0.02,
+    )
+    created = store.enqueue_report_request("slow-session")
+    assert started.wait(timeout=2)
+
+    initial = store.get_job(created["job_id"])
+    assert initial is not None
+    initial_heartbeat = initial["heartbeat_at"]
+    deadline = monotonic() + 1
+    latest = initial
+    while monotonic() < deadline:
+        latest = store.get_job(created["job_id"])
+        if latest is not None and latest["heartbeat_at"] != initial_heartbeat:
+            break
+    assert latest is not None
+    assert latest["heartbeat_at"] != initial_heartbeat
+    assert latest["lease_expires_at"] != initial["lease_expires_at"]
+
+    release.set()
+    store.shutdown(wait=True)
+    assert store.get_job(created["job_id"])["status"] == "completed"
 
 
 def test_memory_report_enqueue_is_idempotent_per_session():

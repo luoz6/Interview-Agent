@@ -9,7 +9,9 @@ from app.services.prep import (
     InterviewQuestion,
     PlanGenerationValidationError,
     build_prep_context,
+    fallback_interview_intent_plan,
     fallback_interview_plan,
+    prepared_plan_revision,
     prepare_interview,
     validate_launchable_interview_plan,
 )
@@ -301,6 +303,57 @@ def test_prepare_interview_provider_failure_keeps_complete_v1_fallback():
     assert plan.prep_context is not None
     assert plan.prep_context.schema_version == "v1"
     assert plan.prep_context.binding_snapshot is None
+
+
+def test_prepare_interview_provider_failure_keeps_native_v3_intent_fallback(
+    monkeypatch,
+):
+    class FailingIntentPlanLLM:
+        def generate_plan(
+            self,
+            job_description,
+            resume_text,
+            *,
+            intent_only=False,
+            **_kwargs,
+        ):
+            assert intent_only is True
+            raise RuntimeError("provider unavailable")
+
+    monkeypatch.setenv("INTERVIEW_JIT_MAIN_QUESTION_ENABLED", "true")
+    plan = prepare_interview(
+        "Backend role using Redis",
+        "Built a Redis API",
+        llm=FailingIntentPlanLLM(),
+        knowledge_store=make_repository(),
+    )
+
+    revision = prepared_plan_revision(plan)
+    payload = revision.model_dump_json()
+    assert revision.schema_version == "interview-plan-v3"
+    assert "question_text" not in payload
+    assert '"prompt"' not in payload
+    assert all(item.assessment_goals for item in revision.questions)
+
+
+def test_v3_intent_fallback_does_not_build_a_legacy_question_plan(monkeypatch):
+    monkeypatch.setenv("INTERVIEW_JIT_MAIN_QUESTION_ENABLED", "true")
+    monkeypatch.setattr(
+        "app.services.prep.fallback_interview_plan",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("legacy fallback must not be used")
+        ),
+    )
+
+    plan = fallback_interview_intent_plan()
+    revision = prepared_plan_revision(plan)
+
+    assert revision.schema_version == "interview-plan-v3"
+    assert [item.focus for item in revision.questions] == [
+        "项目表达",
+        "技术深度",
+        "系统设计",
+    ]
 
 
 def test_prepare_interview_correlates_knowledge_run_with_binding_snapshot():

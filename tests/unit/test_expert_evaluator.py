@@ -746,6 +746,20 @@ def test_v2_evaluator_fallback_preserves_backend_bound_references():
     assert report.feedbacks[0].references[0].excerpt == "Redis safe summary"
 
 
+def test_v2_evaluator_provider_failure_uses_same_safe_fallback():
+    class UnavailableReportLLM(FakeExpertLLM):
+        def generate_report(self, plan, evaluation_items, session_id):
+            raise ReportGenerationFailed("provider timeout")
+
+    report = ExpertShadowEvaluator(
+        llm=UnavailableReportLLM(),
+        vector_store=V2VectorStore(),
+    ).evaluate(make_v2_state())
+
+    assert report.is_fallback is True
+    assert report.feedbacks[0].references[0].chunk_id == "redis-1"
+
+
 def test_v2_evaluator_hash_mismatch_attempts_targeted_retrieval_and_fails_closed():
     llm = FakeExpertLLM()
     vector_store = V2VectorStore(content_hash="changed")

@@ -79,8 +79,8 @@ def test_materials_capabilities_are_independent_fail_closed_strict_boole(
 
 
 def test_materials_capability_defaults_and_invalid_values_fail_closed():
-    assert load_user_materials_runtime_settings({}).enabled is False
-    assert load_user_materials_runtime_settings({}).ingest_enabled is False
+    assert load_user_materials_runtime_settings({}).enabled is True
+    assert load_user_materials_runtime_settings({}).ingest_enabled is True
     with pytest.raises(ValueError, match="USER_MATERIALS_ENABLED"):
         load_user_materials_runtime_settings({"USER_MATERIALS_ENABLED": "1"})
     with pytest.raises(ValueError, match="USER_MATERIALS_INGEST_ENABLED"):

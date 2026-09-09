@@ -4,9 +4,10 @@ from uuid import uuid4
 
 from pydantic import BaseModel, Field, PrivateAttr, field_validator, model_validator
 
+from app.domain.interview.question_intent import AssessmentGoal
+
 from app.services.interview_question_quality import (
-    QuestionQualityInput,
-    assess_interview_question_quality,
+    hard_interview_question_quality_findings,
 )
 from app.services.interview_plan_knowledge import PlanQuestionKnowledgeBinding
 from app.services.llm import InterviewLLM
@@ -145,12 +146,55 @@ class InterviewQuestion(BaseModel):
         return value.strip()
 
 
+class InterviewIntentDraftQuestion(BaseModel):
+    id: str = Field(pattern=r"^q[1-9][0-9]*$")
+    kind: Literal["project", "technical", "system-design", "behavioral"]
+    focus: str = Field(min_length=1, max_length=1000)
+    difficulty: Literal["foundation", "intermediate", "advanced"]
+    assessment_goals: tuple[AssessmentGoal, ...] = Field(min_length=1, max_length=4)
+
+    @field_validator("focus", mode="before")
+    @classmethod
+    def normalize_focus(cls, value: object) -> str:
+        if not isinstance(value, str) or not value.strip():
+            raise ValueError("intent focus must not be blank")
+        return " ".join(value.split())
+
+    @field_validator("assessment_goals", mode="before")
+    @classmethod
+    def normalize_assessment_goals(cls, value: object) -> tuple[str, ...]:
+        if not isinstance(value, (list, tuple)):
+            raise ValueError("assessment_goals must be a list")
+        goals = tuple(str(item).strip() for item in value)
+        if len(goals) != len(set(goals)):
+            raise ValueError("assessment_goals must be unique")
+        return goals
+
+
+class InterviewIntentDraftPlan(BaseModel):
+    title: str = Field(min_length=1)
+    questions: tuple[InterviewIntentDraftQuestion, ...] = Field(
+        min_length=1,
+        max_length=10,
+    )
+
+    @field_validator("title", mode="before")
+    @classmethod
+    def normalize_title(cls, value: object) -> str:
+        if not isinstance(value, str) or not value.strip():
+            raise ValueError("title must not be blank")
+        return value.strip()
+
+
 class InterviewPlan(BaseModel):
     title: str
     questions: list[InterviewQuestion]
     prep_context: PrepContext | None = None
     _revision_plan: Any = PrivateAttr(default=None)
     _generation_enforcement: dict[str, Any] = PrivateAttr(default_factory=dict)
+    _intent_draft_questions: tuple[InterviewIntentDraftQuestion, ...] = PrivateAttr(
+        default=()
+    )
 
     @field_validator("title", mode="before")
     @classmethod
@@ -166,16 +210,92 @@ class PlanGenerationValidationError(ValueError):
         self.code = code
 
 
+def interview_plan_from_intent_draft(
+    draft: InterviewIntentDraftPlan,
+) -> InterviewPlan:
+    plan = InterviewPlan(
+        title=draft.title,
+        questions=[
+            InterviewQuestion(
+                id=item.id,
+                kind=item.kind,
+                focus=item.focus,
+                # Transient compatibility projection, never final wording.
+                prompt=item.focus,
+            )
+            for item in draft.questions
+        ],
+    )
+    plan._intent_draft_questions = tuple(draft.questions)
+    return plan
+
+
+def enforce_generated_intent_plan(
+    plan: InterviewPlan,
+    configuration: "PlanConfigurationSnapshot | None" = None,
+) -> InterviewPlan:
+    intents = tuple(plan._intent_draft_questions)
+    if not intents or len(intents) != len(plan.questions):
+        raise PlanGenerationValidationError(
+            "provider_intent_payload_missing",
+            "Provider intent plan is missing its typed intent payload",
+        )
+    expected_ids = [f"q{index}" for index in range(1, len(intents) + 1)]
+    if [item.id for item in intents] != expected_ids:
+        raise PlanGenerationValidationError(
+            "provider_question_sequence_invalid",
+            "Provider intent IDs must be unique and consecutive q1..qN",
+        )
+    normalized_focuses = [" ".join(item.focus.casefold().split()) for item in intents]
+    if len(normalized_focuses) != len(set(normalized_focuses)):
+        raise PlanGenerationValidationError(
+            "provider_duplicate_intent_focus",
+            "Provider returned duplicate intent focus values",
+        )
+    if configuration is None:
+        if not 3 <= len(intents) <= 5:
+            raise PlanGenerationValidationError(
+                "provider_question_count_invalid",
+                "Provider must return 3 to 5 intents",
+            )
+    else:
+        configuration = validate_generation_configuration(configuration)
+        expected_count = sum(configuration.question_type_budget.values())
+        if len(intents) != expected_count:
+            raise PlanGenerationValidationError(
+                "provider_question_count_mismatch",
+                "Provider intent count does not match the configured target",
+            )
+        actual_budget = Counter(item.kind for item in intents)
+        expected_budget = {
+            kind: count
+            for kind, count in configuration.question_type_budget.items()
+            if count
+        }
+        if dict(actual_budget) != expected_budget:
+            raise PlanGenerationValidationError(
+                "provider_question_type_budget_mismatch",
+                "Provider intent types do not match the configured budget",
+            )
+    plan._generation_enforcement = {
+        "action": "accepted",
+        "provider_question_count": len(intents),
+        "retained_question_count": len(intents),
+        "intent_only": True,
+    }
+    return plan
+
+
 def enforce_generated_interview_question_quality(
     plan: InterviewPlan,
 ) -> InterviewPlan:
     """Reject only deterministic Hard findings at a generation boundary."""
 
-    report = assess_interview_question_quality(
-        tuple(QuestionQualityInput.from_question(item) for item in plan.questions)
+    hard_findings = hard_interview_question_quality_findings(
+        tuple(plan.questions)
     )
-    if report.hard_violations:
-        violation = report.hard_violations[0]
+    if hard_findings:
+        violation = hard_findings[0]
         raise PlanGenerationValidationError(
             violation.code,
             violation.evidence_summary,
@@ -307,8 +427,10 @@ def bind_prepared_plan_revision(
     from app.services.interview_plan_budget import assess_interview_plan_budget
     from app.services.interview_plan_revision import (
         legacy_plan_to_v2,
+        native_intent_plan_to_v3,
         v2_plan_to_legacy,
     )
+    from app.runtime.config.environment import environment_value
 
     revision_plan = legacy_plan_to_v2(
         plan,
@@ -324,7 +446,21 @@ def bind_prepared_plan_revision(
     bound_legacy = v2_plan_to_legacy(revision_plan)
     plan.questions = bound_legacy.questions
     plan.prep_context = bound_legacy.prep_context
-    plan._revision_plan = revision_plan
+    jit_enabled = str(
+        environment_value("INTERVIEW_JIT_MAIN_QUESTION_ENABLED", "false")
+    ).strip().lower() == "true"
+    if jit_enabled and plan._intent_draft_questions:
+        plan._revision_plan = native_intent_plan_to_v3(
+            revision_plan,
+            tuple(plan._intent_draft_questions),
+        )
+    elif jit_enabled:
+        raise PlanGenerationValidationError(
+            "provider_intent_payload_missing",
+            "JIT plan generation requires a native intent payload",
+        )
+    else:
+        plan._revision_plan = revision_plan
     return plan
 
 
@@ -336,6 +472,8 @@ def prepared_plan_revision(
 ):
     from app.services.interview_plan_revision import (
         InterviewPlanV2,
+        InterviewPlanV3,
+        parse_interview_plan,
         v2_plan_to_legacy,
     )
 
@@ -347,9 +485,12 @@ def prepared_plan_revision(
             knowledge_scope=knowledge_scope,
         )
         revision_plan = plan._revision_plan
-    validated = InterviewPlanV2.model_validate(
+    validated = parse_interview_plan(
         revision_plan.model_dump(mode="json", warnings=False)
     )
+    if isinstance(validated, InterviewPlanV3):
+        return validated
+    validated = InterviewPlanV2.model_validate(validated)
     current_legacy = InterviewPlan.model_validate(
         plan.model_dump(mode="json", warnings=False)
     )
@@ -552,12 +693,36 @@ def prepare_interview(
         phase="prep",
     )
     agent = KnowledgeAgent(llm=llm, vector_store=knowledge_store)
+    from app.runtime.config.environment import environment_value
+
+    use_a2a_transport = (
+        environment_value("AGENT_TRANSPORT", "local").strip().lower() == "a2a"
+    )
+    a2a_runtime = None
+    if use_a2a_transport:
+        from app.a2a.runtime import build_local_a2a_runtime
+
+        a2a_runtime = build_local_a2a_runtime(
+            llm=llm,
+            vector_store=knowledge_store,
+            execution_runner=execution_runner,
+        )
 
     def fallback_plan(exc: Exception) -> AgentFallback[InterviewPlan]:
         from app.services.job_tags import extract_job_tags
+        from app.runtime.config.environment import environment_value
 
         plan = attach_prep_context(
-            fallback_interview_plan(effective_configuration),
+            (
+                fallback_interview_intent_plan(effective_configuration)
+                if str(
+                    environment_value(
+                        "INTERVIEW_JIT_MAIN_QUESTION_ENABLED", "false"
+                    )
+                ).strip().lower()
+                == "true"
+                else fallback_interview_plan(effective_configuration)
+            ),
             job_description=job_description,
             resume_text=resume_text,
             job_tags=extract_job_tags(job_description),
@@ -576,6 +741,27 @@ def prepare_interview(
         )
 
     def invoke_plan() -> InterviewPlan:
+        if a2a_runtime is not None:
+            artifact = a2a_runtime.invoker.invoke(
+                agent_id="knowledge-and-grounding",
+                skill="generate-interview-plan",
+                request={
+                    "job_description": job_description,
+                    "resume_text": resume_text,
+                    "prep_run_id": correlation_id,
+                    "configuration": effective_configuration,
+                    "knowledge_source_scope": knowledge_source_scope,
+                },
+                execution_context=context,
+                context_id=correlation_id,
+                correlation_id=correlation_id,
+            )
+            plan = InterviewPlan.model_validate(artifact.plan_payload)
+            return bind_prepared_plan_revision(
+                plan,
+                effective_configuration,
+                knowledge_scope=knowledge_scope,
+            )
         plan = agent.generate_plan(
             job_description=job_description,
             resume_text=resume_text,
@@ -687,6 +873,73 @@ def fallback_interview_plan(
                 focus="系统设计",
             ),
         ],
+    )
+
+
+def fallback_interview_intent_plan(
+    configuration: "PlanConfigurationSnapshot | None" = None,
+) -> InterviewPlan:
+    """Return the deterministic fallback through the native Intent contract."""
+
+    from app.services.interview_plan_budget import QUESTION_TYPE_ORDER
+    from app.services.interview_plan_revision import (
+        PlanConfigurationSnapshot,
+        infer_assessment_goals,
+    )
+
+    if configuration is None:
+        title = "基础模拟面试"
+        difficulty = "intermediate"
+        intent_specs = (
+            ("project", "项目表达"),
+            ("technical", "技术深度"),
+            ("system-design", "系统设计"),
+        )
+    else:
+        validated = PlanConfigurationSnapshot.model_validate(
+            configuration.model_dump(mode="json", warnings=False)
+        )
+        title = (
+            f"{validated.target_duration_minutes} 分钟"
+            f"{validated.difficulty} 模拟面试"
+        )
+        difficulty = validated.difficulty
+        configured_specs: list[tuple[str, str]] = []
+        for question_type in QUESTION_TYPE_ORDER:
+            type_count = validated.question_type_budget.get(question_type, 0)
+            templates = _CONFIGURED_FALLBACK_TEMPLATES[question_type]
+            for type_index in range(type_count):
+                _, focus = templates[type_index % len(templates)]
+                if type_index >= len(templates):
+                    focus = f"{focus}（场景 {type_index + 1}）"
+                configured_specs.append(
+                    (
+                        question_type,
+                        f"{focus} · {validated.focus_preset}",
+                    )
+                )
+        intent_specs = tuple(configured_specs)
+
+    return interview_plan_from_intent_draft(
+        InterviewIntentDraftPlan(
+            title=title,
+            questions=tuple(
+                InterviewIntentDraftQuestion(
+                    id=f"q{index}",
+                    kind=question_type,
+                    focus=focus,
+                    difficulty=difficulty,
+                    assessment_goals=infer_assessment_goals(
+                        question_type=question_type,
+                        focus=focus,
+                    ),
+                )
+                for index, (question_type, focus) in enumerate(
+                    intent_specs,
+                    start=1,
+                )
+            ),
+        )
     )
 
 

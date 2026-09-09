@@ -13,6 +13,7 @@ from app.services.followup_decision_service import (
     FollowupDecisionExecutionService,
 )
 from app.services.followup_diagnostics import (
+    FOLLOWUP_DIAGNOSTICS_VERSION,
     FollowupDiagnosticInput,
     diagnose_followup,
     is_duplicate_followup_text,
@@ -125,7 +126,10 @@ class SavedDecisionAttempt(BaseModel):
     cached_input_tokens: int | None = Field(default=None, ge=0)
     latency_seconds: float = Field(default=0, ge=0)
     provider_model: str | None = None
-    provider_response_id: str | None = None
+    provider_response_id_sha256: str | None = Field(
+        default=None,
+        pattern=r"^[0-9a-f]{64}$",
+    )
 
     @model_validator(mode="after")
     def validate_payload(self):
@@ -146,7 +150,10 @@ class SavedGenerationAttempt(BaseModel):
     cached_input_tokens: int | None = Field(default=None, ge=0)
     latency_seconds: float = Field(default=0, ge=0)
     provider_model: str | None = None
-    provider_response_id: str | None = None
+    provider_response_id_sha256: str | None = Field(
+        default=None,
+        pattern=r"^[0-9a-f]{64}$",
+    )
 
     @model_validator(mode="after")
     def validate_text(self):
@@ -168,9 +175,10 @@ class SavedFollowupCaseResponse(BaseModel):
 class SavedFollowupProviderArtifact(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    schema_version: Literal["followup-provider-replay-v1"] = (
-        "followup-provider-replay-v1"
+    schema_version: Literal["followup-provider-replay-v2"] = (
+        "followup-provider-replay-v2"
     )
+    followup_diagnostics_version: Literal["followup-diagnostics-v3"]
     source: Literal["synthetic_fixture", "local_redacted_provider_output"]
     dataset_id: str
     dataset_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
@@ -217,6 +225,13 @@ class SavedFollowupProviderArtifact(BaseModel):
                     if attempt.latency_seconds <= 0:
                         raise ValueError(
                             "complete real saved output requires per-request latency"
+                        )
+                    if (
+                        attempt.input_tokens is not None
+                        and attempt.provider_response_id_sha256 is None
+                    ):
+                        raise ValueError(
+                            "complete real saved output requires response-id hash"
                         )
         return self
 
@@ -283,8 +298,8 @@ def calculate_followup_metrics(
             len(expected_followup),
         ),
         "latest_answer_relevance_rate": (
-            _ratio(relevance_hits, len(expected_followup)),
-            len(expected_followup),
+            _ratio(relevance_hits, len(displayed)),
+            len(displayed),
         ),
         "unnecessary_followup_rate_strong": (
             _ratio(unnecessary_strong, len(strong)),
@@ -295,14 +310,14 @@ def calculate_followup_metrics(
             len(sequence_results),
         ),
         "repeat_original_question_rate": (
-            _ratio(repeated, len(expected_followup)),
-            len(expected_followup),
+            _ratio(repeated, len(displayed)),
+            len(displayed),
         ),
         "multi_question_rate": (
-            _ratio(multi_question, len(expected_followup)),
-            len(expected_followup),
+            _ratio(multi_question, len(displayed)),
+            len(displayed),
         ),
-        "reference_answer_leak_count": (float(leaks), len(expected_followup)),
+        "reference_answer_leak_count": (float(leaks), len(displayed)),
         "decision_parse_rate": (
             _ratio(sum(item.parsed for item in adaptive), len(adaptive)),
             len(adaptive),
@@ -514,6 +529,7 @@ def build_synthetic_fixture_replay(
             )
         )
     return SavedFollowupProviderArtifact(
+        followup_diagnostics_version=FOLLOWUP_DIAGNOSTICS_VERSION,
         source="synthetic_fixture",
         dataset_id=dataset.dataset_id,
         dataset_sha256=dataset_sha256,

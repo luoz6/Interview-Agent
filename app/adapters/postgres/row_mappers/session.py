@@ -12,6 +12,7 @@ from app.graphs.interview_state import (
     default_memory_policy_for_engine,
 )
 from app.services.prep import InterviewPlan
+from app.services.interview_plan_revision import parse_interview_plan
 from app.services.session_plan_binding import (
     SessionPlanBinding,
     legacy_session_plan_binding,
@@ -138,13 +139,24 @@ class SessionRowMapper:
             if raw_plan_binding is not None
             else legacy_session_plan_binding(session_row["plan_json"])
         )
-        plan = InterviewPlan.model_validate(session_row["plan_json"])
-        current_index = int(session_row["current_index"])
-        current_question_id = (
-            plan.questions[current_index].id
-            if 0 <= current_index < len(plan.questions)
-            else None
+        plan_json = session_row["plan_json"]
+        plan = (
+            parse_interview_plan(plan_json)
+            if isinstance(plan_json, dict)
+            and plan_json.get("schema_version") in {
+                "interview-plan-v2",
+                "interview-plan-v3",
+            }
+            else InterviewPlan.model_validate(plan_json)
         )
+        current_index = int(session_row["current_index"])
+        if 0 <= current_index < len(plan.questions):
+            current_item = plan.questions[current_index]
+            current_question_id = getattr(current_item, "id", None) or getattr(
+                current_item, "question_id", None
+            )
+        else:
+            current_question_id = None
         messages = [MessageRowMapper.from_row(row) for row in ordered_messages]
         current_followup_count = max(
             0,

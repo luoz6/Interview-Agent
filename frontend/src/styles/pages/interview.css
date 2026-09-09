@@ -1555,3 +1555,17 @@
     transition-duration: .01ms !important;
   }
 }
+
+.interview-question-preparing {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--start-space-3xs);
+  margin-top: var(--start-space-2xs);
+  color: var(--interview-muted);
+  font-size: var(--start-text-micro);
+}
+
+.current-question:has(.interview-question-preparing) {
+  border-color: var(--interview-rule-strong);
+  background: var(--interview-surface-accent);
+}

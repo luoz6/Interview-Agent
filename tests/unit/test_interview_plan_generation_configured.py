@@ -957,3 +957,4 @@ def test_new_prep_default_is_the_30_minute_five_question_configuration():
     assert sum(configuration.question_type_budget.values()) == 5
     assert configuration.expected_followup_budget == 5
     assert configuration.max_followups_per_question == 2
+    assert configuration.followup_policy_version == "adaptive_v1"

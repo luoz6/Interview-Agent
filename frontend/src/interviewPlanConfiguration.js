@@ -121,7 +121,9 @@ export function createPlanConfiguration(snapshot = null) {
         : questionCount,
     max_followups_per_question: 2,
     generator_version: snapshot?.generator_version || "plan-generator-v2",
-    followup_policy_version: snapshot?.followup_policy_version || "fixed_v1",
+    // The UI never exposed a policy selector, so persisted fixed_v1 values are
+    // legacy defaults rather than an intentional user choice.
+    followup_policy_version: "adaptive_v1",
   };
 }
 

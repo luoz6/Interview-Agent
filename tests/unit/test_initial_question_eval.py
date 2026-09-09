@@ -8,6 +8,7 @@ from pydantic import ValidationError
 
 from app.services.initial_question_eval import (
     InitialQuestionEvalAttempt,
+    InitialQuestionFailedGenerationLifecycle,
     InitialQuestionProviderArtifact,
     InitialQuestionReview,
     build_synthetic_initial_question_attempts,
@@ -15,6 +16,10 @@ from app.services.initial_question_eval import (
     fixture_artifact,
     load_initial_question_provider_artifact,
     saved_replay_attempts,
+)
+from app.services.llm import (
+    PLAN_QUALITY_REPAIR_PROMPT_SHA256,
+    PLAN_QUALITY_REPAIR_PROMPT_VERSION,
 )
 from app.services.interview_plan_revision import plan_payload_sha256
 from app.services.interview_quality_dataset import load_interview_quality_dataset
@@ -215,6 +220,28 @@ def test_live_attempt_requires_every_invocation_to_be_metered(attempts):
         InitialQuestionEvalAttempt.model_validate(payload)
 
 
+def test_live_attempt_requires_response_id_hash_for_each_invocation(attempts):
+    payload = attempts[0].model_dump(mode="json")
+    payload.update(
+        {
+            "execution_source": "live_provider",
+            "provider_name": "DeepSeek",
+            "provider_model": "deepseek-v4-pro",
+            "provider_invocations": 2,
+            "provider_metered_invocations": 2,
+            "input_tokens": 20,
+            "output_tokens": 5,
+            "cached_input_tokens": 0,
+            "latency_seconds": 0.2,
+            "response_sha256": payload["plan_sha256"],
+            "response_id_sha256s": ["a" * 64],
+        }
+    )
+
+    with pytest.raises(ValidationError, match="one response-id hash per invocation"):
+        InitialQuestionEvalAttempt.model_validate(payload)
+
+
 def test_saved_artifact_binds_exact_dataset_hash(dataset, tmp_path):
     artifact = fixture_artifact(
         dataset,
@@ -241,6 +268,23 @@ def test_hard_stopped_capture_cannot_be_replayed_as_complete(dataset):
         outbound_requests_attempted=1,
         outbound_requests_metered=0,
         attempts=(),
+        failed_generation_lifecycles=(
+            InitialQuestionFailedGenerationLifecycle(
+                case_id="case-failed",
+                run_number=1,
+                partition="dev",
+                hard_stop_condition="USAGE_METERING_UNAVAILABLE",
+                provider_invocations=1,
+                provider_metered_invocations=0,
+                provider_retries=0,
+                initial_hard_finding_codes=(),
+                quality_repair_triggered=False,
+                quality_repair_succeeded=None,
+                post_repair_hard_finding_codes=None,
+                quality_repair_prompt_version=PLAN_QUALITY_REPAIR_PROMPT_VERSION,
+                quality_repair_prompt_sha256=PLAN_QUALITY_REPAIR_PROMPT_SHA256,
+            ),
+        ),
     )
 
     with pytest.raises(ValueError, match="cannot be replayed"):
@@ -251,6 +295,7 @@ def test_fixture_artifact_does_not_claim_provider_identity_or_calls(dataset):
     digest = __import__("hashlib").sha256(DATASET_PATH.read_bytes()).hexdigest()
     artifact = fixture_artifact(dataset, dataset_sha256=digest)
 
+    assert artifact.schema_version == "initial-question-provider-replay-v2"
     assert artifact.source == "synthetic_fixture"
     assert artifact.provider_name is None
     assert artifact.model_id is None

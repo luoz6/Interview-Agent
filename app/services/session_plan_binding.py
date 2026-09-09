@@ -6,8 +6,8 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from app.services.interview_plan_revision import (
     InterviewPlanRevision,
-    InterviewPlanV2,
     canonical_sha256,
+    parse_interview_plan,
     plan_payload_sha256,
 )
 from app.services.prep import InterviewPlan
@@ -41,7 +41,7 @@ class SessionPlanBinding(BaseModel):
         if self.plan_origin == "plan_revision":
             if any(value is None for value in revision_fields):
                 raise ValueError("plan revision session binding is incomplete")
-            plan = InterviewPlanV2.model_validate(self.plan_snapshot)
+            plan = parse_interview_plan(self.plan_snapshot)
             if plan_payload_sha256(plan) != self.plan_sha256:
                 raise ValueError("session plan snapshot hash does not match revision")
             if plan.configuration_snapshot.model_dump(mode="json") != self.configuration_snapshot:

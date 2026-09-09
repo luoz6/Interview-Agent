@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 from functools import partial
 import hashlib
 import json
+from time import monotonic
 from threading import Event, Lock, Thread
 from typing import Any, Callable, Literal
 
@@ -34,6 +35,7 @@ from app.services.followup_prompts import (
     validate_followup_output,
 )
 from app.services.knowledge_binding import resolve_evidence_by_ids
+from app.services.interview_plan_knowledge import parse_question_knowledge_binding
 from app.application.knowledge.followup_gap_service import (
     FollowupGapService,
     append_followup_gap_message,
@@ -46,6 +48,7 @@ from app.adapters.reliability.runtime_failure import (
 from app.services.workflow_thread_lock import GenerationLeaseLost
 from app.services.context_budget import (
     FOLLOWUP_CONTEXT_POLICY,
+    MAIN_QUESTION_CONTEXT_POLICY,
     context_enforcement_enabled,
 )
 from app.services.context_selection import (
@@ -69,6 +72,20 @@ from app.services.model_capabilities import ContextConfigurationError
 from app.services.interview_status_projection import (
     build_interview_status_projection,
     render_interview_status_message,
+)
+from app.domain.interview.question_intent import (
+    QuestionIntentV1,
+    RenderedQuestionV1,
+    canonical_sha256,
+    main_question_generation_identity,
+    question_intent_sha256,
+)
+from app.services.main_question_generation import (
+    MAIN_QUESTION_GENERATION_PROMPT_SHA256,
+    MAIN_QUESTION_GENERATION_PROMPT_VERSION,
+    MainQuestionValidationError,
+    deterministic_main_question_fallback,
+    load_main_question_generation_settings,
 )
 
 
@@ -229,6 +246,7 @@ def project_state_node(state, deps) -> dict:
             {
                 "active_decision_id": None,
                 "decision_action": None,
+                "decision_answer_state": None,
                 "decision_reason_code": None,
                 "decision_gap_type": None,
                 "decision_gap_summary": None,
@@ -290,8 +308,7 @@ def append_candidate_answer(state, deps) -> dict:
     command = deps.workflow_store.get_command(
         state["session_id"], state["active_command_id"]
     )
-    questions = state["plan_snapshot"]["questions"]
-    question = questions[state["current_index"]]
+    question = _current_question(state)
     return {
         "messages": [
             *state["messages"],
@@ -1076,6 +1093,24 @@ def route_guard_after_decision(state) -> str:
     return route_decision(state)
 
 
+def route_guard_after_decision_v3(state) -> str:
+    if state.get("followup_guard_reason_code"):
+        return "terminate_followup_generation"
+    if state.get("decision_outcome") != "completed":
+        raise RuntimeError("cannot route an incomplete durable Decision")
+    if state.get("decision_action") == "follow_up":
+        return "prepare_generation"
+    if state.get("decision_action") == "next_question":
+        return "advance_to_next_main_question"
+    raise RuntimeError("persisted durable Decision has no valid action")
+
+
+def route_after_main_advance(state) -> str:
+    if state.get("interview_status") == "finished":
+        return "project_state"
+    return "prepare_main_question"
+
+
 def route_guard_to_generation(state) -> str:
     if state.get("followup_guard_reason_code"):
         return "terminate_followup_generation"
@@ -1095,7 +1130,25 @@ def route_guard_after_retry(state) -> str:
 
 
 def _current_question(state) -> dict:
-    return state["plan_snapshot"]["questions"][state["current_index"]]
+    question = dict(
+        state["plan_snapshot"]["questions"][state["current_index"]]
+    )
+    if state.get("workflow_engine") == "langgraph-v3":
+        question.setdefault("id", question.get("question_id"))
+        question.setdefault("focus", question.get("focus", ""))
+    # V3 publishes an immutable RenderedQuestion after validation.  Keep the
+    # legacy plan prompt fallback for V1/V2 replay only; all consumers in a
+    # V3 state therefore receive the exact text shown to the candidate.
+    rendered = (state.get("rendered_questions") or {}).get(question["id"])
+    if isinstance(rendered, dict) and rendered.get("question_id") == question["id"]:
+        text = rendered.get("text")
+        if isinstance(text, str) and text.strip():
+            question["prompt"] = text.strip()
+    if state.get("workflow_engine") == "langgraph-v3" and not question.get(
+        "prompt"
+    ):
+        raise RuntimeError("V3 current question is not published")
+    return question
 
 
 def _is_duplicate_followup_text(state, generated_text: str) -> bool:
@@ -1183,6 +1236,7 @@ def _followup_progress_hash(state) -> str:
         "followup_count": state.get("current_followup_count"),
         "message_count": len(state.get("messages") or []),
         "decision_action": state.get("decision_action"),
+        "decision_answer_state": state.get("decision_answer_state"),
         "decision_reason_code": state.get("decision_reason_code"),
         "active_gap_id": state.get("active_gap_id"),
         "generation_id": state.get("generation_id"),
@@ -1246,6 +1300,7 @@ def _decision_state_updates(decision) -> dict:
         raise RuntimeError("completed Decision is missing its final payload")
     return {
         "decision_action": decision.action,
+        "decision_answer_state": decision.answer_state,
         "decision_reason_code": decision.reason_code,
         "decision_gap_type": decision.gap_type,
         "decision_gap_summary": decision.gap_summary,
@@ -1639,6 +1694,442 @@ def _interview_owner_scope(state) -> str:
     return f"interview-session:{state.get('session_id', 'legacy-state')}"
 
 
+def _v3_intent_at(state, index: int) -> QuestionIntentV1:
+    questions = state["plan_snapshot"]["questions"]
+    if index < 0 or index >= len(questions):
+        raise ValueError("main question intent index is out of range")
+    return QuestionIntentV1.model_validate(questions[index])
+
+
+def _main_question_context_projection(
+    state,
+    target_index: int,
+    deps,
+) -> list[dict[str, str]]:
+    """Build one bounded projection through the existing Context Runtime."""
+
+    intent = _v3_intent_at(state, target_index)
+    messages: list[dict[str, Any]] = []
+    for role, content in (
+        ("job_description", state.get("job_description")),
+        ("resume", state.get("resume_text")),
+    ):
+        normalized = str(content or "").strip()
+        if normalized:
+            messages.append(
+                {
+                    "role": role,
+                    "content": normalized,
+                    "question_id": intent.question_id,
+                    "mandatory_bounded_raw": True,
+                }
+            )
+
+    if target_index > 0:
+        previous_intent = _v3_intent_at(state, target_index - 1)
+        rendered = (state.get("rendered_questions") or {}).get(
+            previous_intent.question_id
+        )
+        if isinstance(rendered, dict) and rendered.get("text"):
+            messages.append(
+                {
+                    "role": "interviewer",
+                    "content": str(rendered["text"]),
+                    "question_id": previous_intent.question_id,
+                }
+            )
+        reason = state.get("decision_reason_code")
+        answer_state = state.get("decision_answer_state")
+        has_substantive_answer = answer_state in {
+            "complete",
+            "partial",
+            "incorrect",
+        } and reason != "repeated_state"
+        if has_substantive_answer:
+            answer = latest_candidate_answer_for_question(
+                state, previous_intent.question_id
+            ).strip()
+            if answer:
+                messages.append(
+                    {
+                        "role": "candidate",
+                        "content": answer,
+                        "question_id": previous_intent.question_id,
+                        "mandatory_bounded_raw": True,
+                    }
+                )
+        gap_summary = str(state.get("decision_gap_summary") or "").strip()
+        if gap_summary and has_substantive_answer:
+            messages.append(
+                {
+                    "role": "system",
+                    "content": f"已关闭考察缺口摘要：{gap_summary}",
+                    "question_id": previous_intent.question_id,
+                }
+            )
+
+    evidence_messages: list[dict[str, Any]] = []
+    binding = parse_question_knowledge_binding(intent.knowledge_binding)
+    if binding.status == "valid" and deps.knowledge_repository is not None:
+        resolution = resolve_evidence_by_ids(
+            deps.knowledge_repository,
+            evidence_ids=list(binding.evidence_ids),
+            expected_hashes=binding.evidence_content_sha256,
+            expected_manifest_sha256=binding.corpus_manifest_sha256,
+        )
+        if resolution.retrieval_path == "bound_evidence_ids":
+            evidence_messages = [dict(item) for item in resolution.messages]
+
+    runtime = deps.context_runtime or get_context_runtime()
+    budget = runtime.budget_resolver.resolve(
+        profile=runtime.model_profile,
+        policy=MAIN_QUESTION_CONTEXT_POLICY,
+    )
+    selection_budget = runtime.budget_resolver.resolve_selection_budget(
+        budget=budget,
+        policy=MAIN_QUESTION_CONTEXT_POLICY,
+    )
+    identity_config = deps.source_identity_config or runtime.source_identity_config
+    selection = build_interview_context_selection(
+        messages,
+        current_question_id=intent.question_id,
+        evidence_messages=evidence_messages,
+        policy=MAIN_QUESTION_CONTEXT_POLICY,
+        selection_budget=selection_budget,
+        estimator=runtime.estimator_resolution.estimator,
+        model=runtime.model_profile.model,
+        owner_scope=_interview_owner_scope(state),
+        exact_deduplication_mode=identity_config.exact_deduplication_mode,
+        exact_recent_question_ids=(
+            (_v3_intent_at(state, target_index - 1).question_id,)
+            if target_index > 0
+            else ()
+        ),
+    )
+    context = [dict(item) for item in selection.provider_messages]
+    if (
+        state.get("principal_memory_mode") != "ignore"
+        and deps.principal_memory_consumer is not None
+    ):
+        try:
+            prepared = deps.principal_memory_consumer.prepare(
+                provider_context=context,
+                current_tags={intent.focus.casefold()},
+                role_tags=set(state.get("job_tags") or []),
+                now=datetime.now(timezone.utc),
+                session_id=state["session_id"],
+            )
+            context = list(
+                deps.principal_memory_consumer.finalize(
+                    prepared,
+                    now=datetime.now(timezone.utc),
+                ).provider_context
+            )
+        except Exception:
+            pass
+    return context
+
+
+def prepare_main_question(state, deps) -> dict:
+    index = state.get("pending_main_question_index")
+    if index is None:
+        index = state.get("current_index", 0)
+    questions = state["plan_snapshot"]["questions"]
+    if index >= len(questions):
+        return {
+            "interview_status": "finished",
+            "current_index": len(questions),
+            "command_outcome": "completed",
+            "pending_main_question_index": None,
+        }
+    intent = _v3_intent_at(state, index)
+    context = _main_question_context_projection(state, index, deps)
+    context_sha256 = canonical_sha256(context)
+    knowledge_scope = state["plan_snapshot"].get("knowledge_scope") or {}
+    knowledge_scope_sha256 = str(
+        knowledge_scope.get("selection_sha256")
+        or canonical_sha256(knowledge_scope)
+    )
+    intent_digest = question_intent_sha256(intent)
+    identity = main_question_generation_identity(
+        session_id=state["session_id"],
+        question_id=intent.question_id,
+        intent_sha256=intent_digest,
+        context_sha256=context_sha256,
+        knowledge_scope_sha256=knowledge_scope_sha256,
+        prompt_sha256=MAIN_QUESTION_GENERATION_PROMPT_SHA256,
+        generator_version="main-question-generator-v1",
+    )
+    source_command = state.get("active_command_id") or "bootstrap"
+    generation = deps.generation_store.prepare_generation(
+        session_id=state["session_id"],
+        source_command_id=source_command,
+        question_id=intent.question_id,
+        generation_prompt_version=MAIN_QUESTION_GENERATION_PROMPT_VERSION,
+        generation_prompt_sha256=MAIN_QUESTION_GENERATION_PROMPT_SHA256,
+        generation_kind="main_question",
+        identity_sha256=identity,
+        intent_sha256=intent_digest,
+        context_sha256=context_sha256,
+        knowledge_scope_sha256=knowledge_scope_sha256,
+        generator_version="main-question-generator-v1",
+    )
+    return {
+        "pending_main_question_index": index,
+        "question_generation_id": generation.generation_id,
+        "question_generation_attempt": generation.active_attempt,
+        "question_generation_outcome": (
+            "completed" if generation.status == "completed" else "pending"
+        ),
+        "question_generation_context_sha256": context_sha256,
+        "question_generation_context": context,
+    }
+
+
+def _invoke_main_question_with_timeout(
+    deps,
+    *,
+    intent: QuestionIntentV1,
+    conversation: list[dict[str, str]],
+    timeout_seconds: float,
+) -> str:
+    return deps.examiner.generate_main_question_attempt(
+        intent=intent,
+        conversation=conversation,
+        evidence=[],
+        timeout_seconds=timeout_seconds,
+    )
+
+
+def generate_main_question_node(state, deps) -> dict:
+    generation_id = state["question_generation_id"]
+    generation = deps.generation_store.get_by_id(generation_id)
+    settings = load_main_question_generation_settings()
+    index = int(state["pending_main_question_index"])
+    intent = _v3_intent_at(state, index)
+    attempt_number = max(1, int(generation.active_attempt or 1))
+    if generation.status == "completed":
+        text = generation.final_text or ""
+        render_mode = generation.result_mode or "generated"
+        reason_code = generation.failure_reason_code
+        provider_invocation_count = generation.provider_invocation_count
+        generation_latency_ms = generation.generation_latency_ms
+        fallback_used = generation.fallback_used
+        safe_reason_code = generation.safe_reason_code
+        if (
+            provider_invocation_count is None
+            or generation_latency_ms is None
+            or fallback_used is None
+            or not safe_reason_code
+        ):
+            raise RuntimeError("completed main question diagnostics are missing")
+    else:
+        context = [
+            dict(item)
+            for item in (state.get("question_generation_context") or [])
+        ]
+        started = monotonic()
+        text = ""
+        render_mode = "generated"
+        reason_code = None
+        provider_invocation_count = max(0, min(attempt_number - 1, 2))
+        while attempt_number <= settings.max_provider_invocations:
+            attempt = deps.generation_store.start_or_reclaim_attempt(
+                generation_id,
+                attempt_number,
+                worker_id=deps.worker_id,
+                lease_seconds=deps.generation_lease_seconds,
+            )
+            provider_invocation_count = max(
+                provider_invocation_count,
+                attempt.attempt_number - 1,
+            )
+            remaining = settings.total_timeout_seconds - (
+                monotonic() - started
+            )
+            if getattr(attempt, "reclaimed_after_expiry", False):
+                provider_invocation_count = max(
+                    provider_invocation_count,
+                    attempt.attempt_number,
+                )
+                reason_code = "provider_interrupted"
+                render_mode = "fallback"
+                text = deterministic_main_question_fallback(intent, reason_code)
+            elif remaining <= 0:
+                reason_code = "total_timeout"
+                render_mode = "fallback"
+                text = deterministic_main_question_fallback(intent, reason_code)
+            else:
+                try:
+                    provider_invocation_count += 1
+                    text = _invoke_main_question_with_timeout(
+                        deps,
+                        intent=intent,
+                        conversation=context,
+                        timeout_seconds=min(
+                            settings.attempt_timeout_seconds, remaining
+                        ),
+                    )
+                    from app.services.main_question_generation import (
+                        validate_main_question,
+                    )
+
+                    text = validate_main_question(text, intent, context).text
+                except MainQuestionValidationError as exc:
+                    if (
+                        attempt.attempt_number
+                        < settings.max_provider_invocations
+                    ):
+                        deps.generation_store.fail_attempt(
+                            generation_id,
+                            attempt.attempt_number,
+                            exc.reason_code,
+                            lease_token=attempt.lease_token,
+                            fencing_version=attempt.fencing_version,
+                        )
+                        attempt_number = attempt.attempt_number + 1
+                        continue
+                    reason_code = exc.reason_code
+                    render_mode = "fallback"
+                    text = deterministic_main_question_fallback(intent, reason_code)
+                except Exception as exc:
+                    failure = classify_runtime_failure(exc)
+                    fallback_codes = {
+                        "context_budget_exceeded",
+                        "provider_auth_failed",
+                        "provider_rate_limited",
+                        "provider_timeout",
+                        "provider_unavailable",
+                    }
+                    if failure.code not in fallback_codes:
+                        raise
+                    reason_code = failure.code
+                    render_mode = "fallback"
+                    text = deterministic_main_question_fallback(intent, reason_code)
+            generation_latency_ms = max(
+                0,
+                round((monotonic() - started) * 1000),
+            )
+            fallback_used = render_mode == "fallback"
+            safe_reason_code = reason_code or "generated"
+            deps.generation_store.append_chunk(
+                generation_id,
+                attempt.attempt_number,
+                1,
+                text,
+                lease_token=attempt.lease_token,
+                fencing_version=attempt.fencing_version,
+            )
+            deps.generation_store.complete_attempt(
+                generation_id,
+                attempt.attempt_number,
+                text,
+                lease_token=attempt.lease_token,
+                fencing_version=attempt.fencing_version,
+                result_mode=render_mode,
+                failure_reason_code=reason_code,
+                provider_invocation_count=provider_invocation_count,
+                generation_latency_ms=generation_latency_ms,
+                fallback_used=fallback_used,
+                safe_reason_code=safe_reason_code,
+            )
+            attempt_number = attempt.attempt_number
+            break
+        else:
+            raise RuntimeError("main question provider budget exhausted")
+    return {
+        "question_generation_result": {
+            "question_id": intent.question_id,
+            "text": text,
+            "intent_sha256": generation.intent_sha256,
+            "context_sha256": generation.context_sha256,
+            "knowledge_scope_sha256": generation.knowledge_scope_sha256,
+            "generator_version": generation.generator_version,
+            "prompt_version": generation.generation_prompt_version,
+            "prompt_sha256": generation.generation_prompt_sha256,
+            "generation_id": generation_id,
+            "generation_attempt": attempt_number,
+            "render_mode": render_mode,
+            "fallback_reason_code": reason_code,
+            "provider_invocation_count": provider_invocation_count,
+            "generation_latency_ms": generation_latency_ms,
+            "fallback_used": fallback_used,
+            "safe_reason_code": safe_reason_code,
+            "created_at": datetime.now(timezone.utc),
+        },
+        "question_generation_attempt": attempt_number,
+        "question_generation_outcome": "completed",
+        "question_generation_reason_code": reason_code,
+    }
+
+
+def commit_rendered_main_question(state) -> dict:
+    # RenderedQuestion is created only at the publication boundary. Generation
+    # checkpoints retain an uncommitted result payload, never a published model.
+    rendered = RenderedQuestionV1.model_validate(
+        state["question_generation_result"]
+    )
+    index = int(state["pending_main_question_index"])
+    rendered_questions = dict(state.get("rendered_questions") or {})
+    rendered_questions[rendered.question_id] = rendered.model_dump(mode="json")
+    return {
+        "current_index": index,
+        "interview_status": "active",
+        "messages": [
+            *state["messages"],
+            {
+                "role": "interviewer",
+                "content": rendered.text,
+                "question_id": rendered.question_id,
+            },
+        ],
+        "current_rendered_question_id": rendered.question_id,
+        "rendered_questions": rendered_questions,
+        "pending_main_question_index": None,
+        "question_generation_id": None,
+        "question_generation_context": None,
+        "question_generation_result": None,
+        "command_outcome": (
+            "completed" if state.get("active_command_id") else None
+        ),
+        "current_followup_count": 0,
+        "closed_gap_ids": [],
+        "active_gap_id": None,
+    }
+
+
+def advance_to_next_main_question(state) -> dict:
+    next_index = state["current_index"] + 1
+    if next_index >= len(state["plan_snapshot"]["questions"]):
+        return {
+            "interview_status": "finished",
+            "current_index": next_index,
+            "command_outcome": "completed",
+            "pending_main_question_index": None,
+        }
+    return {
+        "pending_main_question_index": next_index,
+        "current_rendered_question_id": None,
+        "question_generation_id": None,
+        "question_generation_outcome": None,
+        "question_generation_reason_code": None,
+        "question_generation_context": None,
+        "question_generation_result": None,
+    }
+
+
+def apply_skip_v3(state) -> dict:
+    intent = _v3_intent_at(state, state["current_index"])
+    updates = advance_to_next_main_question(state)
+    updates["skipped_question_ids"] = [
+        *state["skipped_question_ids"],
+        intent.question_id,
+    ]
+    updates["decision_reason_code"] = "skip"
+    updates["decision_answer_state"] = "empty"
+    return updates
+
+
 def build_durable_interview_graph(
     deps: DurableInterviewGraphDependencies,
     *,
@@ -1656,6 +2147,7 @@ def build_durable_interview_graph_for_schema(
     *,
     state_schema,
     checkpointer,
+    jit_main_questions: bool = False,
 ):
     builder = StateGraph(state_schema)
     builder.add_node("initialize_session", initialize_session)
@@ -1668,7 +2160,7 @@ def build_durable_interview_graph_for_schema(
         "append_candidate_answer",
         partial(append_candidate_answer, deps=deps),
     )
-    builder.add_node("apply_skip", apply_skip)
+    builder.add_node("apply_skip", apply_skip_v3 if jit_main_questions else apply_skip)
     builder.add_node("apply_finish", apply_finish)
     builder.add_node(
         "prepare_or_load_decision",
@@ -1704,11 +2196,29 @@ def build_durable_interview_graph_for_schema(
         "terminate_followup_generation", terminate_followup_generation
     )
     builder.add_node("commit_next_question", commit_next_question)
+    if jit_main_questions:
+        builder.add_node(
+            "prepare_main_question",
+            partial(prepare_main_question, deps=deps),
+        )
+        builder.add_node(
+            "generate_main_question",
+            partial(generate_main_question_node, deps=deps),
+        )
+        builder.add_node(
+            "commit_rendered_main_question",
+            commit_rendered_main_question,
+        )
+        builder.add_node("advance_to_next_main_question", advance_to_next_main_question)
     builder.add_node(
         "emit_report_event", partial(emit_report_event, deps=deps)
     )
     builder.add_edge(START, "initialize_session")
-    builder.add_edge("initialize_session", "project_state")
+    builder.add_edge(
+        "initialize_session",
+        "prepare_main_question" if jit_main_questions else "project_state",
+    )
+
     builder.add_conditional_edges("project_state", route_after_projection)
     builder.add_edge("wait_for_answer", "validate_command")
     builder.add_conditional_edges(
@@ -1721,7 +2231,10 @@ def build_durable_interview_graph_for_schema(
     builder.add_edge("prepare_or_load_decision", "execute_decision_attempt")
     builder.add_edge("execute_decision_attempt", "guard_after_decision")
     builder.add_conditional_edges(
-        "guard_after_decision", route_guard_after_decision
+        "guard_after_decision",
+        route_guard_after_decision_v3
+        if jit_main_questions
+        else route_guard_after_decision,
     )
     builder.add_edge("prepare_generation", "project_state")
     builder.add_conditional_edges(
@@ -1745,10 +2258,39 @@ def build_durable_interview_graph_for_schema(
     builder.add_edge("prepare_retry", "guard_before_generation")
     builder.add_edge("fallback_followup", "commit_interviewer_message")
     builder.add_edge(
-        "terminate_followup_generation", "commit_next_question"
+        "terminate_followup_generation",
+        "advance_to_next_main_question"
+        if jit_main_questions
+        else "commit_next_question",
     )
-    builder.add_edge("commit_next_question", "project_state")
-    builder.add_edge("apply_skip", "project_state")
+    if jit_main_questions:
+        builder.add_edge("prepare_main_question", "generate_main_question")
+        builder.add_edge(
+            "generate_main_question", "commit_rendered_main_question"
+        )
+        builder.add_edge("commit_rendered_main_question", "project_state")
+        builder.add_conditional_edges(
+            "advance_to_next_main_question", route_after_main_advance
+        )
+        builder.add_conditional_edges("apply_skip", route_after_main_advance)
+    else:
+        builder.add_edge("commit_next_question", "project_state")
+        builder.add_edge("apply_skip", "project_state")
     builder.add_edge("apply_finish", "project_state")
     builder.add_edge("emit_report_event", END)
     return builder.compile(checkpointer=checkpointer)
+
+
+def build_durable_interview_graph_v3(
+    deps: DurableInterviewGraphDependencies,
+    *,
+    checkpointer,
+):
+    from app.graphs.durable_interview_state_v3 import DurableInterviewStateV3
+
+    return build_durable_interview_graph_for_schema(
+        deps,
+        state_schema=DurableInterviewStateV3,
+        checkpointer=checkpointer,
+        jit_main_questions=True,
+    )

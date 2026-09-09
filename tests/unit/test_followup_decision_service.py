@@ -85,6 +85,33 @@ def test_deterministic_limit_decision_makes_zero_provider_calls():
     assert result.provider_invocations == 0
 
 
+def test_adaptive_no_new_information_stops_before_decision_provider():
+    calls = []
+    service = FollowupDecisionExecutionService(
+        store=InMemoryDecisionStore(),
+        provider=lambda context: calls.append(context),
+    )
+
+    result = service.execute(
+        request(
+            candidate_answers=[
+                "I persist the idempotency key before processing.",
+                "I persist the idempotency key before processing.",
+            ],
+            asked_followups=["Please explain recovery after a failed write."],
+            followup_count=1,
+        ),
+        source_command_id="cmd-repeated-state",
+        worker_id="w1",
+    )
+
+    assert result.status == "completed"
+    assert result.decision.action == "next_question"
+    assert result.decision.reason_code == "repeated_state"
+    assert result.provider_invocations == 0
+    assert calls == []
+
+
 def test_valid_lease_owned_by_other_worker_returns_accepted():
     store = InMemoryDecisionStore()
     from app.services.followup_diagnostics import diagnose_followup

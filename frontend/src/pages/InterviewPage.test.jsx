@@ -503,6 +503,64 @@ describe("InterviewPage destructive command confirmations", () => {
     expect(postJson.mock.calls[0][0]).toBe("/api/interviews/session-t58/skip");
   });
 
+  it("follows the accepted skip stream until the committed next question is revealed", async () => {
+    const user = userEvent.setup();
+    const nextSnapshot = {
+      ...activeSnapshot,
+      state_version: 9,
+      completed_questions: 3,
+      skipped_questions: 2,
+      unanswered_questions: 1,
+      current_question: {
+        id: "q4",
+        prompt: "如果恢复任务重复执行，你如何保证结果幂等？",
+        focus: "故障恢复验证",
+        kind: "technical",
+      },
+      questions: [
+        ...activeSnapshot.questions.slice(0, 2),
+        { id: "q3", state: "skipped" },
+        { id: "q4", prompt: "如果恢复任务重复执行，你如何保证结果幂等？", state: "current" },
+      ],
+    };
+    let snapshotIndex = 0;
+    getJson.mockImplementation((path) => {
+      if (path.endsWith("/question-evaluations")) return Promise.resolve({ items: [] });
+      snapshotIndex += 1;
+      return Promise.resolve(snapshotIndex === 1 ? activeSnapshot : nextSnapshot);
+    });
+    postJson.mockResolvedValue({
+      command_id: "skip-command-1",
+      stream_url: "/api/interviews/session-t58/commands/skip-command-1/stream",
+    });
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true }));
+    readSse.mockImplementation(async (_response, handlers) => {
+      handlers.question_reveal_reset({ question_id: "q4" });
+      handlers.question_reveal_chunk({
+        question_id: "q4",
+        delta: "如果恢复任务重复执行，你如何保证结果幂等？",
+      });
+      handlers.question_reveal_done({ question_id: "q4", state_version: 9 });
+      return { type: "done", data: { state_version: 9 } };
+    });
+
+    render(<InterviewPage />);
+    await screen.findByRole("heading", { name: "如何设计幂等写入？" });
+
+    await user.click(screen.getByRole("button", { name: "跳过此题" }));
+    await user.click(screen.getByRole("button", { name: "确认跳过此题" }));
+
+    await screen.findByRole("heading", {
+      name: "如果恢复任务重复执行，你如何保证结果幂等？",
+    });
+    expect(fetch).toHaveBeenCalledWith(
+      "/api/interviews/session-t58/commands/skip-command-1/stream",
+      expect.objectContaining({ headers: {} }),
+    );
+    expect(readSse).toHaveBeenCalledTimes(1);
+    expect(getJson.mock.calls.filter(([path]) => path === "/api/interviews/session-t58")).toHaveLength(2);
+  });
+
   it("traps modal focus, closes with Escape, and returns to the trigger", async () => {
     const user = userEvent.setup();
     render(<InterviewPage />);
@@ -565,5 +623,38 @@ describe("QuestionNavigator policy copy", () => {
     }} />);
     expect(screen.getByText("动态路径")).toBeInTheDocument();
     expect(screen.getByText("回答会决定追问或进入下一题。")).toBeInTheDocument();
+  });
+});
+
+describe("InterviewPage JIT main question states", () => {
+  it("does not expose pending question text in the navigator", () => {
+    render(<QuestionNavigator snapshot={activeSnapshot} />);
+
+    expect(screen.getByText("如何设计幂等写入？")).toBeInTheDocument();
+    expect(screen.queryByText("如何验证恢复流程？")).not.toBeInTheDocument();
+    expect(screen.getByText("待进行题")).toBeInTheDocument();
+  });
+
+  it("keeps answering disabled while the first question is being prepared", async () => {
+    getJson.mockImplementation((path) => path.endsWith("/question-evaluations")
+      ? Promise.resolve({ items: [] })
+      : Promise.resolve({
+          ...activeSnapshot,
+          status: "preparing_first_question",
+          current_question: null,
+          questions: activeSnapshot.questions.map((question) => ({
+            id: question.id,
+            kind: question.kind || "technical",
+            state: "pending",
+          })),
+          messages: [],
+        }));
+
+    render(<InterviewPage />);
+
+    expect(await screen.findByText("正在结合之前的回答组织问题…")).toBeInTheDocument();
+    expect(screen.getByLabelText("你的回答")).toBeDisabled();
+    expect(screen.getByRole("button", { name: "提交回答" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "跳过此题" })).toBeDisabled();
   });
 });

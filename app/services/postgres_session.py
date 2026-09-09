@@ -35,7 +35,10 @@ from app.domain.interview.state_machine import (
     is_duplicate_command as _is_duplicate_command,
     should_stream_follow_up as _should_stream_follow_up,
 )
-from app.services.session_plan_binding import SessionPlanBinding
+from app.services.session_plan_binding import (
+    SessionPlanBinding,
+    legacy_session_plan_binding,
+)
 from app.services.session import InterviewSessionStore
 from app.services.runtime_domain_events import RoundClosedEvent
 
@@ -191,19 +194,35 @@ class PostgresInterviewSessionStore(InterviewSessionStore):
         memory_policy_version: str = "deterministic-v1",
         plan_binding: SessionPlanBinding | None = None,
     ) -> None:
-        from app.graphs.interview_state import build_initial_state
-
-        state = build_initial_state(
-            session_id=session_id,
-            plan=plan,
-            job_description=job_description,
-            resume_text=resume_text,
-            job_tags=job_tags,
-            memory_policy_version=memory_policy_version,
-            plan_binding=plan_binding,
+        from app.graphs.interview_state import (
+            build_initial_state,
+            build_v3_session_shell_state,
         )
-        if graph_version not in {"langgraph-v1", "langgraph-v2"}:
+
+        if graph_version not in {"langgraph-v1", "langgraph-v2", "langgraph-v3"}:
             raise ValueError("unsupported durable interview graph version")
+        binding = plan_binding or legacy_session_plan_binding(plan)
+        state = (
+            build_v3_session_shell_state(
+                session_id=session_id,
+                plan=plan,
+                job_description=job_description,
+                resume_text=resume_text,
+                job_tags=job_tags,
+                memory_policy_version=memory_policy_version,
+                plan_binding=binding,
+            )
+            if graph_version == "langgraph-v3"
+            else build_initial_state(
+                session_id=session_id,
+                plan=plan,
+                job_description=job_description,
+                resume_text=resume_text,
+                job_tags=job_tags,
+                memory_policy_version=memory_policy_version,
+                plan_binding=binding,
+            )
+        )
         state["workflow_engine"] = graph_version
         state["graph_schema_version"] = graph_version
         state["messages"] = []
@@ -223,6 +242,7 @@ class PostgresInterviewSessionStore(InterviewSessionStore):
         job_tags: list[str],
         graph_version: str = "legacy",
         memory_policy_version: str = "deterministic-v1",
+        plan_binding: SessionPlanBinding | None = None,
     ) -> InterviewState:
         """Insert a complete session shell with a caller-owned cursor.
 
@@ -230,16 +250,33 @@ class PostgresInterviewSessionStore(InterviewSessionStore):
         commits or rolls back. It is the only session insertion entry used by
         the cross-store launch coordinator.
         """
-        if graph_version in {"langgraph-v1", "langgraph-v2"}:
-            from app.graphs.interview_state import build_initial_state
+        if graph_version in {"langgraph-v1", "langgraph-v2", "langgraph-v3"}:
+            from app.graphs.interview_state import (
+                build_initial_state,
+                build_v3_session_shell_state,
+            )
 
-            state = build_initial_state(
-                session_id=session_id,
-                plan=plan,
-                job_description=job_description,
-                resume_text=resume_text,
-                job_tags=job_tags,
-                memory_policy_version=memory_policy_version,
+            binding = plan_binding or legacy_session_plan_binding(plan)
+            state = (
+                build_v3_session_shell_state(
+                    session_id=session_id,
+                    plan=plan,
+                    job_description=job_description,
+                    resume_text=resume_text,
+                    job_tags=job_tags,
+                    memory_policy_version=memory_policy_version,
+                    plan_binding=binding,
+                )
+                if graph_version == "langgraph-v3"
+                else build_initial_state(
+                    session_id=session_id,
+                    plan=plan,
+                    job_description=job_description,
+                    resume_text=resume_text,
+                    job_tags=job_tags,
+                    memory_policy_version=memory_policy_version,
+                    plan_binding=binding,
+                )
             )
             state["workflow_engine"] = graph_version
             state["graph_schema_version"] = graph_version
@@ -255,6 +292,7 @@ class PostgresInterviewSessionStore(InterviewSessionStore):
                 resume_text=resume_text,
                 job_tags=job_tags,
                 memory_policy_version=memory_policy_version,
+                plan_binding=plan_binding,
             )
         else:
             raise ValueError("unsupported interview graph version")

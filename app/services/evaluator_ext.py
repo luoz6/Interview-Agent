@@ -682,7 +682,7 @@ class ExpertShadowEvaluator:
                 },
             )
             report = _apply_answer_state_overrides(report, chunks)
-        except ReportOutputFormatError as exc:
+        except (ReportGenerationFailed, ReportOutputFormatError) as exc:
             logger.warning(
                 "Falling back to heuristic interview report",
                 extra={

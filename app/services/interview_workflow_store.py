@@ -14,8 +14,10 @@ from app.services.postgres_identifiers import (
 from app.services.postgres_schema import resolve_schema_mode, validate_relations
 from app.services.postgres_runtime_control import PostgresRuntimeControlStore
 from app.services.runtime_domain_events import (
+    InterviewBootstrapReadyEvent,
     InterviewCommandReadyEvent,
     InterviewRetryDueEvent,
+    RoundClosedEvent,
 )
 from app.services.workflow_thread_lock import ProjectionConflict
 
@@ -151,6 +153,15 @@ class PostgresInterviewWorkflowStore:
                     ),
                 )
                 return self._get_command(cursor, session_id, command_id)
+
+    def enqueue_bootstrap_with_cursor(self, cursor, session_id: str) -> None:
+        self.control.enqueue_event(
+            cursor,
+            InterviewBootstrapReadyEvent(
+                event_id=f"interview-bootstrap-{session_id}",
+                session_id=session_id,
+            ),
+        )
 
     def get_command(
         self, session_id: str, command_id: str
@@ -296,6 +307,9 @@ class PostgresInterviewWorkflowStore:
                     )
                     if cursor.rowcount != 1:
                         raise ProjectionConflict(state["session_id"])
+                    closed = self._closed_round_event(state, next_version)
+                    if closed is not None:
+                        self.control.enqueue_event(cursor, closed)
         return ProjectionResult(next_version, digest)
 
     def register_bootstrap_input(
@@ -739,6 +753,52 @@ class PostgresInterviewWorkflowStore:
             "last_command_id": state.get("active_command_id")
             or state.get("last_command_id"),
         }
+
+    @staticmethod
+    def _closed_round_event(
+        state: dict[str, Any], state_version: int
+    ) -> RoundClosedEvent | None:
+        command_type = state.get("command_type")
+        current_id = state.get("current_rendered_question_id")
+        closed_id = None
+        answer_state = None
+        if command_type == "answer":
+            answered_id = next(
+                (
+                    message.get("question_id")
+                    for message in reversed(state.get("messages", []))
+                    if message.get("role") == "candidate"
+                ),
+                None,
+            )
+            if answered_id and (
+                state.get("interview_status") == "finished"
+                or current_id != answered_id
+            ):
+                closed_id = answered_id
+                answer_state = "answered"
+        elif command_type == "skip":
+            skipped = state.get("skipped_question_ids") or []
+            if skipped:
+                closed_id = skipped[-1]
+                answer_state = "skipped"
+        elif command_type == "finish" and current_id:
+            closed_id = current_id
+            answer_state = "unanswered"
+        if not closed_id or not answer_state:
+            return None
+        return RoundClosedEvent(
+            event_id=(
+                f"round-closed-{state['session_id']}-{closed_id}-"
+                f"{state_version}"
+            ),
+            session_id=state["session_id"],
+            causation_id=state.get("active_command_id"),
+            state_version=state_version,
+            question_id=closed_id,
+            answer_state=answer_state,
+            job_tags=list(state.get("job_tags") or []),
+        )
 
     @staticmethod
     def _payload_sha256(

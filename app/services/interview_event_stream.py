@@ -6,6 +6,9 @@ from app.services.runtime_events import (
     InterviewGenerationChunkEvent,
     InterviewGenerationResetEvent,
     _format_sse,
+    QuestionRevealChunkEvent,
+    QuestionRevealDoneEvent,
+    QuestionRevealResetEvent,
 )
 
 
@@ -61,18 +64,38 @@ class InterviewEventStreamService:
             )
             for item in page:
                 after = (item.attempt_number, item.sequence)
+                main_question = (
+                    getattr(generation, "generation_kind", "followup")
+                    == "main_question"
+                )
                 if item.event_type == "generation_reset":
-                    yield InterviewGenerationResetEvent(
-                        generation_id=item.generation_id,
-                        attempt_number=item.attempt_number,
-                    )
+                    if main_question:
+                        yield QuestionRevealResetEvent(
+                            question_id=generation.question_id,
+                            generation_id=item.generation_id,
+                            attempt_number=item.attempt_number,
+                        )
+                    else:
+                        yield InterviewGenerationResetEvent(
+                            generation_id=item.generation_id,
+                            attempt_number=item.attempt_number,
+                        )
                 else:
-                    yield InterviewGenerationChunkEvent(
-                        generation_id=item.generation_id,
-                        attempt_number=item.attempt_number,
-                        sequence=item.sequence,
-                        delta=item.delta,
-                    )
+                    if main_question:
+                        yield QuestionRevealChunkEvent(
+                            question_id=generation.question_id,
+                            generation_id=item.generation_id,
+                            sequence=item.sequence,
+                            delta=item.delta,
+                            attempt_number=item.attempt_number,
+                        )
+                    else:
+                        yield InterviewGenerationChunkEvent(
+                            generation_id=item.generation_id,
+                            attempt_number=item.attempt_number,
+                            sequence=item.sequence,
+                            delta=item.delta,
+                        )
             if len(page) < self.page_size:
                 return
 
@@ -104,6 +127,14 @@ class InterviewEventStreamService:
             generation = self.generation_store.get_by_source_command(
                 session_id, command_id
             )
+            command = self.workflow_store.get_command(
+                session_id, command_id
+            )
+            main_question = (
+                generation is not None
+                and getattr(generation, "generation_kind", "followup")
+                == "main_question"
+            )
             if (
                 generation is not None
                 and generation.generation_id != announced_generation_id
@@ -112,33 +143,70 @@ class InterviewEventStreamService:
                 yield _format_sse(
                     "status",
                     {
-                        "stage": "generation_pending",
+                        "stage": (
+                            "main_question_generation"
+                            if getattr(
+                                generation, "generation_kind", "followup"
+                            ) == "main_question"
+                            else "generation_pending"
+                        ),
+                        **(
+                            {"question_id": generation.question_id}
+                            if getattr(
+                                generation, "generation_kind", "followup"
+                            ) == "main_question"
+                            else {}
+                        ),
                         "generation_id": generation.generation_id,
                     },
                 )
                 emitted = True
-            for event in self.iter_command_events(
-                session_id,
-                command_id,
-                after_event_id=cursor,
-            ):
-                cursor = (
-                    f"{event.generation_id}:{event.attempt_number}:"
-                    f"{getattr(event, 'sequence', 0)}"
-                )
-                yield event.to_sse()
-                emitted = True
-            command = self.workflow_store.get_command(
-                session_id, command_id
-            )
+            # Main-question chunks are committed-text reveal events. Do not
+            # expose the completed Generation until Graph projection has
+            # atomically published RenderedQuestion and applied the command.
+            if not main_question or command.status == "applied":
+                if main_question and not cursor:
+                    reset = QuestionRevealResetEvent(
+                        question_id=generation.question_id,
+                        generation_id=generation.generation_id,
+                        attempt_number=int(generation.active_attempt or 0),
+                    )
+                    cursor = (
+                        f"{generation.generation_id}:"
+                        f"{int(generation.active_attempt or 0)}:0"
+                    )
+                    yield reset.to_sse()
+                    emitted = True
+                for event in self.iter_command_events(
+                    session_id,
+                    command_id,
+                    after_event_id=cursor,
+                ):
+                    cursor = (
+                        f"{event.generation_id}:{event.attempt_number}:"
+                        f"{getattr(event, 'sequence', 0)}"
+                    )
+                    yield event.to_sse()
+                    emitted = True
             if command.status == "applied":
-                yield _format_sse(
-                    "done",
-                    {
-                        "command_id": command_id,
-                        "state_version": command.result_state_version,
-                    },
-                )
+                if (
+                    generation is not None
+                    and getattr(generation, "generation_kind", "followup")
+                    == "main_question"
+                ):
+                    yield QuestionRevealDoneEvent(
+                        question_id=generation.question_id,
+                        generation_id=generation.generation_id,
+                        state_version=command.result_state_version,
+                    ).to_sse()
+                else:
+                    yield _format_sse(
+                        "done",
+                        {
+                            "command_id": command_id,
+                            "state_version": command.result_state_version,
+                        },
+                    )
                 return
             if command.status == "conflict":
                 yield _format_sse(

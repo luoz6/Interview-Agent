@@ -6,8 +6,13 @@ from types import SimpleNamespace
 import pytest
 
 from app.services.decision_store import DecisionContract
+from app.services.evaluator_candidate_identity import (
+    EVALUATOR_CANDIDATE_IDENTITY_VERSION,
+    EvaluatorCandidateIdentity,
+)
 from app.services.followup_eval import build_synthetic_fixture_replay
 from app.services.followup_eval import SavedFollowupProviderArtifact
+from app.services.followup_diagnostics import FOLLOWUP_DIAGNOSTICS_VERSION
 from app.services.followup_provider_preflight import (
     DeepSeekDiscoverySnapshot,
     ProviderPrice,
@@ -68,11 +73,30 @@ def test_fixture_cli_writes_complete_offline_evidence_without_claiming_calls(tmp
     assert manifest["planned_inference_requests"] is None
     assert manifest["formal_evidence_eligible"] is False
     assert manifest["evidence_origin"] == "synthetic_fixture"
+    assert manifest["candidate_identity_version"] == (
+        EVALUATOR_CANDIDATE_IDENTITY_VERSION
+    )
+    if manifest["worktree_clean"]:
+        assert manifest["candidate_unstaged_tracked_diff_sha256"] is None
+        assert manifest["candidate_staged_diff_sha256"] is None
+        assert manifest["candidate_untracked_safe_manifest_sha256"] is None
+    else:
+        assert len(manifest["candidate_unstaged_tracked_diff_sha256"]) == 64
+        assert len(manifest["candidate_staged_diff_sha256"]) == 64
+        assert len(manifest["candidate_untracked_safe_manifest_sha256"]) == 64
+    assert manifest["candidate_untracked_safe_file_count"] >= 0
+    assert manifest["candidate_untracked_excluded_file_count"] >= 0
+    assert manifest["followup_diagnostics_version"] == FOLLOWUP_DIAGNOSTICS_VERSION
     assert manifest["recorded_or_simulated_provider_invocations"] > 0
     assert metrics["automated_status"] == "PASS"
     assert metrics["quality_status"] == "BLOCKED_PENDING_INDEPENDENT_REVIEW"
     assert metrics["sequence_replay"]["sequence_count"] == 20
     assert (run_dir / "synthetic-fixture-replay.json").exists()
+    artifact = json.loads(
+        (run_dir / "synthetic-fixture-replay.json").read_text(encoding="utf-8")
+    )
+    assert artifact["schema_version"] == "followup-provider-replay-v2"
+    assert artifact["followup_diagnostics_version"] == FOLLOWUP_DIAGNOSTICS_VERSION
     assert "api_key" not in (run_dir / "manifest.json").read_text(
         encoding="utf-8"
     ).casefold()
@@ -106,6 +130,7 @@ def test_saved_replay_cli_consumes_frozen_artifact_without_network(tmp_path):
     assert manifest["provider_invocations_this_run"] == 0
     assert manifest["formal_evidence_eligible"] is False
     assert manifest["evidence_origin"] == "saved_replay"
+    assert manifest["followup_diagnostics_version"] == FOLLOWUP_DIAGNOSTICS_VERSION
 
 
 def test_provider_cli_stops_on_current_model_drift_before_building_model(
@@ -149,6 +174,97 @@ def test_provider_cli_stops_on_current_model_drift_before_building_model(
     assert manifest["decision"] == "BLOCKED_MODEL_VERSION_DRIFT"
     assert manifest["hard_stop_conditions"] == ["MODEL_VERSION_DRIFT"]
     assert "secret-not-written" not in manifest_text
+
+
+def test_default_dev_smoke_selection_keeps_sequences_complete():
+    dataset = load_interview_quality_dataset(DATASET_PATH)
+
+    selected = cli._select_dataset(
+        dataset,
+        partition="dev",
+        case_ids=[],
+        scope="smoke",
+        smoke_case_count=8,
+    )
+
+    assert len(selected.cases) == 8
+    assert cli._incomplete_selected_sequences(dataset, selected) == []
+    selected_ids = {case.case_id for case in selected.cases}
+    for case in selected.cases:
+        sequence_id = case.input.get("sequence_id")
+        if sequence_id is None:
+            continue
+        expected_ids = {
+            member.case_id
+            for member in dataset.cases
+            if member.input.get("sequence_id") == sequence_id
+        }
+        assert expected_ids <= selected_ids
+
+
+def test_incomplete_explicit_sequence_is_zero_call_terminal_manifest(
+    monkeypatch,
+    tmp_path,
+):
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "must-not-be-used")
+    monkeypatch.setattr(
+        cli,
+        "discover_deepseek_provider",
+        lambda **kwargs: pytest.fail("selection must fail before Provider discovery"),
+    )
+    monkeypatch.setattr(
+        cli,
+        "_record_live_provider_responses",
+        lambda *args, **kwargs: pytest.fail("selection must make zero data requests"),
+    )
+
+    exit_code = cli.main(
+        [
+            "--mode",
+            "provider",
+            "--purpose",
+            "development",
+            "--partition",
+            "dev",
+            "--case-id",
+            "followup-sequence-object-storage-step-1",
+            "--out",
+            str(tmp_path),
+            "--run-id",
+            "incomplete-explicit-sequence",
+        ]
+    )
+
+    run_dir = tmp_path / "incomplete-explicit-sequence"
+    manifest = json.loads((run_dir / "manifest.json").read_text(encoding="utf-8"))
+    assert exit_code == 2
+    assert manifest["decision"] == "BLOCKED_EVALUATOR_SELECTION_CONTRACT"
+    assert manifest["quality_status"] == "BLOCKED"
+    assert manifest["hard_stop_conditions"] == [
+        "EVALUATOR_SELECTION_INCOMPLETE_SEQUENCE"
+    ]
+    assert manifest["provider_called"] is False
+    assert manifest["first_data_request_sent"] is False
+    assert manifest["discovery_requests"] == 0
+    assert manifest["planned_inference_requests"] == 0
+    assert manifest["inference_attempted"] == 0
+    assert manifest["inference_metered"] == 0
+    assert manifest["provider_invocations_this_run"] == 0
+    assert manifest["decision"] != "RUNNING"
+    assert manifest["quality_status"] != "NOT_RUN"
+    assert manifest["selection_incomplete_sequences"] == [
+        {
+            "sequence_id": "sequence-object-storage",
+            "selected_case_ids": [
+                "followup-sequence-object-storage-step-1"
+            ],
+            "missing_case_ids": [
+                "followup-sequence-object-storage-step-2"
+            ],
+        }
+    ]
+    assert (run_dir / "report.md").exists()
+    assert not (run_dir / "saved-provider-replay.json").exists()
 
 
 def test_live_path_uses_authorized_model_not_environment_model(monkeypatch, tmp_path):
@@ -234,6 +350,7 @@ def test_live_path_uses_authorized_model_not_environment_model(monkeypatch, tmp_
     assert manifest["planned_inference_requests"] == 1
     assert manifest["inference_attempted"] == 1
     assert manifest["inference_metered"] == 1
+    assert manifest["provider_metered_invocations"] == 1
     assert manifest["cached_input_tokens"] == 0
     assert manifest["formal_evidence_eligible"] is False
     assert "USAGE_METERING_UNAVAILABLE" not in manifest["hard_stop_conditions"]
@@ -324,6 +441,77 @@ def test_live_timeout_stops_before_an_unmetered_retry(monkeypatch):
     assert stops == ["USAGE_METERING_UNAVAILABLE"]
     assert len(artifact.cases[0].decision_attempts) == 1
     assert artifact.cases[0].decision_attempts[0].kind == "timeout"
+
+
+def test_live_capture_turns_decision_store_fencing_into_terminal_stop(monkeypatch):
+    dataset = load_interview_quality_dataset(DATASET_PATH)
+    case = next(
+        case
+        for case in dataset.cases
+        if case.case_id == "followup-gap-redis-cache-consistency"
+    )
+
+    class FencingModel:
+        def bind(self, **kwargs):
+            return self
+
+        def invoke(self, prompt):
+            decision = DecisionContract(
+                action="next_question",
+                answer_state="complete",
+                gap_type="none",
+                gap_summary="",
+                reason_code="answer_complete",
+                decision_confidence="high",
+                closed_gap_ids=[],
+                policy_version="adaptive_v1",
+            )
+            return SimpleNamespace(
+                content=decision.model_dump_json(),
+                usage_metadata={
+                    "input_tokens": 20,
+                    "output_tokens": 5,
+                    "input_token_details": {"cache_read": 0},
+                },
+                response_metadata={"model_name": "deepseek-v4-pro"},
+                id="decision-response-fencing",
+            )
+
+        def with_structured_output(self, *args, **kwargs):
+            raise AssertionError("authorized deepseek-v4-pro must use raw_only")
+
+    model = FencingModel()
+    monkeypatch.setattr(
+        cli.OpenAIInterviewLLM,
+        "_build_chat_model",
+        staticmethod(lambda config: model),
+    )
+
+    original_execute = cli.FollowupDecisionExecutionService.execute
+
+    def fencing_execute(self, *args, **kwargs):
+        result = original_execute(self, *args, **kwargs)
+        raise cli.DecisionStoreConflict("decision attempt fencing failed")
+
+    monkeypatch.setattr(
+        cli.FollowupDecisionExecutionService,
+        "execute",
+        fencing_execute,
+    )
+
+    artifact, stops = cli._record_live_provider_responses(
+        dataset.model_copy(update={"cases": [case]}),
+        dataset_sha256=hashlib.sha256(DATASET_PATH.read_bytes()).hexdigest(),
+        authorization=load_provider_authorization(
+            Path("config/interview_quality_v1_provider_authorization.json")
+        ),
+        api_key="not-serialized",
+        timeout_seconds=1,
+    )
+
+    assert stops == ["DECISION_STORE_FENCING_CONFLICT"]
+    assert artifact.capture_status == "hard_stopped"
+    assert artifact.hard_stop_conditions == ["DECISION_STORE_FENCING_CONFLICT"]
 
 
 def test_live_missing_cached_usage_hard_stops_after_one_decision(monkeypatch):
@@ -468,8 +656,9 @@ def test_provider_full_manifest_is_native_t65_usage_source(monkeypatch, tmp_path
                 "input_tokens": 10,
                 "output_tokens": 2,
                 "cached_input_tokens": 0,
-                "provider_model": "deepseek-v4-pro",
-                "latency_seconds": 0.01,
+                    "provider_model": "deepseek-v4-pro",
+                    "latency_seconds": 0.01,
+                    "provider_response_id_sha256": "a" * 64,
             }
         )
         generation_attempts = []
@@ -480,8 +669,9 @@ def test_provider_full_manifest_is_native_t65_usage_source(monkeypatch, tmp_path
                         "input_tokens": 8,
                         "output_tokens": 3,
                         "cached_input_tokens": 1,
-                        "provider_model": "deepseek-v4-pro",
-                        "latency_seconds": 0.01,
+                            "provider_model": "deepseek-v4-pro",
+                            "latency_seconds": 0.01,
+                            "provider_response_id_sha256": "b" * 64,
                     }
                 )
             ]
@@ -494,6 +684,7 @@ def test_provider_full_manifest_is_native_t65_usage_source(monkeypatch, tmp_path
             )
         )
     capture = SavedFollowupProviderArtifact(
+        followup_diagnostics_version=FOLLOWUP_DIAGNOSTICS_VERSION,
         source="local_redacted_provider_output",
         dataset_id=dataset.dataset_id,
         dataset_sha256=dataset_sha256,
@@ -511,7 +702,20 @@ def test_provider_full_manifest_is_native_t65_usage_source(monkeypatch, tmp_path
         return metrics
 
     monkeypatch.setenv("DEEPSEEK_API_KEY", "not-serialized")
-    monkeypatch.setattr(cli, "_candidate_identity", lambda: (revision, tree, True))
+    monkeypatch.setattr(
+        cli,
+        "_candidate_identity",
+        lambda: EvaluatorCandidateIdentity(
+            candidate_revision=revision,
+            candidate_tree=tree,
+            worktree_clean=True,
+            candidate_unstaged_tracked_diff_sha256=None,
+            candidate_staged_diff_sha256=None,
+            candidate_untracked_safe_manifest_sha256=None,
+            candidate_untracked_safe_file_count=0,
+            candidate_untracked_excluded_file_count=0,
+        ),
+    )
     monkeypatch.setattr(cli, "discover_deepseek_provider", lambda **kwargs: valid_discovery())
     monkeypatch.setattr(
         cli,
@@ -544,6 +748,7 @@ def test_provider_full_manifest_is_native_t65_usage_source(monkeypatch, tmp_path
     assert manifest["engineering_evidence_complete"] is True
     assert manifest["decision"] == manifest["quality_status"] == "BLOCKED_NON_FORMAL_EVIDENCE"
     assert manifest["inference_attempted"] == manifest["inference_metered"]
+    assert manifest["provider_metered_invocations"] == manifest["inference_metered"]
     assert manifest["planned_inference_requests"] + manifest["retries"] == manifest["inference_attempted"]
     assert manifest["input_tokens"] > 0
     assert manifest["output_tokens"] > 0

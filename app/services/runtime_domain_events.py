@@ -35,6 +35,12 @@ class InterviewCommandReadyEvent(RuntimeEventEnvelope):
     command_id: str
 
 
+class InterviewBootstrapReadyEvent(RuntimeEventEnvelope):
+    event_type: Literal["interview_bootstrap_ready"] = (
+        "interview_bootstrap_ready"
+    )
+
+
 class InterviewRetryDueEvent(RuntimeEventEnvelope):
     event_type: Literal["interview_retry_due"] = "interview_retry_due"
     generation_id: str

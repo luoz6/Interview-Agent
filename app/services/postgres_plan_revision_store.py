@@ -7,7 +7,7 @@ from uuid import uuid4
 from app.services.interview_plan_audit import PlanRevisionAudit
 from app.services.interview_plan_revision import (
     InterviewPlanRevision,
-    InterviewPlanV2,
+    InterviewPlanRevisionPayload,
     PlanCreatedReason,
     PlanRevisionSourceKind,
     PlanSourcePayload,
@@ -98,7 +98,7 @@ class PostgresInterviewPlanRevisionStore:
         self,
         *,
         source_payload: PlanSourcePayload,
-        plan: InterviewPlanV2,
+        plan: InterviewPlanRevisionPayload,
         retention_policy: str,
         generator_version: str,
         plan_family_id: str | None = None,
@@ -180,7 +180,7 @@ class PostgresInterviewPlanRevisionStore:
         *,
         plan_family_id: str,
         expected_revision: int,
-        plan: InterviewPlanV2,
+        plan: InterviewPlanRevisionPayload,
         source_kind: PlanRevisionSourceKind,
         created_reason: PlanCreatedReason,
         generator_version: str,

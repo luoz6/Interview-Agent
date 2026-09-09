@@ -11,10 +11,12 @@ from app.api.prep.routes import router as prep_router
 from app.api.reports.routes import router as reports_router
 from app.api.rag.routes import router as rag_router
 from app.api.runtime.routes import router as runtime_router
+from app.api.a2a.routes import router as a2a_router
 
 
 router = APIRouter(prefix="/api")
 router.include_router(runtime_router)
+router.include_router(a2a_router)
 router.include_router(prep_router)
 router.include_router(plans_router)
 router.include_router(interview_router)

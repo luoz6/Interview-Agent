@@ -1,0 +1,116 @@
+{
+  "schema_version": "cross-question-report-diagnostic-fixture-v1",
+  "fixture_version": "rm4b-cross-question-redis-v1",
+  "session_id": "synthetic-rm4b-redis-session",
+  "single_question_gap_topic": "measurable_outcomes",
+  "feedbacks": [
+    {
+      "question_id": "redis-consistency-q1",
+      "question_text": "如何处理缓存与数据库的一致性？",
+      "user_answer": "先提交数据库事务，再删除缓存；读取路径使用短期过期时间限制陈旧数据窗口。",
+      "score": 72,
+      "dimension_scores": {
+        "breadth": 70,
+        "depth": 72,
+        "architecture": 71,
+        "engineering": 73,
+        "communication": 74
+      },
+      "evaluation_status": "evaluated",
+      "evaluation_reason_code": "sufficient_evidence",
+      "evidence_count": 1,
+      "applicable_dimensions": ["depth", "engineering"],
+      "dimension_evidence": [
+        {
+          "dimension": "depth",
+          "observed": ["说明了数据库提交与缓存失效的执行顺序。"],
+          "missing": [],
+          "quality_signals": ["concept", "concrete_steps"]
+        },
+        {
+          "dimension": "engineering",
+          "observed": ["使用过期时间限制陈旧数据窗口。"],
+          "missing": ["recovery_gap: 缺少删除缓存失败后的重试、回滚或恢复路径。"],
+          "quality_signals": ["concrete_steps"]
+        }
+      ],
+      "highlights": ["执行顺序清晰"],
+      "rationale": "回答给出了主要写入顺序和基本边界。",
+      "critique": "失败路径仍需补充。",
+      "better_answer": "按写入顺序、失败处理和验证方式组织回答。",
+      "references": []
+    },
+    {
+      "question_id": "redis-consistency-q2",
+      "question_text": "删除缓存失败时如何恢复？",
+      "user_answer": "将失败事件写入补偿队列，由幂等消费者重放删除动作，并限制最大重试次数。",
+      "score": 78,
+      "dimension_scores": {
+        "breadth": 75,
+        "depth": 78,
+        "architecture": 77,
+        "engineering": 79,
+        "communication": 80
+      },
+      "evaluation_status": "evaluated",
+      "evaluation_reason_code": "sufficient_evidence",
+      "evidence_count": 1,
+      "applicable_dimensions": ["architecture", "engineering"],
+      "dimension_evidence": [
+        {
+          "dimension": "architecture",
+          "observed": ["使用补偿队列隔离在线写入和恢复处理。"],
+          "missing": [],
+          "quality_signals": ["concrete_steps", "risk"]
+        },
+        {
+          "dimension": "engineering",
+          "observed": ["说明了幂等重放和最大重试次数。"],
+          "missing": ["recovery_gap: 未说明补偿队列自身故障时的最终恢复边界。"],
+          "quality_signals": ["fallback", "production"]
+        }
+      ],
+      "highlights": ["补偿路径具体"],
+      "rationale": "回答覆盖了补偿、幂等和重试约束。",
+      "critique": "最终失败边界仍需说明。",
+      "better_answer": "补充死信处理、人工介入条件和恢复验证。",
+      "references": []
+    },
+    {
+      "question_id": "redis-consistency-q3",
+      "question_text": "如何验证一致性方案已经有效？",
+      "user_answer": "通过抽样比对缓存和数据库结果，并对补偿队列积压设置告警。",
+      "score": 69,
+      "dimension_scores": {
+        "breadth": 68,
+        "depth": 69,
+        "architecture": 68,
+        "engineering": 70,
+        "communication": 72
+      },
+      "evaluation_status": "evaluated",
+      "evaluation_reason_code": "sufficient_evidence",
+      "evidence_count": 1,
+      "applicable_dimensions": ["engineering", "communication"],
+      "dimension_evidence": [
+        {
+          "dimension": "engineering",
+          "observed": ["提出抽样比对和队列积压告警。"],
+          "missing": ["metric_gap: 缺少不一致率、观察窗口和通过阈值。"],
+          "quality_signals": ["production"]
+        },
+        {
+          "dimension": "communication",
+          "observed": ["验证方式表达简洁。"],
+          "missing": [],
+          "quality_signals": ["clarity"]
+        }
+      ],
+      "highlights": ["验证方向明确"],
+      "rationale": "回答指出了验证方向，但没有量化完成条件。",
+      "critique": "量化指标和验收阈值不足。",
+      "better_answer": "补充基线、不一致率、观察窗口和验收阈值。",
+      "references": []
+    }
+  ]
+}

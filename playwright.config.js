@@ -5,6 +5,11 @@ const path = require("path");
 
 const externalWebServer = process.env.PLAYWRIGHT_EXTERNAL_WEB_SERVER === "true";
 const baseURL = process.env.PLAYWRIGHT_BASE_URL || "http://127.0.0.1:4173";
+const jsonOutputFile = process.env.PLAYWRIGHT_JSON_OUTPUT_FILE;
+const reporters = [["list"]];
+if (jsonOutputFile) {
+  reporters.push(["json", { outputFile: path.resolve(jsonOutputFile) }]);
+}
 if (!process.env.AGENT_TRACE_DIR) {
   process.env.AGENT_TRACE_DIR = fs.mkdtempSync(
     path.join(os.tmpdir(), "stage43-agent-traces-"),
@@ -17,7 +22,7 @@ module.exports = defineConfig({
   fullyParallel: false,
   workers: 1,
   retries: 0,
-  reporter: [["list"]],
+  reporter: reporters,
   use: {
     baseURL,
     trace: "retain-on-failure",

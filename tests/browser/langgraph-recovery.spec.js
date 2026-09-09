@@ -10,6 +10,22 @@ async function seed(request, mode) {
   return response.json();
 }
 
+async function seedRealV3(request, mode = "basic") {
+  const response = await request.post(`/test-support/langgraph-v3/${mode}`);
+  expect(response.status()).toBe(202);
+  return response.json();
+}
+
+async function waitForV3Question(request, sessionId, questionId = "q1") {
+  await expect.poll(async () => {
+    const response = await request.get(`/api/interviews/${sessionId}`);
+    if (response.status() !== 200) return null;
+    const snapshot = await response.json();
+    return snapshot.current_question?.id;
+  }).toBe(questionId);
+  return (await request.get(`/api/interviews/${sessionId}`)).json();
+}
+
 async function seedDurableReview(request, status) {
   const response = await request.post(`/test-support/reports/${status}`);
   expect(response.status()).toBe(200);
@@ -70,6 +86,116 @@ test("langgraph-v2 durable dispatch resumes an active generation", async ({ page
   await expect(page.locator(".agent-console")).toContainText(
     "Recovered after refresh.",
   );
+  await request.delete(`/test-support/langgraph/${sessionId}`);
+});
+
+test("real V3 bootstrap completes asynchronously without an SSE subscriber", async ({ request }) => {
+  const accepted = await seedRealV3(request);
+  expect(accepted.status).toBe("preparing_first_question");
+  expect(accepted.workflow_engine).toBe("langgraph-v3");
+
+  const snapshot = await waitForV3Question(request, accepted.session_id);
+  expect(snapshot.status).toBe("active");
+  expect(snapshot.workflow_engine).toBe("langgraph-v3");
+  expect(snapshot.current_question.prompt).toContain("Redis");
+  for (const intent of snapshot.plan_snapshot.questions) {
+    expect(intent).not.toHaveProperty("prompt");
+    expect(intent).not.toHaveProperty("text");
+    expect(intent).not.toHaveProperty("question_text");
+  }
+
+  const stats = await (
+    await request.get(`/test-support/langgraph/${accepted.session_id}/stats`)
+  ).json();
+  expect(stats.graph_executed).toBe(true);
+  expect(stats.graph_schema_version).toBe("langgraph-v3");
+  expect(stats.next_nodes).toEqual(["wait_for_answer"]);
+  expect(stats.rendered_questions.q1.text).toBe(snapshot.current_question.prompt);
+  await request.delete(`/test-support/langgraph/${accepted.session_id}`);
+});
+
+test("real V3 reveals only a committed question and survives refresh", async ({ page, request }) => {
+  const { session_id: sessionId } = await seedRealV3(request);
+  await page.goto(`/interview?session_id=${sessionId}`);
+
+  const heading = page.locator("#current-question-title");
+  await expect(heading).toContainText("Redis");
+  const before = await (await request.get(`/api/interviews/${sessionId}`)).json();
+  const stats = await (
+    await request.get(`/test-support/langgraph/${sessionId}/stats`)
+  ).json();
+  expect(stats.rendered_questions.q1.generation_id).toBe(
+    before.current_question.generation_id,
+  );
+
+  await page.reload();
+  await expect(heading).toHaveText(before.current_question.prompt);
+  await expect(page.getByLabel("你的回答")).toBeEnabled();
+  await request.delete(`/test-support/langgraph/${sessionId}`);
+});
+
+test("real V3 answer and skip generate the next main questions and reconnect on refresh", async ({ page, request }) => {
+  const { session_id: sessionId } = await seedRealV3(request);
+  await page.goto(`/interview?session_id=${sessionId}`);
+  const heading = page.locator("#current-question-title");
+  await expect(heading).toContainText("Redis");
+
+  await page.getByLabel("你的回答").fill(
+    "我会使用事务消息、补偿任务和定期对账，并为重复投递设计幂等键。",
+  );
+  await page.getByRole("button", { name: "提交回答" }).click();
+  await expect(heading).toContainText("RocketMQ");
+
+  await page.getByRole("button", { name: "跳过此题" }).click();
+  await page.getByRole("button", { name: "确认跳过此题" }).click();
+  await expect(heading).toContainText("十倍流量");
+  await page.reload();
+  await expect(heading).toContainText("十倍流量");
+
+  const snapshot = await (await request.get(`/api/interviews/${sessionId}`)).json();
+  expect(snapshot.current_question.id).toBe("q3");
+  expect(snapshot.questions[0].state).toBe("answered");
+  expect(snapshot.questions[1].state).toBe("skipped");
+  const stats = await (
+    await request.get(`/test-support/langgraph/${sessionId}/stats`)
+  ).json();
+  expect(stats.command_count).toBe(2);
+  expect(stats.candidate_message_count).toBe(1);
+  expect(stats.next_nodes).toEqual(["wait_for_answer"]);
+  await request.delete(`/test-support/langgraph/${sessionId}`);
+});
+
+test("real V3 commits a safe fallback when main-question generation times out", async ({ request }) => {
+  const { session_id: sessionId } = await seedRealV3(request, "fallback");
+  const snapshot = await waitForV3Question(request, sessionId);
+  const stats = await (
+    await request.get(`/test-support/langgraph/${sessionId}/stats`)
+  ).json();
+  expect(snapshot.current_question.prompt.length).toBeGreaterThan(10);
+  expect(stats.rendered_questions.q1.render_mode).toBe("fallback");
+  expect(stats.rendered_questions.q1.fallback_reason_code).toBe("provider_timeout");
+  expect(stats.rendered_questions.q1.fallback_used).toBe(true);
+  await request.delete(`/test-support/langgraph/${sessionId}`);
+});
+
+test("real V3 supports an early finish command", async ({ request }) => {
+  const { session_id: sessionId } = await seedRealV3(request);
+  const snapshot = await waitForV3Question(request, sessionId);
+  const response = await request.post(`/api/interviews/${sessionId}/finish`, {
+    data: {
+      expected_version: snapshot.state_version,
+      command_id: `v3-finish-${sessionId}`,
+    },
+  });
+  expect(response.status()).toBe(202);
+  await expect.poll(async () => (
+    await (await request.get(`/api/interviews/${sessionId}`)).json()
+  ).status).toBe("finished");
+  const stats = await (
+    await request.get(`/test-support/langgraph/${sessionId}/stats`)
+  ).json();
+  expect(stats.next_nodes).toEqual([]);
+  expect(stats.command_count).toBe(1);
   await request.delete(`/test-support/langgraph/${sessionId}`);
 });
 

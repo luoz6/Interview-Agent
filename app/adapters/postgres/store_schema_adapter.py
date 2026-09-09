@@ -42,7 +42,7 @@ class PostgresSessionSchemaAdapter:
                             session_id TEXT PRIMARY KEY,
                             plan_json JSONB NOT NULL,
                             current_index INTEGER NOT NULL DEFAULT 0,
-                            status TEXT NOT NULL CHECK (status IN ('active', 'finished')),
+                            status TEXT NOT NULL CHECK (status IN ('preparing_first_question', 'active', 'finished')),
                             job_description TEXT NOT NULL,
                             resume_text TEXT NOT NULL,
                             job_tags JSONB NOT NULL DEFAULT '[]'::jsonb,
@@ -117,7 +117,7 @@ class PostgresSessionSchemaAdapter:
                 )
                 cursor.execute(
                     sql.SQL(
-                        "ALTER TABLE {sessions} ADD COLUMN IF NOT EXISTS workflow_engine TEXT NOT NULL DEFAULT 'legacy' CHECK (workflow_engine IN ('legacy', 'langgraph-v1', 'langgraph-v2'))"
+                        "ALTER TABLE {sessions} ADD COLUMN IF NOT EXISTS workflow_engine TEXT NOT NULL DEFAULT 'legacy' CHECK (workflow_engine IN ('legacy', 'langgraph-v1', 'langgraph-v2', 'langgraph-v3'))"
                     ).format(sessions=sql.Identifier(self.sessions_table))
                 )
                 cursor.execute(

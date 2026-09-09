@@ -54,6 +54,24 @@ class ExaminerAgent:
             ),
         )
 
+    def generate_main_question_attempt(
+        self,
+        *,
+        intent,
+        conversation: list[dict[str, str]],
+        evidence: list[dict[str, str]] | None = None,
+        timeout_seconds: float | None = None,
+    ) -> str:
+        """Run one provider attempt; retry and fallback remain graph-owned."""
+
+        llm = self.llm or self._default_llm()
+        return llm.generate_main_question(
+            intent=intent,
+            conversation=conversation,
+            evidence=evidence or [],
+            timeout_seconds=timeout_seconds,
+        )
+
     def stream_followup(
         self,
         *,

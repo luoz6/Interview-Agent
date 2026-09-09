@@ -45,6 +45,10 @@ export function editableQuestions(serverPlan) {
   }));
 }
 
+export function isIntentPlan(serverPlan) {
+  return serverPlan?.plan?.schema_version === "interview-plan-v3";
+}
+
 export function createPlanEditorState(serverPlan = null) {
   return {
     serverPlan: clone(serverPlan),
@@ -67,6 +71,10 @@ export function questionDraft(state, question) {
         ? question.question_text
         : local.question_text,
     focus: local.focus === undefined ? question.focus : local.focus,
+    assessment_goals:
+      local.assessment_goals === undefined
+        ? question.assessment_goals || []
+        : local.assessment_goals,
   };
 }
 
@@ -99,14 +107,17 @@ export function planEditorStatus(state) {
 
 export function copyableLocalDraft(state) {
   const questions = editableQuestions(state.serverPlan);
+  const intentPlan = isIntentPlan(state.serverPlan);
   const lines = questions
     .filter((question) => state.localDrafts[question.question_id])
     .map((question) => {
       const draft = questionDraft(state, question);
       return [
         "第 " + question.position + " 题",
-        "问题：" + draft.question_text,
-        "考察重点：" + draft.focus,
+        intentPlan ? "考察方向：" + draft.focus : "问题：" + draft.question_text,
+        intentPlan
+          ? "观察目标：" + draft.assessment_goals.join("、")
+          : "考察重点：" + draft.focus,
       ].join("\n");
     });
   return lines.join("\n\n");
@@ -136,10 +147,17 @@ export function interviewPlanReducer(state, action) {
         nextDraft.focus === undefined
           ? serverQuestion?.focus
           : nextDraft.focus;
+      const effectiveAssessmentGoals =
+        nextDraft.assessment_goals === undefined
+          ? serverQuestion?.assessment_goals || []
+          : nextDraft.assessment_goals;
       if (
         serverQuestion &&
         effectiveQuestionText === serverQuestion.question_text &&
-        effectiveFocus === serverQuestion.focus
+        effectiveFocus === serverQuestion.focus &&
+        JSON.stringify(effectiveAssessmentGoals) === JSON.stringify(
+          serverQuestion.assessment_goals || [],
+        )
       ) {
         const localDrafts = { ...state.localDrafts };
         delete localDrafts[action.questionId];

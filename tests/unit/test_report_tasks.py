@@ -775,7 +775,7 @@ def test_execute_report_generation_applies_quality_gate_to_valid_fallback(
     assert trace_files == []
 
 
-def test_run_report_generation_marks_failed_status_when_execution_raises():
+def test_run_report_generation_publishes_safe_fallback_when_coach_raises():
     class ExplodingLLM(ReportLLM):
         def generate_report(
             self,
@@ -798,9 +798,11 @@ def test_run_report_generation_marks_failed_status_when_execution_raises():
         vector_store=FakeVectorStore(),
     )
 
-    assert report is None
-    assert store.saved_report is None
-    assert store.failed_error == "llm exploded"
+    assert report is not None
+    assert report.is_fallback is True
+    assert report.score_status == "unscored"
+    assert store.saved_report == report
+    assert store.failed_error is None
 
 
 def test_run_report_generation_marks_failed_for_unexpected_value_error(monkeypatch):
@@ -852,14 +854,14 @@ def test_generate_report_for_session_marks_failed_when_runtime_llm_init_fails(
     assert record.error == "report llm is unavailable"
 
 
-def test_generate_report_for_session_saves_failed_record_on_timeout():
+def test_generate_report_for_session_saves_safe_fallback_on_timeout(monkeypatch):
     class FakeVectorStore:
         def search(self, query_text: str, *, job_tags: list[str], source_types=None, limit=5):
             return []
 
     import app.services.report_tasks as report_tasks
 
-    report_tasks.get_knowledge_store = lambda: FakeVectorStore()
+    monkeypatch.setattr(report_tasks, "get_knowledge_store", lambda: FakeVectorStore())
     store = InterviewSessionStore(llm=ReportLLM(should_timeout=True))
     session = start_session(store)
     finish_session(store, session.session_id)
@@ -868,9 +870,10 @@ def test_generate_report_for_session_saves_failed_record_on_timeout():
     generate_report_for_session(session.session_id, store)
 
     record = store.get_report_record(session.session_id)
-    assert record.status == "failed"
-    assert record.error == "report generation timed out"
-    assert record.report is None
+    assert record.status == "completed"
+    assert record.error is None
+    assert record.report.is_fallback is True
+    assert record.report.score_status == "unscored"
 
 
 def test_generate_report_for_session_saves_failed_record_when_retrieval_is_unavailable():

@@ -51,7 +51,7 @@ test("independent React flow completes prep, SSE interview, report and PDF", asy
 
   await page.getByLabel("你的回答").fill("I used cache-aside and database fallback.");
   await page.getByRole("button", { name: "提交回答" }).click();
-  await expect(page.locator(".agent-console")).toContainText("trade-off");
+  await expect(page.locator(".agent-console")).toContainText("Explain Redis cache consistency.");
   await page.reload();
   await expect(page.locator(".agent-console")).toContainText("cache-aside");
 
@@ -62,9 +62,9 @@ test("independent React flow completes prep, SSE interview, report and PDF", asy
   await expect(page).toHaveURL(/\/report-detail\?session_id=/, { timeout: 15_000 });
   const reportBody = await (await request.get(`/api/interviews/${sessionId}/report`)).json();
   await expect(page.locator(".report-detail-score-mark")).toContainText(String(reportBody.overall_score));
-  await expect(page.locator(".report-detail-feedback-references").first()).toContainText(
-    "redis_consistency",
-  );
+  // Legacy `references` remain readable through the compatibility API, but
+  // the product UI only renders validated `knowledge_citations`.
+  await expect(page.locator(".report-detail-feedback-references")).toHaveCount(0);
 
   expect(reportBody.feedbacks[0].references.map((item) => item.chunk_id)).toEqual(["redis_consistency"]);
   const pdf = await request.get(`/api/interviews/${sessionId}/report.pdf`);
@@ -101,9 +101,7 @@ test("degraded knowledge is explicit and report completes without fake reference
   await expect(finishDialog).toBeVisible();
   await finishDialog.getByRole("button", { name: "确认结束面试" }).click();
   await expect(page).toHaveURL(/\/report-detail\?session_id=/, { timeout: 15_000 });
-  await expect(page.locator(".report-detail-feedback-references").first()).toContainText(
-    "没有可公开的知识引用",
-  );
+  await expect(page.locator(".report-detail-feedback-references")).toHaveCount(0);
   const reportBody = await (await request.get(`/api/interviews/${sessionId}/report`)).json();
   expect(reportBody.feedbacks[0].references).toEqual([]);
 });

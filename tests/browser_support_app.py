@@ -42,6 +42,7 @@ from app.services.report_microbatch import generate_microbatch_report
 from app.services.session import InterviewSessionStore
 from app.agents.examiner import fallback_followup
 from app.domain.interview.errors import SessionVersionConflict
+from tests.browser_v3_runtime import BrowserV3Harness, BrowserWorkflowRouter
 
 
 class BrowserTestLLM:
@@ -583,6 +584,7 @@ class BrowserKnowledgeStore:
                 "content": "Deterministic internal evidence.",
                 "source_type": "theory",
                 "domain": "redis",
+                "tags": ["redis", "consistency"],
                 "metadata": {
                     "content_sha256": content_hashes[evidence_id],
                     "corpus_manifest_sha256": manifest_hash,
@@ -873,6 +875,8 @@ publisher = NoopRuntimeEventPublisher()
 job_store = BrowserReportJobStore(store)
 durable_workflow = FakeDurableWorkflow(store)
 durable_workflow.report_job_store = job_store
+v3_harness = BrowserV3Harness(store)
+browser_workflow = BrowserWorkflowRouter(durable_workflow, v3_harness)
 
 original_report_job_dependency = api_dependencies.get_report_job_store
 original_report_queue_dependency = api_dependencies.get_report_job_queue
@@ -887,7 +891,7 @@ app.dependency_overrides[api_dependencies.get_plan_regenerator] = (
     lambda: ProviderPlanRegenerator(generate_browser_revision_replacement)
 )
 api_dependencies.get_report_job_store = lambda: job_store
-api_dependencies.get_interview_workflow_service = lambda: durable_workflow
+api_dependencies.get_interview_workflow_service = lambda: browser_workflow
 
 
 @app.get("/test-support/interviews/{session_id}/prep-run-id")
@@ -968,9 +972,38 @@ def seed_langgraph_interview(mode: str):
     }
 
 
+@app.post("/test-support/langgraph-v3/{mode}", status_code=202)
+def seed_real_langgraph_v3_interview(mode: str):
+    if mode not in {"basic", "fallback"}:
+        raise HTTPException(status_code=422, detail="unsupported V3 browser mode")
+    session_id = v3_harness.create_session(
+        browser_llm.generate_plan("Backend engineer", "Redis project"),
+        mode=mode,
+    )
+    return {
+        "session_id": session_id,
+        "status": "preparing_first_question",
+        "workflow_engine": "langgraph-v3",
+        "status_url": f"/api/interviews/{session_id}",
+        "stream_url": f"/api/interviews/{session_id}/bootstrap/stream",
+    }
+
+
 @app.get("/test-support/langgraph/{session_id}/stats")
 def langgraph_interview_stats(session_id: str):
     state = store.get(session_id)
+    if session_id in v3_harness.session_ids:
+        return {
+            **v3_harness.stats(session_id),
+            "status": state["status"],
+            "state_version": state["state_version"],
+            "candidate_message_count": sum(
+                1 for item in state["messages"] if item["role"] == "candidate"
+            ),
+            "interviewer_message_count": sum(
+                1 for item in state["messages"] if item["role"] == "interviewer"
+            ),
+        }
     commands = [
         command_id
         for command_id, value in durable_workflow.command_sessions.items()
@@ -993,6 +1026,12 @@ def langgraph_interview_stats(session_id: str):
 
 @app.delete("/test-support/langgraph/{session_id}")
 def delete_seeded_langgraph_interview(session_id: str):
+    if session_id in v3_harness.session_ids:
+        v3_harness.delete(session_id)
+        store._reports.pop(session_id, None)
+        store._question_evaluations.pop(session_id, None)
+        store._sessions.pop(session_id, None)
+        return {"session_id": session_id, "deleted": True}
     command_ids = [
         command_id
         for command_id, value in durable_workflow.command_sessions.items()

@@ -996,3 +996,60 @@
   .start-plan-evidence-content,
   .start-plan-evidence-caret { animation: none; transition: none; }
 }
+
+.start-intent-goals {
+  display: grid;
+  gap: var(--start-space-2xs);
+  margin: var(--start-space-xs) 0 0;
+  padding: 0;
+  border: 0;
+}
+
+.start-intent-goals legend {
+  margin-bottom: var(--start-space-2xs);
+  color: var(--start-color-text-muted);
+  font-size: var(--start-text-micro);
+  font-weight: var(--start-font-weight-semibold);
+}
+
+.start-intent-goals > div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--start-space-3xs);
+}
+
+.start-intent-goals label {
+  display: inline-flex;
+  align-items: center;
+  min-height: 2rem;
+  padding: 0 var(--start-space-2xs);
+  border: var(--start-rule-thin) solid var(--start-color-rule);
+  border-radius: var(--start-radius-control);
+  background: var(--start-color-surface);
+  color: var(--start-color-text-muted);
+  cursor: pointer;
+}
+
+.start-intent-goals label[data-selected="true"] {
+  border-color: var(--start-color-action);
+  background: var(--start-color-surface-secondary);
+  color: var(--start-color-action-active);
+}
+
+.start-intent-goals input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+}
+
+.start-intent-goals label:has(input:focus-visible) {
+  outline: var(--start-rule-focus) solid var(--start-color-focus);
+  outline-offset: 2px;
+}
+
+.start-intent-goals label:has(input:disabled) {
+  cursor: not-allowed;
+  opacity: .48;
+}

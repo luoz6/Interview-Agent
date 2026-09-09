@@ -45,6 +45,7 @@ from app.services.prep import (
     InterviewQuestion,
     public_interview_plan_v2_payload,
 )
+from app.runtime.config.environment import environment_value
 from app.services.interview_plan_revision import InterviewPlanV2
 from app.services.question_evaluations import QuestionEvaluationRecord
 from app.services.report import InterviewReport, ReportProgress, ReportRecord
@@ -78,12 +79,23 @@ class InterviewSessionStore:
             retention_policy or InMemorySessionRetentionPolicy()
         )
         self._clock = clock or (lambda: datetime.now(timezone.utc))
+        examiner = None
+        if environment_value("AGENT_TRANSPORT", "local").strip().lower() == "a2a":
+            from app.a2a.bridge import ExaminerAgentBridge
+            from app.a2a.runtime import build_local_a2a_runtime
+
+            a2a_runtime = build_local_a2a_runtime(
+                llm=llm,
+                execution_runner=execution_runner,
+            )
+            examiner = ExaminerAgentBridge(a2a_runtime.invoker)
         self._runner = InterviewGraphRunner(
             llm=llm,
             knowledge_binding_resolver=KnowledgeBindingResolver(
                 knowledge_repository
             ),
             execution_runner=execution_runner,
+            examiner=examiner,
         )
         self._orchestrator = OrchestratorAgent(
             llm=llm,

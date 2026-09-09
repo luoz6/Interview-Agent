@@ -137,6 +137,7 @@ Ubuntu 24.04 使用 `requirements-linux.lock.txt`，不要使用 Windows lock。
 $env:OPENAI_API_KEY="<provider-key>"
 $env:OPENAI_BASE_URL="https://api.deepseek.com"
 $env:OPENAI_MODEL="deepseek-chat"
+$env:LLM_CONTEXT_WINDOW_TOKENS="128000"
 ```
 
 即使使用 DeepSeek-compatible Provider，配置名仍为 `OPENAI_API_KEY`。

@@ -86,6 +86,7 @@ _RUNTIME_DERIVED_SUFFIXES = (
     "agent_runs_agent_status_started_idx",
     "agent_runs_agent_operation_started_idx",
     "generations_session_source_idx",
+    "generations_jit_lineage_check",
     "generation_chunks_replay_idx",
     "workflow_commands_answer_payload_check",
     "workflow_commands_status_updated_idx",

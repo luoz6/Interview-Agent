@@ -49,7 +49,7 @@ class AcceptedInterviewCommand(BaseModel):
     session_id: str
     command_id: str
     status: Literal["pending"] = "pending"
-    workflow_engine: Literal["langgraph-v1", "langgraph-v2"] = "langgraph-v1"
+    workflow_engine: Literal["langgraph-v1", "langgraph-v2", "langgraph-v3"] = "langgraph-v1"
     stream_url: str
 
 
@@ -83,6 +83,48 @@ class InterviewGenerationResetEvent(BaseModel):
             self.model_dump(exclude={"event"}),
             event_id,
         )
+
+
+class QuestionRevealResetEvent(BaseModel):
+    """Committed-text reveal event used by the first JIT SSE protocol."""
+
+    event: Literal["question_reveal_reset"] = "question_reveal_reset"
+    question_id: str
+    generation_id: str
+    attempt_number: int = Field(default=0, exclude=True)
+
+    def to_sse(self) -> str:
+        return _format_sse(
+            self.event,
+            self.model_dump(exclude={"event"}),
+            f"{self.generation_id}:{self.attempt_number}:0",
+        )
+
+
+class QuestionRevealChunkEvent(BaseModel):
+    event: Literal["question_reveal_chunk"] = "question_reveal_chunk"
+    question_id: str
+    generation_id: str
+    sequence: int
+    delta: str
+    attempt_number: int = Field(default=0, exclude=True)
+
+    def to_sse(self) -> str:
+        return _format_sse(
+            self.event,
+            self.model_dump(exclude={"event"}),
+            f"{self.generation_id}:{self.attempt_number}:{self.sequence}",
+        )
+
+
+class QuestionRevealDoneEvent(BaseModel):
+    event: Literal["question_reveal_done"] = "question_reveal_done"
+    question_id: str
+    generation_id: str
+    state_version: int
+
+    def to_sse(self) -> str:
+        return _format_sse(self.event, self.model_dump(exclude={"event"}))
 
 
 def _format_sse(

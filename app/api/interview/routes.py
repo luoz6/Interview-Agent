@@ -44,7 +44,7 @@ from app.domain.interview.errors import SessionDeletingError, SessionVersionConf
 from app.services.agent_runtime import correlation_id_from_plan
 from app.services.interview_launch import InterviewLaunchCoordinator
 from app.services.interview_knowledge_scope import InterviewKnowledgeScopeError
-from app.services.interview_plan_revision import v2_plan_to_legacy
+from app.services.interview_plan_revision import InterviewPlanV3, v2_plan_to_legacy
 from app.services.interview_plan_revision_store import (
     PlanRevisionNotFound,
     PlanSourceUnavailable,
@@ -64,6 +64,7 @@ from app.runtime.config.compatibility import (
     get_interview_langgraph_rollout_percent,
     get_runtime_store,
 )
+from app.runtime.config.environment import environment_value
 
 
 router = APIRouter()
@@ -389,6 +390,8 @@ def _start_interview_locked(
                 owner_type="session",
                 owner_id=turn.session_id,
             )
+            if isinstance(revision.plan, InterviewPlanV3):
+                return _v3_start_response(turn.session_id)
             return _turn_to_dict(turn)
         latest = revision_store.get_latest(revision.plan_family_id)
         if latest.plan_revision_id != revision.plan_revision_id:
@@ -433,7 +436,26 @@ def _start_interview_locked(
             principal_memory_mode=payload.principal_memory_mode,
             owner_principal_id=scope_owner_principal_id,
         )
-        plan = v2_plan_to_legacy(revision.plan)
+        is_v3 = isinstance(revision.plan, InterviewPlanV3)
+        jit_enabled = str(
+            environment_value(
+                "INTERVIEW_JIT_MAIN_QUESTION_ENABLED", "false"
+            )
+        ).strip().lower() == "true"
+        if is_v3 and not jit_enabled:
+            raise HTTPException(
+                status_code=503,
+                detail="JIT main-question session creation is disabled",
+            )
+        if is_v3 and not (
+            get_runtime_store() == "postgres"
+            and get_interview_langgraph_rollout_percent() > 0
+        ):
+            raise HTTPException(
+                status_code=503,
+                detail="langgraph-v3 runtime is unavailable",
+            )
+        plan = revision.plan if is_v3 else v2_plan_to_legacy(revision.plan)
         revision_store.add_source_reference(
             revision.source_id,
             owner_type="session",
@@ -444,7 +466,7 @@ def _start_interview_locked(
                 session_id=session_id,
                 mode=payload.principal_memory_mode,
             )
-            if (
+            if is_v3 or (
                 get_runtime_store() == "postgres"
                 and get_interview_langgraph_rollout_percent() > 0
             ):
@@ -455,6 +477,7 @@ def _start_interview_locked(
                     job_tags=list(source_payload.job_tags),
                     plan_binding=plan_binding,
                     session_id=session_id,
+                    bootstrap=not is_v3,
                 )
             else:
                 turn = store.start(
@@ -497,7 +520,24 @@ def _start_interview_locked(
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+    if is_v3:
+        return _v3_start_response(session_id)
     return _turn_to_dict(turn)
+
+
+def _v3_start_response(session_id: str) -> JSONResponse:
+    snapshot = dependencies.get_interview_workflow_service().snapshot(session_id)
+    return JSONResponse(
+        status_code=202,
+        content={
+            "session_id": session_id,
+            "status": snapshot.get("status", "preparing_first_question"),
+            "stream_url": f"/api/interviews/{session_id}/bootstrap/stream",
+            "status_url": f"/api/interviews/{session_id}",
+            "workflow_engine": "langgraph-v3",
+            "current_question": snapshot.get("current_question"),
+        },
+    )
 
 
 def _validate_interview_knowledge_scope_for_start(
@@ -889,6 +929,77 @@ def stream_interview_command(
             "X-Accel-Buffering": "no",
         },
     )
+
+
+@router.get("/interviews/{session_id}/bootstrap/stream")
+def stream_interview_bootstrap(
+    session_id: str,
+    store: InterviewSessionRepository = Depends(dependencies.get_session_store),
+):
+    """Observe and replay the recoverable V3 first-question bootstrap."""
+
+    try:
+        state = store.get(session_id)
+        _raise_if_deleting(state)
+        if state.get("workflow_engine") != "langgraph-v3":
+            raise HTTPException(
+                status_code=409,
+                detail="bootstrap stream requires langgraph-v3",
+            )
+    except ValueError as exc:
+        _raise_value_error(exc)
+    workflow = dependencies.get_interview_workflow_service()
+
+    def events():
+        import json
+        import time
+
+        yield "event: status\ndata: {\"stage\":\"main_question_generation\"}\n\n"
+        try:
+            deadline = time.monotonic() + 35.0
+            snapshot = workflow.snapshot(session_id)
+            while (
+                snapshot.get("status") == "preparing_first_question"
+                and time.monotonic() < deadline
+            ):
+                # Bootstrap is owned by the committed outbox event.  This
+                # endpoint only waits for and replays the durable projection.
+                time.sleep(0.1)
+                snapshot = workflow.snapshot(session_id)
+            rendered = snapshot.get("current_question") or {}
+            generation_id = rendered.get("generation_id") or (
+                f"bootstrap-{session_id}"
+            )
+            question_id = rendered.get("id")
+            text = rendered.get("prompt")
+            if not question_id or not text:
+                yield (
+                    "event: error\ndata: "
+                    '{"code":"bootstrap_pending","retryable":true}\n\n'
+                )
+                return
+            payload = {"question_id": question_id, "generation_id": generation_id}
+            yield "event: question_reveal_reset\ndata: " + json.dumps(
+                payload, ensure_ascii=False
+            ) + "\n\n"
+            yield "event: question_reveal_chunk\ndata: " + json.dumps(
+                {**payload, "sequence": 1, "delta": text}, ensure_ascii=False
+            ) + "\n\n"
+            yield "event: question_reveal_done\ndata: " + json.dumps(
+                {
+                    **payload,
+                    "state_version": snapshot.get("state_version", 0),
+                },
+                ensure_ascii=False,
+            ) + "\n\n"
+        except Exception:
+            yield "event: error\ndata: {\"code\":\"bootstrap_failed\"}\n\n"
+
+    return StreamingResponse(
+        events(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
 __all__ = [
     "_publish_round_closed_event",
     "delete_interview_draft",
@@ -904,6 +1015,7 @@ __all__ = [
     "skip_interview_question",
     "start_interview",
     "stream_interview_command",
+    "stream_interview_bootstrap",
     "submit_answer",
     "submit_answer_stream",
 ]

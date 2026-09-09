@@ -58,6 +58,7 @@ class A2ATask(BaseModel):
     causation_id: str | None = None
     parent_run_id: str | None = None
     command_id: str | None = None
+    idempotency_key: str | None = None
 
 
 class A2AResult(BaseModel):

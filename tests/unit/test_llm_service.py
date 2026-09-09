@@ -1,5 +1,6 @@
 import asyncio
 import hashlib
+import inspect
 import json
 import sys
 from types import SimpleNamespace
@@ -15,16 +16,22 @@ from app.services.llm import (
     PLAN_MAX_PROVIDER_INVOCATIONS,
     PLAN_MAX_QUALITY_REPAIR_ROUNDS,
     PLAN_MAX_TRANSPORT_ATTEMPTS,
+    PLAN_GENERATION_PROMPT_SHA256,
+    PLAN_GENERATION_PROMPT_VERSION,
     PLAN_QUALITY_REPAIR_PROMPT_SHA256,
     PLAN_QUALITY_REPAIR_PROMPT_TEMPLATE,
     PLAN_QUALITY_REPAIR_PROMPT_VERSION,
     PLAN_SDK_MAX_RETRIES,
     resolve_plan_output_mode,
+    resolve_report_output_mode,
+    verify_plan_generation_prompt_identity,
 )
 from app.services.model_capabilities import ContextConfigurationError
 from app.services.interview_plan_revision import PlanConfigurationSnapshot
 from app.services.prep import (
+    bind_prepared_plan_revision,
     InterviewPlan,
+    InterviewIntentDraftPlan,
     InterviewQuestion,
     PlanGenerationValidationError,
 )
@@ -72,6 +79,19 @@ def test_plan_generation_retry_and_round_constants_freeze_transport_ceiling():
     assert PLAN_MAX_TRANSPORT_ATTEMPTS == PLAN_MAX_PROVIDER_INVOCATIONS * (
         PLAN_SDK_MAX_RETRIES + 1
     )
+
+
+def test_plan_generation_prompt_identity_uses_frozen_source_rule():
+    expected = hashlib.sha256(
+        (
+            f"{PLAN_GENERATION_PROMPT_VERSION}\n"
+            f"{inspect.getsource(OpenAIInterviewLLM._build_plan_prompt)}"
+        ).encode("utf-8")
+    ).hexdigest()
+
+    assert PLAN_GENERATION_PROMPT_VERSION == "plan-generation-v3"
+    assert PLAN_GENERATION_PROMPT_SHA256 == expected
+    assert verify_plan_generation_prompt_identity() == expected
 
 
 def test_llm_config_rejects_sdk_retry_count_above_frozen_ceiling(monkeypatch):
@@ -252,6 +272,27 @@ def test_report_output_mode_can_be_selected_from_environment(monkeypatch):
     assert llm.report_output_mode == "raw_only"
 
 
+def test_report_output_defaults_to_raw_only_for_deepseek_v4_pro(monkeypatch):
+    monkeypatch.delenv("OPENAI_REPORT_OUTPUT_MODE", raising=False)
+
+    assert resolve_report_output_mode("deepseek-v4-pro") == "raw_only"
+    assert resolve_report_output_mode("other-model") == "structured_first"
+
+
+def test_report_output_environment_can_override_model_default(monkeypatch):
+    monkeypatch.setenv("OPENAI_REPORT_OUTPUT_MODE", "structured_first")
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+    monkeypatch.setenv("OPENAI_MODEL", "deepseek-v4-pro")
+
+    # Chat model construction is intentionally bypassed; the mode selection
+    # remains covered by the explicit constructor contract in production.
+    llm = OpenAIInterviewLLM(
+        config=LLMConfig(api_key="test-key", model="deepseek-v4-pro"),
+        chat_model=FakeChatModel(),
+    )
+    assert llm.report_output_mode == "structured_first"
+
+
 def test_llm_config_uses_deepseek_default_model(monkeypatch):
     monkeypatch.setenv("OPENAI_API_KEY", "test-key")
     monkeypatch.delenv("OPENAI_MODEL", raising=False)
@@ -430,6 +471,66 @@ def test_openai_interview_llm_uses_structured_output_for_plan():
     assert chat_model.method == "json_schema"
 
 
+def test_jit_plan_generation_requests_native_intents_without_final_questions(
+    monkeypatch,
+):
+    monkeypatch.setenv("INTERVIEW_JIT_MAIN_QUESTION_ENABLED", "true")
+    payload = {
+        "title": "Intent-only backend interview",
+        "questions": [
+            {
+                "id": "q1",
+                "kind": "project",
+                "focus": "Redis 库存扣减与最终一致性",
+                "difficulty": "advanced",
+                "assessment_goals": ["failure_mode", "recovery", "tradeoff"],
+            },
+            {
+                "id": "q2",
+                "kind": "technical",
+                "focus": "RocketMQ 重试与幂等消费",
+                "difficulty": "advanced",
+                "assessment_goals": ["implementation_depth", "reliability"],
+            },
+            {
+                "id": "q3",
+                "kind": "system-design",
+                "focus": "库存链路的故障隔离与恢复",
+                "difficulty": "advanced",
+                "assessment_goals": ["scale", "recovery", "observability"],
+            },
+        ],
+    }
+    chat_model = FallbackPlanChatModel(json.dumps(payload, ensure_ascii=False))
+    llm = OpenAIInterviewLLM(
+        config=LLMConfig(
+            api_key="injected-chat-model",
+            plan_output_mode="raw_only",
+        ),
+        chat_model=chat_model,
+    )
+
+    plan = llm.generate_plan(
+        "Backend JD",
+        "Redis RocketMQ resume",
+        intent_only=True,
+    )
+    bound = bind_prepared_plan_revision(plan)
+
+    assert plan._intent_draft_questions
+    assert bound._revision_plan.schema_version == "interview-plan-v3"
+    assert bound._revision_plan.questions[0].assessment_goals == (
+        "failure_mode",
+        "recovery",
+        "tradeoff",
+    )
+    serialized = bound._revision_plan.model_dump(mode="json")
+    assert "prompt" not in json.dumps(serialized, ensure_ascii=False)
+    assert '"prompt"' not in chat_model.last_prompt
+    assert "Do not write any final interview question" in chat_model.last_prompt
+    assert InterviewIntentDraftPlan.__name__ not in chat_model.last_prompt
+
+
 def test_openai_plan_prompt_accepts_safe_knowledge_context():
     llm = OpenAIInterviewLLM(chat_model=FakeChatModel())
 
@@ -560,11 +661,23 @@ def test_raw_only_plan_repairs_one_structurally_valid_hard_quality_failure():
         chat_model=chat_model,
     )
 
+    reset_provider_context_metadata()
     plan = llm.generate_plan("Backend JD", "Backend resume")
+    metadata = consume_provider_context_metadata()
 
     assert plan.questions[0].prompt.startswith("In your backend project")
     assert chat_model.raw_invoke_count == 2
     assert chat_model.structured_invoke_count == 0
+    assert metadata["initial_hard_finding_codes"] == ["overloaded_multi_ask"]
+    assert metadata["quality_repair_triggered"] is True
+    assert metadata["quality_repair_succeeded"] is True
+    assert metadata["post_repair_hard_finding_codes"] == []
+    assert metadata["quality_repair_prompt_version"] == (
+        PLAN_QUALITY_REPAIR_PROMPT_VERSION
+    )
+    assert metadata["quality_repair_prompt_sha256"] == (
+        PLAN_QUALITY_REPAIR_PROMPT_SHA256
+    )
 
 
 def test_plan_quality_repair_request_excludes_raw_sources_and_freezes_prompt():
@@ -595,6 +708,10 @@ def test_plan_quality_repair_request_excludes_raw_sources_and_freezes_prompt():
         "Question contains multiple independently assessable asks."
         in repair_prompt
     )
+    assert "exactly one primary assessment objective" in repair_prompt
+    assert "at most one question mark" in repair_prompt
+    assert "no numbered subquestions" in repair_prompt
+    assert "no more than two assessment verbs" in repair_prompt
     assert "Job description:" not in repair_prompt
     assert "Resume:" not in repair_prompt
     assert hashlib.sha256(
@@ -614,8 +731,10 @@ def test_second_hard_quality_failure_returns_existing_quality_error_without_thir
         chat_model=chat_model,
     )
 
+    reset_provider_context_metadata()
     with pytest.raises(PlanGenerationValidationError) as rejected:
         llm.generate_plan("Backend JD", "Backend resume")
+    metadata = consume_provider_context_metadata()
 
     assert rejected.value.code == "overloaded_multi_ask"
     assert str(rejected.value) == (
@@ -623,6 +742,49 @@ def test_second_hard_quality_failure_returns_existing_quality_error_without_thir
     )
     assert chat_model.raw_invoke_count == 2
     assert chat_model.structured_invoke_count == 0
+    assert metadata["initial_hard_finding_codes"] == ["overloaded_multi_ask"]
+    assert metadata["quality_repair_triggered"] is True
+    assert metadata["quality_repair_succeeded"] is False
+    assert metadata["post_repair_hard_finding_codes"] == [
+        "overloaded_multi_ask"
+    ]
+
+
+def test_schema_failure_after_repair_trigger_keeps_outcome_unknown():
+    invalid_repair = json.dumps(
+        {
+            "title": "invalid repaired plan",
+            "questions": [
+                {
+                    "id": "q1",
+                    "kind": "unsupported",
+                    "prompt": "Question?",
+                    "focus": "focus",
+                }
+            ],
+        }
+    )
+    chat_model = SequentialPlanChatModel(
+        [serialized_plan(overloaded=True), invalid_repair]
+    )
+    llm = OpenAIInterviewLLM(
+        config=LLMConfig(
+            api_key="injected-chat-model",
+            plan_output_mode="raw_only",
+        ),
+        chat_model=chat_model,
+    )
+    reset_provider_context_metadata()
+
+    with pytest.raises(ValueError, match="schema validation failed"):
+        llm.generate_plan("Backend JD", "Backend resume")
+    metadata = consume_provider_context_metadata()
+
+    assert chat_model.raw_invoke_count == 2
+    assert metadata["initial_hard_finding_codes"] == ["overloaded_multi_ask"]
+    assert metadata["quality_repair_triggered"] is True
+    assert metadata["quality_repair_succeeded"] is None
+    assert metadata["post_repair_hard_finding_codes"] is None
 
 
 def test_structured_fallback_quality_repair_never_exceeds_four_provider_invocations():
@@ -810,6 +972,10 @@ def test_raw_only_plan_publishes_one_complete_provider_usage_record():
     assert metadata["provider_input_tokens"] == 120
     assert metadata["provider_output_tokens"] == 30
     assert metadata["provider_cached_input_tokens"] == 20
+    assert metadata["initial_hard_finding_codes"] == []
+    assert metadata["quality_repair_triggered"] is False
+    assert metadata["quality_repair_succeeded"] is None
+    assert metadata["post_repair_hard_finding_codes"] is None
     assert chat_model.invoke_count == 1
 
 

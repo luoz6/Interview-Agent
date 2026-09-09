@@ -2,6 +2,9 @@ from __future__ import annotations
 
 from typing import Literal
 
+import httpx
+import openai
+
 from app.runtime.reliability import (
     DEFAULT_RETRY_POLICY,
     ErrorRule,
@@ -121,18 +124,36 @@ RUNTIME_ERROR_TAXONOMY = ErrorTaxonomy(
             RuntimeFailure("review_effect_conflict", False),
         ),
         ErrorRule(
-            (ReportGenerationTimeout, TimeoutError),
+            (
+                ReportGenerationTimeout,
+                TimeoutError,
+                httpx.TimeoutException,
+                openai.APITimeoutError,
+            ),
             RuntimeFailure("provider_timeout", True),
+        ),
+        ErrorRule(
+            (openai.RateLimitError,),
+            RuntimeFailure("provider_rate_limited", True),
+        ),
+        ErrorRule(
+            (PermissionError, openai.AuthenticationError),
+            RuntimeFailure("provider_auth_failed", False),
         ),
         ErrorRule(
             (ReportOutputFormatError,),
             RuntimeFailure("invalid_provider_output", False),
         ),
         ErrorRule(
-            (ReportGenerationFailed, ConnectionError),
+            (
+                ReportGenerationFailed,
+                ConnectionError,
+                httpx.TransportError,
+                openai.APIConnectionError,
+                openai.APIStatusError,
+            ),
             RuntimeFailure("provider_unavailable", True),
         ),
-        ErrorRule((PermissionError,), RuntimeFailure("provider_auth_failed", False)),
         ErrorRule(
             (AssertionError, KeyError, ValueError, TypeError),
             RuntimeFailure("domain_validation_failed", False),

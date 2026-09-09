@@ -77,9 +77,13 @@ def test_latest_migration_contract_preserves_deletion_and_adds_row_versions():
         migration.migration_id == "question_memory_resolved_target_v1_v27"
         for migration in RUNTIME_MIGRATIONS
     )
+    assert any(
+        migration.migration_id == "row_serialization_versions_v1_v29"
+        for migration in RUNTIME_MIGRATIONS
+    )
     assert (
         LATEST_RUNTIME_MIGRATION.migration_id
-        == "row_serialization_versions_v1_v29"
+        == "interview_jit_main_question_v1_v30"
     )
     assert LATEST_RUNTIME_MIGRATION == RUNTIME_MIGRATIONS[-1]
     columns = required_columns_for_relation(

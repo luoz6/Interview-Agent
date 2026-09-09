@@ -40,14 +40,14 @@ from app.adapters.pgvector.repository import PgVectorKnowledgeStore
 from app.services.postgres_schema_contract import (
     LATEST_RUNTIME_MIGRATION,
     RUNTIME_MIGRATIONS,
-    RUNTIME_SCHEMA_V29_MANIFEST,
+    RUNTIME_SCHEMA_V30_MANIFEST,
     is_strict_positive_when_present_check,
 )
 from app.services.workflow_thread_lock import advisory_lock_key
 
 
 RUNTIME_MIGRATION_ID = LATEST_RUNTIME_MIGRATION.migration_id
-RUNTIME_MIGRATION_MANIFEST = RUNTIME_SCHEMA_V29_MANIFEST
+RUNTIME_MIGRATION_MANIFEST = RUNTIME_SCHEMA_V30_MANIFEST
 RUNTIME_MIGRATION_CHECKSUM = LATEST_RUNTIME_MIGRATION.checksum
 
 
@@ -356,6 +356,10 @@ def migrate_postgres_runtime(
                 table_prefix=table_prefix,
             )
             _upgrade_interview_workflow_engine_constraint(
+                connection,
+                table_prefix=table_prefix,
+            )
+            _upgrade_interview_session_status_constraint(
                 connection,
                 table_prefix=table_prefix,
             )
@@ -713,7 +717,7 @@ def _upgrade_interview_workflow_engine_constraint(
             sql.SQL(
                 "ALTER TABLE {sessions} ADD CONSTRAINT {constraint} "
                 "CHECK (workflow_engine IN "
-                "('legacy', 'langgraph-v1', 'langgraph-v2'))"
+                "('legacy', 'langgraph-v1', 'langgraph-v2', 'langgraph-v3'))"
             ).format(
                 sessions=sql.Identifier(sessions_table),
                 constraint=sql.Identifier(constraint_name),
@@ -787,6 +791,53 @@ def _upgrade_interview_memory_policy_constraint(
             sql.SQL(
                 "ALTER TABLE {sessions} ALTER COLUMN memory_policy_version SET DEFAULT 'deterministic-v1'"
             ).format(sessions=sql.Identifier(sessions_table))
+        )
+
+
+def _upgrade_interview_session_status_constraint(
+    connection: Any,
+    *,
+    table_prefix: str,
+) -> None:
+    """Admit the durable V3 bootstrap state without weakening other states."""
+
+    from psycopg2 import sql
+
+    sessions_table = f"{table_prefix}_sessions"
+    constraint_name = runtime_schema_identifier(
+        table_prefix, "sessions_status_check"
+    )
+    with connection.cursor() as cursor:
+        cursor.execute(
+            """
+            SELECT c.conname
+            FROM pg_constraint c
+            WHERE c.conrelid = to_regclass(%s)
+              AND c.contype = 'c'
+              AND pg_get_constraintdef(c.oid) ILIKE '%%status%%'
+              AND pg_get_constraintdef(c.oid) NOT ILIKE '%%phase_status%%'
+              AND pg_get_constraintdef(c.oid) NOT ILIKE '%%review_status%%'
+              AND pg_get_constraintdef(c.oid) NOT ILIKE '%%deletion_status%%'
+            """,
+            (f"public.{sessions_table}",),
+        )
+        for (existing_name,) in cursor.fetchall():
+            cursor.execute(
+                sql.SQL(
+                    "ALTER TABLE {sessions} DROP CONSTRAINT {constraint}"
+                ).format(
+                    sessions=sql.Identifier(sessions_table),
+                    constraint=sql.Identifier(existing_name),
+                )
+            )
+        cursor.execute(
+            sql.SQL(
+                "ALTER TABLE {sessions} ADD CONSTRAINT {constraint} "
+                "CHECK (status IN ('preparing_first_question','active','finished'))"
+            ).format(
+                sessions=sql.Identifier(sessions_table),
+                constraint=sql.Identifier(constraint_name),
+            )
         )
 
 

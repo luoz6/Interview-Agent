@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from copy import deepcopy
 from datetime import datetime, timedelta, timezone
-from threading import RLock, Thread, current_thread
+from threading import Event, RLock, Thread, current_thread
 from typing import Callable
 from uuid import uuid4
 
@@ -20,8 +20,16 @@ class InMemoryReportJobStore:
         runner: Callable[[dict], None] | None = None,
         on_enqueue: Callable[[str], None] | None = None,
         lease_seconds: int = 300,
+        heartbeat_interval_seconds: float | None = None,
     ) -> None:
         self.lease_seconds = lease_seconds
+        # Keep heartbeats comfortably ahead of both lease expiry and the API
+        # stall threshold.  A short cap matters for long-running model calls.
+        self.heartbeat_interval_seconds = (
+            heartbeat_interval_seconds
+            if heartbeat_interval_seconds is not None
+            else min(max(lease_seconds / 3, 0.1), 30.0)
+        )
         self._runner = runner
         self._on_enqueue = on_enqueue
         self._jobs: dict[str, dict] = {}
@@ -262,11 +270,20 @@ class InMemoryReportJobStore:
 
     def _run_job(self, job_id: str) -> None:
         current = current_thread()
+        heartbeat_stop = Event()
+        heartbeat_thread: Thread | None = None
         try:
             job = self._claim_job(job_id, worker_id="preview-report-worker")
             if job is None:
                 return
             assert self._runner is not None
+            heartbeat_thread = Thread(
+                target=self._heartbeat_loop,
+                args=(job, heartbeat_stop),
+                daemon=True,
+                name=f"preview-report-heartbeat-{job_id[:8]}",
+            )
+            heartbeat_thread.start()
             self._runner(job)
             self.mark_completed(job_id)
         except Exception as exc:
@@ -276,10 +293,22 @@ class InMemoryReportJobStore:
                 error_code=type(exc).__name__,
             )
         finally:
+            heartbeat_stop.set()
+            if heartbeat_thread is not None:
+                heartbeat_thread.join(timeout=1)
             # Finished daemon threads are harmless; prune all inactive entries.
             with self._lock:
                 self._threads = {thread for thread in self._threads if thread.is_alive()}
                 self._threads.discard(current)
+
+    def _heartbeat_loop(self, job: dict, stop: Event) -> None:
+        while not stop.wait(self.heartbeat_interval_seconds):
+            if not self.heartbeat(
+                job["job_id"],
+                worker_id=job["lease_owner"],
+                lease_token=job["lease_token"],
+            ):
+                return
 
     def _claim_job(self, job_id: str, *, worker_id: str) -> dict | None:
         with self._lock:

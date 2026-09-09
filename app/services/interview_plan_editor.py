@@ -22,6 +22,8 @@ from app.services.interview_plan_revision import (
     InterviewPlanQuestionV2,
     InterviewPlanRevision,
     InterviewPlanV2,
+    InterviewPlanV3,
+    InterviewPlanRevisionPayload,
     PlanQuestionType,
     canonical_sha256,
     plan_payload_sha256,
@@ -42,9 +44,11 @@ from app.services.interview_plan_revision_store import (
 PlanOperationName = Literal[
     "edit_question_text",
     "edit_focus",
+    "edit_assessment_goals",
     "move_question",
     "delete_question",
     "add_custom_question",
+    "add_custom_intent",
     "regenerate_question",
     "restore_revision",
     "regenerate_all",
@@ -60,18 +64,21 @@ class PlanOperation(BaseModel):
     focus: str | None = None
     to_position: int | None = Field(default=None, ge=1)
     question_type: PlanQuestionType | None = None
+    kind: PlanQuestionType | None = None
+    assessment_goals: tuple[str, ...] | None = None
     difficulty: Literal["foundation", "intermediate", "advanced"] | None = None
     expected_minutes: int | None = Field(default=None, ge=1, le=60)
     expected_followups: int | None = Field(default=None, ge=0, le=2)
     knowledge_binding: dict | None = None
     target_revision_id: str | None = None
-    regenerated_plan: InterviewPlanV2 | None = None
+    regenerated_plan: InterviewPlanV2 | InterviewPlanV3 | None = None
 
     @model_validator(mode="after")
     def validate_operation(self):
         required: dict[str, tuple[str, ...]] = {
             "edit_question_text": ("question_id", "question_text"),
             "edit_focus": ("question_id", "focus"),
+            "edit_assessment_goals": ("question_id", "assessment_goals"),
             "move_question": ("question_id", "to_position"),
             "delete_question": ("question_id",),
             "add_custom_question": (
@@ -79,6 +86,14 @@ class PlanOperation(BaseModel):
                 "focus",
                 "question_type",
                 "difficulty",
+                "expected_minutes",
+                "expected_followups",
+            ),
+            "add_custom_intent": (
+                "focus",
+                "kind",
+                "difficulty",
+                "assessment_goals",
                 "expected_minutes",
                 "expected_followups",
             ),
@@ -97,8 +112,8 @@ class PlanOperation(BaseModel):
         missing = [name for name in required[self.op] if getattr(self, name) is None]
         if missing:
             raise ValueError(f"{self.op} requires {', '.join(missing)}")
-        if self.op == "add_custom_question" and self.knowledge_binding is not None:
-            raise ValueError("custom questions cannot claim knowledge grounding")
+        if self.op in {"add_custom_question", "add_custom_intent"} and self.knowledge_binding is not None:
+            raise ValueError("custom plan items cannot claim knowledge grounding")
         return self
 
 
@@ -179,16 +194,17 @@ class InterviewPlanEditor:
                     exc.operation_index = index
                 raise
         try:
-            plan = InterviewPlanV2.model_validate(plan.model_dump(mode="json"))
+            plan_model = InterviewPlanV3 if isinstance(plan, InterviewPlanV3) else InterviewPlanV2
+            plan = plan_model.model_validate(plan.model_dump(mode="json"))
         except ValidationError as exc:
             raise PlanOperationValidationError(
                 "invalid_plan",
-                "edited plan violates the interview-plan-v2 schema",
+                "edited plan violates its versioned interview plan schema",
             ) from exc
         frozen_restore = all(
             operation.op == "restore_revision" for operation in request.operations
         )
-        if not frozen_restore:
+        if not frozen_restore and isinstance(plan, InterviewPlanV2):
             self._validate_duplicate_questions(plan)
             affected_refs = self._quality_affected_question_refs(
                 before=current.plan,
@@ -225,11 +241,11 @@ class InterviewPlanEditor:
     def _apply_one(
         self,
         plan_family_id: str,
-        plan: InterviewPlanV2,
+        plan: InterviewPlanRevisionPayload,
         operation: PlanOperation,
         *,
         allow_configuration_change: bool,
-    ) -> InterviewPlanV2:
+    ) -> InterviewPlanRevisionPayload:
         if operation.op == "restore_revision":
             target = self.store.get_by_id(operation.target_revision_id or "")
             if target.plan_family_id != plan_family_id:
@@ -249,6 +265,9 @@ class InterviewPlanEditor:
                     "configuration changes require the server-owned regeneration route",
                 )
             return synchronize_plan_knowledge_context(operation.regenerated_plan)
+
+        if isinstance(plan, InterviewPlanV3):
+            return self._apply_one_v3(plan, operation)
 
         questions = list(plan.questions)
         if operation.op in {
@@ -322,9 +341,99 @@ class InterviewPlanEditor:
             plan.model_copy(update={"questions": tuple(questions)})
         )
 
+    def _apply_one_v3(
+        self,
+        plan: InterviewPlanV3,
+        operation: PlanOperation,
+    ) -> InterviewPlanV3:
+        from app.domain.interview.question_intent import QuestionIntentV1
+
+        if operation.op in {
+            "edit_question_text",
+            "add_custom_question",
+            "regenerate_question",
+        }:
+            raise PlanOperationValidationError(
+                "final_question_not_editable",
+                "interview-plan-v3 stores assessment intent, not final question text",
+            )
+        questions = list(plan.questions)
+        if operation.op in {
+            "edit_focus",
+            "edit_assessment_goals",
+            "move_question",
+            "delete_question",
+        }:
+            index = self._question_index(questions, operation.question_id or "")
+        else:
+            index = -1
+
+        if operation.op == "edit_focus":
+            questions[index] = questions[index].model_copy(
+                update={"focus": operation.focus, "origin": "custom"}
+            )
+        elif operation.op == "edit_assessment_goals":
+            questions[index] = questions[index].model_copy(
+                update={
+                    "assessment_goals": operation.assessment_goals,
+                    "origin": "custom",
+                }
+            )
+        elif operation.op == "move_question":
+            target = operation.to_position or 0
+            if target > len(questions):
+                raise PlanOperationValidationError(
+                    "position_out_of_range", "target position exceeds question count"
+                )
+            questions.insert(target - 1, questions.pop(index))
+        elif operation.op == "delete_question":
+            if len(questions) <= MIN_SAFE_MAIN_QUESTION_COUNT:
+                raise PlanOperationValidationError(
+                    "minimum_question_count",
+                    "a launchable plan requires at least one intent",
+                )
+            questions.pop(index)
+        elif operation.op == "add_custom_intent":
+            if len(questions) >= MAX_SAFE_MAIN_QUESTION_COUNT:
+                raise PlanOperationValidationError(
+                    "maximum_question_count",
+                    "a launchable plan permits at most 10 intents",
+                )
+            questions.append(
+                QuestionIntentV1(
+                    question_id=str(uuid4()),
+                    position=len(questions) + 1,
+                    kind=operation.kind or "technical",
+                    focus=operation.focus or "",
+                    difficulty=operation.difficulty or "intermediate",
+                    assessment_goals=operation.assessment_goals or (),
+                    expected_minutes=operation.expected_minutes or 1,
+                    expected_followups=operation.expected_followups or 0,
+                    origin="custom",
+                    knowledge_binding=unbound_question_knowledge(
+                        "custom_question"
+                    ).model_dump(mode="json"),
+                )
+            )
+        else:
+            raise PlanOperationValidationError(
+                "unsupported_v3_operation",
+                f"{operation.op} is not supported for interview-plan-v3",
+            )
+
+        normalized = tuple(
+            QuestionIntentV1.model_validate(
+                item.model_copy(update={"position": position}).model_dump(mode="json")
+            )
+            for position, item in enumerate(questions, start=1)
+        )
+        return InterviewPlanV3.model_validate(
+            plan.model_copy(update={"questions": normalized}).model_dump(mode="json")
+        )
+
     @staticmethod
     def _question_index(
-        questions: list[InterviewPlanQuestionV2], question_id: str
+        questions: list, question_id: str
     ) -> int:
         for index, question in enumerate(questions):
             if question.question_id == question_id:
@@ -370,8 +479,8 @@ class InterviewPlanEditor:
     @staticmethod
     def _audit_operation(
         operation: PlanOperation,
-        before: InterviewPlanV2,
-        after: InterviewPlanV2,
+        before: InterviewPlanRevisionPayload,
+        after: InterviewPlanRevisionPayload,
     ) -> PlanAuditOperation:
         source_question = next(
             (
@@ -382,13 +491,13 @@ class InterviewPlanEditor:
             None,
         )
         result_question = None
-        if operation.op in {"edit_question_text", "edit_focus", "move_question"}:
+        if operation.op in {"edit_question_text", "edit_focus", "edit_assessment_goals", "move_question"}:
             result_question = next(
                 item
                 for item in after.questions
                 if item.question_id == operation.question_id
             )
-        elif operation.op == "add_custom_question":
+        elif operation.op in {"add_custom_question", "add_custom_intent"}:
             before_ids = {item.question_id for item in before.questions}
             result_question = next(
                 item for item in after.questions if item.question_id not in before_ids
@@ -431,6 +540,17 @@ class InterviewPlanEditor:
                     result_question.knowledge_binding if result_question else None,
                 ),
             }
+        elif operation.op == "edit_assessment_goals":
+            values = {
+                "assessment_goals": (
+                    source_question.assessment_goals if source_question else None,
+                    result_question.assessment_goals if result_question else None,
+                ),
+                "origin": (
+                    source_question.origin if source_question else None,
+                    result_question.origin if result_question else None,
+                ),
+            }
         elif operation.op == "move_question":
             values = {
                 "position": (
@@ -438,7 +558,7 @@ class InterviewPlanEditor:
                     result_question.position if result_question else None,
                 )
             }
-        elif operation.op in {"delete_question", "add_custom_question", "regenerate_question"}:
+        elif operation.op in {"delete_question", "add_custom_question", "add_custom_intent", "regenerate_question"}:
             values = {
                 "question": (
                     source_question.model_dump(mode="json")
@@ -480,9 +600,11 @@ class InterviewPlanEditor:
         binding_action = {
             "edit_question_text": "invalidate",
             "edit_focus": "invalidate",
+            "edit_assessment_goals": "preserve",
             "move_question": "preserve",
             "delete_question": "remove",
             "add_custom_question": "unbound",
+            "add_custom_intent": "unbound",
             "regenerate_question": "rebuild",
             "restore_revision": "restore",
             "regenerate_all": "rebuild_all",
@@ -519,8 +641,8 @@ class InterviewPlanEditor:
 
     @staticmethod
     def _configuration_diff(
-        before: InterviewPlanV2,
-        after: InterviewPlanV2,
+        before: InterviewPlanRevisionPayload,
+        after: InterviewPlanRevisionPayload,
     ) -> dict[str, PlanAuditFieldDiff]:
         before_payload = before.configuration_snapshot.model_dump(mode="json")
         after_payload = after.configuration_snapshot.model_dump(mode="json")
@@ -604,7 +726,7 @@ class InterviewPlanEditor:
             return "generated"
         if "regenerate_question" in names:
             return "regenerated_question"
-        if "add_custom_question" in names:
+        if names.intersection({"add_custom_question", "add_custom_intent"}):
             return "customized"
         return "edited"
 

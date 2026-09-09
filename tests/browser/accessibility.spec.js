@@ -18,7 +18,7 @@ test("help route remains stable across viewports", async ({ page }) => {
     await page.setViewportSize({ width: viewport.width, height: 900 });
     await page.goto("/help");
     await expectGeometry(page);
-    await expect(page.locator(".help-manual-section")).toHaveCount(5);
+    await expect(page.locator(".help-manual-section")).toHaveCount(7);
     await expect(page.locator(".help-inspector, .help-status-bar")).toHaveCount(0);
   }
 });
@@ -32,8 +32,9 @@ test("help route is a truthful single-column recovery manual", async ({ page }) 
   await expect(page.locator(".help-inspector.start-inspector")).toHaveCount(0);
   await expect(page.locator(".help-status-bar.start-status-bar")).toHaveCount(0);
   await expect(page.locator(".start-runtime")).toHaveCount(0);
-  await expect(page.locator(".help-manual-toc a")).toHaveCount(5);
-  await expect(page.getByRole("heading", { name: "准备资料" })).toBeVisible();
+  await expect(page.locator(".help-manual-toc a")).toHaveCount(7);
+  await expect(page.getByRole("heading", { name: "使用“我的资料”" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "准备面试" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "进行面试" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "恢复会话" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "报告失败" })).toBeVisible();

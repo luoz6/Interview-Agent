@@ -26,6 +26,7 @@ class InProcessA2AClient:
         causation_id: str | None = None,
         parent_run_id: str | None = None,
         command_id: str | None = None,
+        idempotency_key: str | None = None,
     ) -> DomainArtifact:
         task = A2ATask(
             task_id=task_id or f"task-{uuid4().hex}",
@@ -37,6 +38,7 @@ class InProcessA2AClient:
             causation_id=causation_id,
             parent_run_id=parent_run_id,
             command_id=command_id,
+            idempotency_key=idempotency_key,
         )
         result = self.server.submit(task, execution_context=execution_context)
         completed = result.task

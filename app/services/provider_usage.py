@@ -2,11 +2,13 @@ from __future__ import annotations
 
 from contextlib import contextmanager
 from contextvars import ContextVar
+import hashlib
 import re
 from typing import Any, Mapping
 
 from app.services.context_budget import RenderedPromptMeasurement
 from app.services.context_language import ContextLanguageBucket
+from app.services.interview_question_quality import HARD_QUESTION_QUALITY_CODES
 from app.services.memory_metrics import publish_provider_usage_metric
 
 
@@ -118,16 +120,102 @@ def publish_plan_context_selection(
     _provider_context_metadata.set(metadata)
 
 
+def publish_plan_quality_repair_lifecycle(
+    *,
+    initial_hard_finding_codes: tuple[str, ...],
+    quality_repair_triggered: bool,
+    quality_repair_succeeded: bool | None,
+    post_repair_hard_finding_codes: tuple[str, ...] | None,
+    quality_repair_prompt_version: str,
+    quality_repair_prompt_sha256: str,
+) -> None:
+    """Publish only frozen, non-content plan-repair lifecycle evidence."""
+
+    allowed_codes = frozenset(HARD_QUESTION_QUALITY_CODES)
+    if (
+        len(initial_hard_finding_codes) != len(set(initial_hard_finding_codes))
+        or any(code not in allowed_codes for code in initial_hard_finding_codes)
+    ):
+        raise ValueError("initial plan Hard finding codes are not allowlisted")
+    if post_repair_hard_finding_codes is not None and (
+        len(post_repair_hard_finding_codes)
+        != len(set(post_repair_hard_finding_codes))
+        or any(code not in allowed_codes for code in post_repair_hard_finding_codes)
+    ):
+        raise ValueError("post-repair Hard finding codes are not allowlisted")
+    if not isinstance(quality_repair_triggered, bool):
+        raise ValueError("quality_repair_triggered must be boolean")
+    if quality_repair_succeeded is not None and not isinstance(
+        quality_repair_succeeded, bool
+    ):
+        raise ValueError("quality_repair_succeeded must be boolean or null")
+    if not quality_repair_triggered and (
+        initial_hard_finding_codes
+        or quality_repair_succeeded is not None
+        or post_repair_hard_finding_codes is not None
+    ):
+        raise ValueError("non-triggered repair lifecycle cannot claim findings")
+    if quality_repair_triggered and not initial_hard_finding_codes:
+        raise ValueError("triggered repair lifecycle requires an initial Hard finding")
+    if quality_repair_succeeded is True and post_repair_hard_finding_codes != ():
+        raise ValueError("successful repair lifecycle requires zero post findings")
+    if quality_repair_succeeded is False and post_repair_hard_finding_codes is None:
+        raise ValueError("failed repair lifecycle requires known post findings")
+    if quality_repair_succeeded is None and post_repair_hard_finding_codes is not None:
+        raise ValueError("unknown repair outcome cannot claim post findings")
+    if re.fullmatch(
+        r"[a-z0-9][a-z0-9.-]{0,127}", quality_repair_prompt_version
+    ) is None:
+        raise ValueError("quality repair prompt version is invalid")
+    if re.fullmatch(r"[0-9a-f]{64}", quality_repair_prompt_sha256) is None:
+        raise ValueError("quality repair prompt SHA-256 is invalid")
+
+    metadata = dict(_provider_context_metadata.get() or {})
+    metadata.update(
+        {
+            "initial_hard_finding_codes": list(initial_hard_finding_codes),
+            "quality_repair_triggered": quality_repair_triggered,
+            "quality_repair_succeeded": quality_repair_succeeded,
+            "post_repair_hard_finding_codes": (
+                None
+                if post_repair_hard_finding_codes is None
+                else list(post_repair_hard_finding_codes)
+            ),
+            "quality_repair_prompt_version": quality_repair_prompt_version,
+            "quality_repair_prompt_sha256": quality_repair_prompt_sha256,
+        }
+    )
+    _provider_context_metadata.set(metadata)
+
+
 def publish_provider_response(response: Any) -> None:
     metadata = dict(_provider_context_metadata.get() or {})
     response_metadata = getattr(response, "response_metadata", None)
+    model = None
     if isinstance(response_metadata, Mapping):
         model = response_metadata.get("model_name") or response_metadata.get("model")
-        if isinstance(model, str) and model:
-            metadata["provider_model"] = model
+    if model is None:
+        model = getattr(response, "model", None)
+    if isinstance(model, str) and re.fullmatch(
+        r"[A-Za-z0-9][A-Za-z0-9._:/-]{0,199}", model
+    ):
+        observed_models = list(metadata.get("provider_response_models", []))
+        observed_models.append(model)
+        metadata["provider_response_models"] = observed_models
+        metadata["provider_model"] = model
+    response_id = _provider_response_id(response, response_metadata)
+    if response_id is not None:
+        response_hashes = list(metadata.get("provider_response_id_sha256s", []))
+        response_hashes.append(hashlib.sha256(response_id.encode("utf-8")).hexdigest())
+        metadata["provider_response_id_sha256s"] = response_hashes
+    allow_missing_cached_input_tokens = model == "deepseek-v4-pro"
+    has_explicit_cached_input_tokens, has_cache_miss_alias = (
+        _usage_cache_observation(response)
+    )
     usage = extract_provider_usage(
         response,
         allow_partial=_compression_usage_scope.get() is not None,
+        allow_missing_cached_input_tokens=allow_missing_cached_input_tokens,
     )
     if usage is None:
         metadata["provider_unmetered_attempt_count"] = int(
@@ -139,6 +227,13 @@ def publish_provider_response(response: Any) -> None:
     metadata["provider_metered_attempt_count"] = int(
         metadata.get("provider_metered_attempt_count", 0)
     ) + 1
+    if allow_missing_cached_input_tokens and not has_explicit_cached_input_tokens:
+        counter = (
+            "provider_usage_cache_derived_count"
+            if has_cache_miss_alias
+            else "provider_usage_cache_defaulted_count"
+        )
+        metadata[counter] = int(metadata.get(counter, 0)) + 1
     metadata["provider_usage_available"] = (
         int(metadata.get("provider_unmetered_attempt_count", 0)) == 0
         and int(metadata.get("provider_metered_attempt_count", 0))
@@ -180,6 +275,29 @@ def publish_provider_response(response: Any) -> None:
     _provider_context_metadata.set(metadata)
 
 
+def _provider_response_id(
+    response: Any,
+    response_metadata: Mapping[str, Any] | None,
+) -> str | None:
+    """Return a bounded response identity for immediate hashing, never storage."""
+
+    candidates: list[Any] = []
+    if isinstance(response_metadata, Mapping):
+        candidates.extend(
+            (response_metadata.get("response_id"), response_metadata.get("id"))
+        )
+    candidates.append(getattr(response, "id", None))
+    for value in candidates:
+        if (
+            isinstance(value, str)
+            and value
+            and len(value.encode("utf-8")) <= 512
+            and "\x00" not in value
+        ):
+            return value
+    return None
+
+
 def consume_provider_context_metadata() -> dict[str, Any]:
     metadata = dict(_provider_context_metadata.get() or {})
     _provider_context_metadata.set({})
@@ -190,9 +308,43 @@ def extract_provider_usage(
     response: Any,
     *,
     allow_partial: bool = False,
+    allow_missing_cached_input_tokens: bool = False,
 ) -> dict[str, int] | None:
     """Normalize complete Provider usage from supported response metadata shapes."""
 
+    candidates = _usage_candidates(response)
+    deepseek_default: dict[str, int] | None = None
+    for candidate in candidates:
+        normalized = _normalize_usage(candidate)
+        if all(key in normalized for key in _REQUIRED_USAGE_KEYS):
+            return normalized
+        if (
+            allow_missing_cached_input_tokens
+            and "provider_input_tokens" in normalized
+            and "provider_output_tokens" in normalized
+        ):
+            candidate_default = dict(normalized)
+            candidate_default.setdefault("provider_cached_input_tokens", 0)
+            candidate_default.setdefault(
+                "provider_total_tokens",
+                candidate_default["provider_input_tokens"]
+                + candidate_default["provider_output_tokens"],
+            )
+            if deepseek_default is None:
+                deepseek_default = candidate_default
+        if allow_partial and "provider_input_tokens" in normalized:
+            normalized.setdefault("provider_output_tokens", 0)
+            normalized.setdefault("provider_cached_input_tokens", 0)
+            normalized.setdefault(
+                "provider_total_tokens",
+                normalized["provider_input_tokens"]
+                + normalized["provider_output_tokens"],
+            )
+            return normalized
+    return deepseek_default
+
+
+def _usage_candidates(response: Any) -> list[Mapping[str, Any]]:
     candidates: list[Mapping[str, Any]] = []
     usage_metadata = getattr(response, "usage_metadata", None)
     if isinstance(usage_metadata, Mapping):
@@ -203,20 +355,27 @@ def extract_provider_usage(
             candidate = response_metadata.get(key)
             if isinstance(candidate, Mapping):
                 candidates.append(candidate)
-    for candidate in candidates:
-        normalized = _normalize_usage(candidate)
-        if all(key in normalized for key in _REQUIRED_USAGE_KEYS):
-            return normalized
-        if allow_partial and "provider_input_tokens" in normalized:
-            normalized.setdefault("provider_output_tokens", 0)
-            normalized.setdefault("provider_cached_input_tokens", 0)
-            normalized.setdefault(
-                "provider_total_tokens",
-                normalized["provider_input_tokens"]
-                + normalized["provider_output_tokens"],
-            )
-            return normalized
-    return None
+    return candidates
+
+
+def _usage_cache_observation(response: Any) -> tuple[bool, bool]:
+    explicit = False
+    has_cache_miss_alias = False
+    for candidate in _usage_candidates(response):
+        if any(
+            key in candidate
+            for key in ("cached_input_tokens", "prompt_cache_hit_tokens")
+        ):
+            explicit = True
+        if "prompt_cache_miss_tokens" in candidate:
+            has_cache_miss_alias = True
+        for nested_key in ("input_token_details", "prompt_tokens_details"):
+            nested = candidate.get(nested_key)
+            if isinstance(nested, Mapping) and any(
+                key in nested for key in ("cache_read", "cached_tokens")
+            ):
+                explicit = True
+    return explicit, has_cache_miss_alias
 
 
 def _normalize_usage(usage: Mapping[str, Any]) -> dict[str, int]:
@@ -247,6 +406,19 @@ def _normalize_usage(usage: Mapping[str, Any]) -> dict[str, int]:
                 break
         if "provider_cached_input_tokens" in result:
             break
+    if "provider_cached_input_tokens" not in result:
+        cache_miss = usage.get("prompt_cache_miss_tokens")
+        input_tokens = result.get("provider_input_tokens")
+        if (
+            isinstance(cache_miss, int)
+            and not isinstance(cache_miss, bool)
+            and cache_miss >= 0
+            and isinstance(input_tokens, int)
+            and input_tokens >= 0
+        ):
+            result["provider_cached_input_tokens"] = max(
+                0, input_tokens - cache_miss
+            )
     if (
         "provider_total_tokens" not in result
         and "provider_input_tokens" in result

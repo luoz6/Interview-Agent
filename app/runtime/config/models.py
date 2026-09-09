@@ -146,10 +146,10 @@ class RagConsoleRuntimeSettings:
 
 @dataclass(frozen=True)
 class UserMaterialsRuntimeSettings:
-    """Fail-closed capabilities for the user Materials API."""
+    """Capabilities for the user Materials API."""
 
-    enabled: bool = False
-    ingest_enabled: bool = False
+    enabled: bool = True
+    ingest_enabled: bool = True
 
 
 @dataclass(frozen=True)
