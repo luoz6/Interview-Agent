@@ -25,6 +25,12 @@ class AgentTaskObservation(BaseModel):
     output_artifact_type: str | None = None
     error_code: str | None = None
     transport: str = "a2a"
+    context_id: str | None = None
+    correlation_id: str | None = None
+    causation_id: str | None = None
+    parent_run_id: str | None = None
+    command_id: str | None = None
+    idempotency_key: str | None = None
 
 
 class AgentTaskLog:
@@ -47,6 +53,12 @@ class AgentTaskLog:
                     else None
                 ),
                 error_code=task.error.code if task.error is not None else None,
+                context_id=task.context_id,
+                correlation_id=task.correlation_id,
+                causation_id=task.causation_id,
+                parent_run_id=task.parent_run_id,
+                command_id=task.command_id,
+                idempotency_key=task.idempotency_key,
             )
         )
 

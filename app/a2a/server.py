@@ -36,7 +36,11 @@ class LocalA2AServer:
 
     def submit(self, task: A2ATask, *, execution_context: Any | None = None) -> A2AResult:
         existing = self._find_idempotent_task(task)
-        if existing is not None:
+        if existing is not None and not (
+            existing.status == "failed"
+            and existing.error is not None
+            and existing.error.retryable
+        ):
             return A2AResult(task=existing)
         handler = self._handlers.get((task.agent_id, task.skill))
         if handler is None:
@@ -106,7 +110,14 @@ class LocalA2AServer:
     def reject(self, task_id: str, *, reason: str) -> A2AResult:
         task = self._tasks.get(task_id)
         if task is None:
-            task = A2ATask(task_id=task_id, agent_id="unknown", skill="unknown")
+            raise A2AAgentError(
+                code="task_rejected",
+                retryable=False,
+                terminal=True,
+                fallback_allowed=False,
+                public_message="Task was not found.",
+                internal_reason=f"task {task_id} is not registered",
+            )
         task = task.model_copy(
             update={
                 "status": "rejected",
@@ -121,7 +132,16 @@ class LocalA2AServer:
     def cancel(self, task_id: str, *, reason: str) -> A2AResult:
         task = self._tasks.get(task_id)
         if task is None:
-            task = A2ATask(task_id=task_id, agent_id="unknown", skill="unknown")
+            raise A2AAgentError(
+                code="task_rejected",
+                retryable=False,
+                terminal=True,
+                fallback_allowed=False,
+                public_message="Task was not found.",
+                internal_reason=f"task {task_id} is not registered",
+            )
+        if task.status in {"completed", "failed", "canceled", "rejected"}:
+            return A2AResult(task=task)
         task = task.model_copy(
             update={
                 "status": "canceled",

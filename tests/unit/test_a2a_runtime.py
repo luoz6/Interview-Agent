@@ -12,6 +12,9 @@ from app.a2a.contracts import A2AAgentError, FollowupArtifactPayload
 from app.a2a.invocation.local import LocalAgentInvoker
 from app.a2a.server import LocalA2AServer
 from app.a2a.protocol import A2ATask
+from app.a2a.bridge import ExaminerAgentBridge
+from app.a2a.official_cards import OFFICIAL_AGENT_CARDS
+from app.services.agent_runtime import AgentExecutionContext
 
 
 def make_followup_artifact():
@@ -142,7 +145,71 @@ def test_idempotency_reuses_completed_task():
 
 def test_cancel_updates_existing_task():
     server = LocalA2AServer()
+    server.register(
+        agent_id="interview-examiner",
+        skill="generate-followup",
+        handler=lambda request, execution_context: make_followup_artifact(),
+    )
+    server.submit(
+        A2ATask(
+            task_id="task-1",
+            agent_id="interview-examiner",
+            skill="generate-followup",
+            input={"question_id": "q1"},
+        )
+    )
     task = A2ATask(task_id="task-1", agent_id="interview-examiner", skill="generate-followup")
     result = server.cancel("task-1", reason="user_canceled")
-    assert result.task.status == "canceled"
+    assert result.task.status == "completed"
     assert result.task.task_id == "task-1"
+
+
+def test_examiner_bridge_uses_execution_context_question_id():
+    invoker = LocalAgentInvoker()
+    invoker.register(
+        agent_id="interview-examiner",
+        skill="generate-followup",
+        handler=lambda request, execution_context: FollowupArtifactPayload(
+            question_id=request["question_id"],
+            followup_text="请补充一个关键取舍。",
+            reason_code="gap",
+            policy_version="adaptive_v1",
+        ),
+    )
+    bridge = ExaminerAgentBridge(invoker)
+    context = AgentExecutionContext(
+        correlation_id="corr-1",
+        agent="examiner",
+        operation="generate_followup",
+        phase="interview",
+        question_id="q1",
+        evidence_ids=["e1"],
+    )
+    text = bridge.generate_followup(
+        context=[],
+        focus="depth",
+        execution_context=context,
+    )
+    assert text == "请补充一个关键取舍。"
+
+
+def test_examiner_bridge_fails_without_question_id():
+    invoker = LocalAgentInvoker()
+    bridge = ExaminerAgentBridge(invoker)
+    context = AgentExecutionContext(
+        correlation_id="corr-1",
+        agent="examiner",
+        operation="generate_followup",
+        phase="interview",
+    )
+    with pytest.raises(A2AAgentError):
+        bridge.generate_followup(context=[], focus="depth", execution_context=context)
+
+
+def test_official_cards_match_registered_agent_ids():
+    assert set(OFFICIAL_AGENT_CARDS) == {
+        "interview-examiner",
+        "knowledge-and-grounding",
+        "interview-reviewer",
+        "report-coach",
+    }

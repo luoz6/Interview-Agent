@@ -12,7 +12,7 @@
 | Item | Value |
 |---|---|
 | Current branch | `master` |
-| Baseline commit | `a155fc1c802cf85db6f90748870631902294f47c` |
+| Closure baseline commit | `3e0a6a7` |
 | Relation to `origin/master` | ahead by `1` |
 | Working tree | dirty |
 | Dirty entries | `129` (`git status --short` lines, includes modified and untracked) |
@@ -29,6 +29,7 @@ The only A2A-V1 preparation commit is `a155fc1`.
 | FastAPI | `0.138.2` |
 | Pydantic | `2.13.4` |
 | HTTPX | `0.28.1` |
+| a2a-sdk | `1.1.2` |
 | LangGraph | `1.2.7` |
 | LangChain | `1.3.11` |
 | Uvicorn | `0.49.0` |
@@ -94,17 +95,21 @@ default path under the preview profile because rollout percentages are `0`.
 
 ## Feature Flags Present
 
-No A2A transport flags are present yet:
+Current transport flags:
 
 ```text
 AGENT_TRANSPORT
-EXAMINER_TRANSPORT
-KNOWLEDGE_TRANSPORT
 REVIEWER_TRANSPORT
-REPORT_COACH_TRANSPORT
 ```
 
-All of these are absent, so the current invocation model is local direct calls.
+Transport matrix:
+
+| Path | Value |
+|---|---|
+| Local internal path | `AGENT_TRANSPORT=local` |
+| Internal A2A path | `AGENT_TRANSPORT=a2a` |
+| Reviewer default | `REVIEWER_TRANSPORT=legacy_microbatch` |
+| Reviewer A2A | `REVIEWER_TRANSPORT=a2a` |
 
 ## Gate -1A
 

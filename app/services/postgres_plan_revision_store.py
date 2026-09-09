@@ -103,6 +103,8 @@ class PostgresInterviewPlanRevisionStore:
         generator_version: str,
         plan_family_id: str | None = None,
     ) -> InterviewPlanRevision:
+        if isinstance(source_payload, dict):
+            source_payload = PlanSourcePayload.model_validate(source_payload)
         family_id = str(plan_family_id or uuid4())
         source_id = str(uuid4())
         revision_id = str(uuid4())

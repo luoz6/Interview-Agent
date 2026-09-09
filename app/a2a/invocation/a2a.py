@@ -4,6 +4,7 @@ from typing import Any
 
 from app.a2a.client import InProcessA2AClient
 from app.a2a.contracts.common import DomainArtifact
+from app.a2a.invocation.context import InvocationContext
 
 
 class A2AAgentInvoker:
@@ -16,23 +17,21 @@ class A2AAgentInvoker:
         agent_id: str,
         skill: str,
         request: dict[str, Any],
+        invocation_context: InvocationContext | None = None,
         execution_context: Any | None = None,
-        context_id: str | None = None,
-        correlation_id: str | None = None,
-        causation_id: str | None = None,
-        parent_run_id: str | None = None,
-        command_id: str | None = None,
-        idempotency_key: str | None = None,
     ) -> DomainArtifact:
+        resolved = invocation_context or InvocationContext.from_execution_context(
+            execution_context
+        )
         return self._client.send_task(
             agent_id=agent_id,
             skill=skill,
             request=request,
             execution_context=execution_context,
-            context_id=context_id,
-            correlation_id=correlation_id,
-            causation_id=causation_id,
-            parent_run_id=parent_run_id,
-            command_id=command_id,
-            idempotency_key=idempotency_key,
+            context_id=resolved.context_id,
+            correlation_id=resolved.correlation_id,
+            causation_id=resolved.causation_id,
+            parent_run_id=resolved.parent_run_id,
+            command_id=resolved.command_id,
+            idempotency_key=resolved.idempotency_key,
         )

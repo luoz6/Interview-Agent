@@ -5,6 +5,7 @@ from typing import Any
 
 from app.a2a.contracts.common import DomainArtifact
 from app.a2a.contracts.errors import A2AAgentError
+from app.a2a.invocation.context import InvocationContext
 
 
 LocalSkillHandler = Callable[[dict[str, Any], Any | None], DomainArtifact]
@@ -35,6 +36,7 @@ class LocalAgentInvoker:
         agent_id: str,
         skill: str,
         request: dict[str, Any],
+        invocation_context: InvocationContext | None = None,
         execution_context: Any | None = None,
     ) -> DomainArtifact:
         handler = self._handlers.get((agent_id, skill))

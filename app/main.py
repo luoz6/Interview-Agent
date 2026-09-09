@@ -27,17 +27,10 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-from a2a.server.routes.fastapi_routes import add_a2a_routes_to_fastapi
-from a2a.server.routes.agent_card_routes import create_agent_card_routes
-from app.a2a.official import to_official_agent_card
-from app.a2a.cards import A2A_PLATFORM_AGENT_CARD
+from app.a2a.runtime import build_local_a2a_runtime
+from app.a2a.official_server import install_official_a2a_routes
 
-add_a2a_routes_to_fastapi(
-    app,
-    agent_card_routes=create_agent_card_routes(
-        to_official_agent_card(A2A_PLATFORM_AGENT_CARD)
-    ),
-)
+runtime = build_local_a2a_runtime()
 
 frontend_origins = list(load_api_runtime_settings().frontend_origins)
 app.add_middleware(
@@ -48,6 +41,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 app.include_router(router)
+install_official_a2a_routes(app, invoker=runtime.invoker)
 
 
 @app.exception_handler(PrepPlanError)
