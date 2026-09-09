@@ -6,6 +6,29 @@
 - Plan version: `v0.2`
 - Review date: `2026-09-09`
 
+## C08.5 Official Transport Closure
+
+Status: `PASS_PREVIEW`
+
+Evidence:
+
+```text
+HTTP Official A2A Request
+  -> Professional Agent Identity
+  -> Task working
+  -> Domain Business Execution
+  -> Official Artifact
+  -> Task completed
+```
+
+Examiner Local/Official HTTP parity is machine-tested.
+
+Regression result:
+
+```text
+71 passed, 1 skipped
+```
+
 ## Gate Summary
 
 | Gate | Status | Evidence |

@@ -29,7 +29,7 @@ class InvocationContext(BaseModel):
         if context is None:
             return cls()
         return cls(
-            context_id=context.correlation_id,
+            context_id=context.session_id or context.correlation_id,
             correlation_id=context.correlation_id,
             causation_id=context.causation_id,
             parent_run_id=context.parent_run_id,

@@ -3,6 +3,11 @@ from __future__ import annotations
 import pytest
 
 from app.a2a.cards import EXAMINER_AGENT_CARD
+from app.a2a.cards import (
+    KNOWLEDGE_AGENT_CARD,
+    REVIEWER_AGENT_CARD,
+    REPORT_COACH_AGENT_CARD,
+)
 from app.a2a.client import InProcessA2AClient
 from app.a2a.comparison import (
     DeterministicArtifactComparator,
@@ -14,6 +19,7 @@ from app.a2a.server import LocalA2AServer
 from app.a2a.protocol import A2ATask
 from app.a2a.bridge import ExaminerAgentBridge
 from app.a2a.official_cards import OFFICIAL_AGENT_CARDS
+from app.a2a.invocation.context import InvocationContext
 from app.services.agent_runtime import AgentExecutionContext
 
 
@@ -164,6 +170,12 @@ def test_cancel_updates_existing_task():
     assert result.task.task_id == "task-1"
 
 
+def test_cancel_unknown_task_raises():
+    server = LocalA2AServer()
+    with pytest.raises(A2AAgentError):
+        server.cancel("missing-task", reason="user_canceled")
+
+
 def test_examiner_bridge_uses_execution_context_question_id():
     invoker = LocalAgentInvoker()
     invoker.register(
@@ -213,3 +225,43 @@ def test_official_cards_match_registered_agent_ids():
         "interview-reviewer",
         "report-coach",
     }
+
+
+def test_official_agent_cards_expose_independent_skills():
+    assert [skill.name for skill in EXAMINER_AGENT_CARD.skills] == [
+        "generate-followup"
+    ]
+    assert [skill.name for skill in KNOWLEDGE_AGENT_CARD.skills] == [
+        "generate-interview-plan"
+    ]
+    assert [skill.name for skill in REVIEWER_AGENT_CARD.skills] == [
+        "evaluate-answer",
+        "evaluate-interview",
+    ]
+    assert [skill.name for skill in REPORT_COACH_AGENT_CARD.skills] == [
+        "generate-report"
+    ]
+
+
+def test_invocation_context_uses_session_as_a2a_context_id():
+    context = AgentExecutionContext(
+        correlation_id="prep-123",
+        agent="examiner",
+        operation="generate_followup",
+        phase="interview",
+        session_id="session-1",
+    )
+    invocation = InvocationContext.from_execution_context(context)
+    assert invocation.context_id == "session-1"
+    assert invocation.correlation_id == "prep-123"
+
+
+def test_invocation_context_falls_back_to_correlation_without_session():
+    context = AgentExecutionContext(
+        correlation_id="prep-123",
+        agent="knowledge",
+        operation="generate_plan",
+        phase="prep",
+    )
+    invocation = InvocationContext.from_execution_context(context)
+    assert invocation.context_id == "prep-123"
