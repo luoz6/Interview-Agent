@@ -10,9 +10,5 @@ EXAMINER_AGENT_CARD = AgentCard(
             name="generate-followup",
             description="Generate one follow-up for the current question.",
         ),
-        AgentSkill(
-            name="probe-answer-gap",
-            description="Probe a selected open gap in the candidate answer.",
-        ),
     ],
 )

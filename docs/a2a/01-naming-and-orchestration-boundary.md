@@ -63,7 +63,7 @@ These are different layers and must remain distinguishable in code and docs.
 
 ## Gate -1B
 
-Status: `PENDING_REVIEW`
+Status: `PARTIAL`
 
 Agent rename, Agent Card implementation, and A2A SDK integration are not
 authorized before this naming boundary is approved.

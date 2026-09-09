@@ -10,13 +10,5 @@ REPORT_COACH_AGENT_CARD = AgentCard(
             name="generate-report",
             description="Generate the final report from evaluation artifacts.",
         ),
-        AgentSkill(
-            name="repair-report",
-            description="Repair a report that fails quality policy.",
-        ),
-        AgentSkill(
-            name="generate-action-plan",
-            description="Generate a traceable action plan.",
-        ),
     ],
 )

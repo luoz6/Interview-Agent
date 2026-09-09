@@ -68,4 +68,7 @@ For real LLM providers:
 
 ## Gate F
 
-Status: `PENDING_IMPLEMENTATION`
+Status: `PARTIAL`
+
+Deterministic field comparison and `DualPathRunner` are implemented. Agent
+skill parity on real business inputs is not yet executed.

@@ -17,10 +17,20 @@ class A2AAgentInvoker:
         skill: str,
         request: dict[str, Any],
         execution_context: Any | None = None,
+        context_id: str | None = None,
+        correlation_id: str | None = None,
+        causation_id: str | None = None,
+        parent_run_id: str | None = None,
+        command_id: str | None = None,
     ) -> DomainArtifact:
         return self._client.send_task(
             agent_id=agent_id,
             skill=skill,
             request=request,
             execution_context=execution_context,
+            context_id=context_id,
+            correlation_id=correlation_id,
+            causation_id=causation_id,
+            parent_run_id=parent_run_id,
+            command_id=command_id,
         )

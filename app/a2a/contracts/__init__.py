@@ -6,6 +6,7 @@ from app.a2a.contracts.followup import FollowupArtifactPayload
 from app.a2a.contracts.grounding import GroundingArtifactPayload
 from app.a2a.contracts.evaluation import EvaluationArtifactPayload
 from app.a2a.contracts.report import ReportArtifactPayload
+from app.a2a.contracts.plan import InterviewPlanArtifactPayload
 
 __all__ = [
     "A2AError",
@@ -15,5 +16,6 @@ __all__ = [
     "EvaluationArtifactPayload",
     "FollowupArtifactPayload",
     "GroundingArtifactPayload",
+    "InterviewPlanArtifactPayload",
     "ReportArtifactPayload",
 ]

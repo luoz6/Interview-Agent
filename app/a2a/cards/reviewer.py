@@ -10,13 +10,5 @@ REVIEWER_AGENT_CARD = AgentCard(
             name="evaluate-answer",
             description="Evaluate a single candidate answer.",
         ),
-        AgentSkill(
-            name="evaluate-question",
-            description="Evaluate one interview question.",
-        ),
-        AgentSkill(
-            name="evaluate-interview",
-            description="Evaluate the complete interview session.",
-        ),
     ],
 )

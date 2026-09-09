@@ -53,6 +53,11 @@ class A2ATask(BaseModel):
     attempts: int = Field(default=0, ge=0)
     created_at: str = Field(default_factory=_utc_now_iso)
     updated_at: str = Field(default_factory=_utc_now_iso)
+    context_id: str | None = None
+    correlation_id: str | None = None
+    causation_id: str | None = None
+    parent_run_id: str | None = None
+    command_id: str | None = None
 
 
 class A2AResult(BaseModel):

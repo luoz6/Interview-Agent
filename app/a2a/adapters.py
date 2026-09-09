@@ -5,6 +5,7 @@ from typing import Any
 from app.a2a.contracts.evaluation import EvaluationArtifactPayload
 from app.a2a.contracts.followup import FollowupArtifactPayload
 from app.a2a.contracts.grounding import GroundingArtifactPayload
+from app.a2a.contracts.plan import InterviewPlanArtifactPayload
 from app.a2a.contracts.report import ReportArtifactPayload
 from app.a2a.server import LocalA2AServer
 
@@ -57,21 +58,8 @@ def register_knowledge_adapter(
             configuration=request.get("configuration"),
             knowledge_source_scope=request.get("knowledge_source_scope"),
         )
-        prep_context = getattr(plan, "prep_context", None)
-        evidence_refs = []
-        if prep_context is not None:
-            evidence_refs = [
-                item.evidence_id
-                for item in getattr(prep_context, "evidence_refs", [])
-                if hasattr(item, "evidence_id")
-            ]
-        return GroundingArtifactPayload(
-            scope={"include_system_knowledge": True},
-            role_profile_ref=getattr(prep_context, "summary", None),
-            evidence_refs=evidence_refs,
-            knowledge_units=[],
-            grounding_status=getattr(prep_context, "knowledge_status", "grounded"),
-            trace_ref=request.get("prep_run_id"),
+        return InterviewPlanArtifactPayload(
+            plan_payload=plan.model_dump(mode="json"),
         )
 
     server.register(agent_id="knowledge-and-grounding", skill="generate-interview-plan", handler=handler)
@@ -92,7 +80,10 @@ def register_reviewer_adapter(
             vector_store=vector_store,
             execution_runner=execution_runner,
         )
-        report = reviewer.evaluate(request["state"])
+        report = reviewer.evaluate_attempt(
+            request["state"],
+            execution_context=execution_context,
+        )
         question_id = request.get("question_id")
         feedback = next(
             (
@@ -107,7 +98,13 @@ def register_reviewer_adapter(
                 question_id=question_id or "",
                 score=None,
                 evaluation_policy_version="review-policy-v1",
+                evaluation_status="insufficient_evidence",
             )
+        evaluation_status = (
+            "evaluated"
+            if feedback.score is not None
+            else "insufficient_evidence"
+        )
         return EvaluationArtifactPayload(
             question_id=feedback.question_id,
             score=feedback.score,
@@ -118,6 +115,7 @@ def register_reviewer_adapter(
             evidence_refs=[ref.chunk_id for ref in feedback.references],
             confidence=None,
             evaluation_policy_version="review-policy-v1",
+            evaluation_status=evaluation_status,
         )
 
     server.register(agent_id="interview-reviewer", skill="evaluate-answer", handler=handler)
@@ -131,14 +129,24 @@ def register_report_coach_adapter(
 ) -> None:
     def handler(request: dict[str, Any], execution_context):
         from app.agents.report_coach import ReportCoachAgent
+        from app.a2a.contracts.evaluation import EvaluationArtifactPayload
 
         coach = ReportCoachAgent(
             llm=llm,
             execution_runner=execution_runner,
         )
+        evaluation_items = request.get("evaluation_items")
+        evaluation_artifacts = request.get("evaluation_artifacts")
+        if evaluation_artifacts:
+            evaluation_items = _evaluation_items_from_artifacts(
+                evaluation_artifacts,
+                question_text_by_id=request.get("question_text_by_id") or {},
+            )
+        if evaluation_items is None:
+            raise ValueError("evaluation_items or evaluation_artifacts is required")
         report = coach.generate_report(
             plan=request["plan"],
-            evaluation_items=request["evaluation_items"],
+            evaluation_items=evaluation_items,
             session_id=request["session_id"],
             execution_context=execution_context,
         )
@@ -155,6 +163,56 @@ def register_report_coach_adapter(
         )
 
     server.register(agent_id="report-coach", skill="generate-report", handler=handler)
+
+
+def _evaluation_items_from_artifacts(
+    artifacts,
+    *,
+    question_text_by_id: dict[str, str],
+) -> list[dict[str, Any]]:
+    items: list[dict[str, Any]] = []
+    for artifact in artifacts:
+        if not isinstance(artifact, dict):
+            payload = artifact.model_dump(mode="json")
+        else:
+            payload = artifact
+        question_id = payload.get("question_id", "")
+        dimensions = payload.get("dimensions") or {}
+        applicable_dimensions = [
+            dimension
+            for dimension, score in dimensions.items()
+            if score is not None
+        ]
+        items.append(
+            {
+                "source": "evaluation_artifact",
+                "question_id": question_id,
+                "question_text": question_text_by_id.get(question_id, ""),
+                "question_kind": "",
+                "answer_state": "answered",
+                "microbatch_score": payload.get("score"),
+                "score": payload.get("score"),
+                "dimension_scores": {
+                    dimension: score
+                    for dimension, score in dimensions.items()
+                },
+                "evaluation_status": payload.get(
+                    "evaluation_status",
+                    "evaluated",
+                ),
+                "evaluation_reason_code": "artifact",
+                "evidence_count": len(payload.get("evidence_refs") or []),
+                "applicable_dimensions": applicable_dimensions,
+                "dimension_evidence": [],
+                "rationale": " ".join(payload.get("strengths") or []),
+                "critique": " ".join(payload.get("weaknesses") or []),
+                "better_answer": "",
+                "scoring_references": [],
+                "answer_references": [],
+                "reference_chunk_ids": payload.get("evidence_refs") or [],
+            }
+        )
+    return items
 
 
 def register_default_a2a_adapters(

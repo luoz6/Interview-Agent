@@ -96,7 +96,8 @@ is available.
 
 ## Gate A
 
-Status: `PENDING_REVIEW`
+Status: `PARTIAL`
 
-The semantic baseline above must be frozen before any Agent is switched to the
-A2A transport path.
+The semantic baseline above is described and guarded by artifact contract
+tests, but the complete automated business snapshot suite is still pending
+before any Agent is switched to the A2A transport path.

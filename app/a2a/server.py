@@ -6,7 +6,7 @@ from typing import Any
 from app.a2a.contracts.common import DomainArtifact
 from app.a2a.contracts.errors import A2AAgentError, A2AError
 from app.a2a.observability import AgentTaskLog
-from app.a2a.protocol import A2ATask, A2AResult
+from app.a2a.protocol import A2ATask, A2AResult, _utc_now_iso
 
 
 SkillHandler = Callable[[dict[str, Any], Any | None], DomainArtifact]
@@ -25,6 +25,13 @@ class LocalA2AServer:
 
     def register(self, *, agent_id: str, skill: str, handler: SkillHandler) -> None:
         self._handlers[(agent_id, skill)] = handler
+
+    @property
+    def registered_skills(self) -> set[tuple[str, str]]:
+        return set(self._handlers)
+
+    def get_handler(self, *, agent_id: str, skill: str) -> SkillHandler | None:
+        return self._handlers.get((agent_id, skill))
 
     def submit(self, task: A2ATask, *, execution_context: Any | None = None) -> A2AResult:
         handler = self._handlers.get((task.agent_id, task.skill))
@@ -46,6 +53,7 @@ class LocalA2AServer:
             update={
                 "status": "working",
                 "attempts": task.attempts + 1,
+                "updated_at": _utc_now_iso(),
             }
         )
         try:
@@ -76,12 +84,41 @@ class LocalA2AServer:
                 "status": "completed",
                 "output_artifact": artifact,
                 "error": None,
+                "updated_at": _utc_now_iso(),
             }
         )
         result = A2AResult(task=completed)
         self.observability.record(result.task)
         return result
 
+    def reject(self, task_id: str, *, reason: str) -> A2AResult:
+        task = A2ATask(
+            task_id=task_id,
+            agent_id="unknown",
+            skill="unknown",
+            status="rejected",
+            input={"reason": reason},
+        )
+        self.observability.record(task)
+        return A2AResult(task=task)
+
+    def cancel(self, task_id: str, *, reason: str) -> A2AResult:
+        task = A2ATask(
+            task_id=task_id,
+            agent_id="unknown",
+            skill="unknown",
+            status="canceled",
+            input={"reason": reason},
+        )
+        self.observability.record(task)
+        return A2AResult(task=task)
+
     @staticmethod
     def _with_error(task: A2ATask, error: A2AError) -> A2ATask:
-        return task.model_copy(update={"status": "failed", "error": error})
+        return task.model_copy(
+            update={
+                "status": "failed",
+                "error": error,
+                "updated_at": _utc_now_iso(),
+            }
+        )

@@ -34,10 +34,19 @@ def build_local_a2a_runtime(
         execution_runner=execution_runner,
     )
     client = InProcessA2AClient(server=server)
+    local_invoker = LocalAgentInvoker()
+    for agent_id, skill in server.registered_skills:
+        handler = server.get_handler(agent_id=agent_id, skill=skill)
+        if handler is not None:
+            local_invoker.register(
+                agent_id=agent_id,
+                skill=skill,
+                handler=handler,
+            )
     return A2ARuntime(
         server=server,
         client=client,
         invoker=A2AAgentInvoker(client=client),
-        local_invoker=LocalAgentInvoker(),
+        local_invoker=local_invoker,
         observability=observability,
     )

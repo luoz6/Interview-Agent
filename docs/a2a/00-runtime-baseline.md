@@ -108,8 +108,9 @@ All of these are absent, so the current invocation model is local direct calls.
 
 ## Gate -1A
 
-Status: `PENDING_REVIEW`
+Status: `PARTIAL`
 
 This baseline is reproducible from commit `a155fc1` and the checked-in
 `.env.example`. The primary observed local path is the legacy preview path.
-Durable paths are candidates but not active in preview mode.
+Durable paths are candidates but not active in preview mode. The working tree
+is dirty, so repository-level reproducibility is not yet locked.
