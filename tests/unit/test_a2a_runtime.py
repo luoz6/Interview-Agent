@@ -20,6 +20,7 @@ from app.a2a.protocol import A2ATask
 from app.a2a.bridge import ExaminerAgentBridge
 from app.a2a.official_cards import OFFICIAL_AGENT_CARDS
 from app.a2a.invocation.context import InvocationContext
+from app.a2a.invocation.execution_context import build_agent_execution_context
 from app.services.agent_runtime import AgentExecutionContext
 
 
@@ -265,3 +266,68 @@ def test_invocation_context_falls_back_to_correlation_without_session():
     )
     invocation = InvocationContext.from_execution_context(context)
     assert invocation.context_id == "prep-123"
+
+
+def test_invocation_context_builds_examiner_execution_context():
+    context = InvocationContext(
+        context_id="session-1",
+        correlation_id="corr-1",
+        causation_id="cmd-parent",
+        command_id="cmd-1",
+        question_id="q1",
+        evidence_ids=["e1", "e2"],
+    )
+    execution = build_agent_execution_context(
+        agent_id="interview-examiner",
+        skill="generate-followup",
+        invocation_context=context,
+        request={},
+    )
+    assert execution.agent == "examiner"
+    assert execution.operation == "generate_followup"
+    assert execution.phase == "interview"
+    assert execution.session_id == "session-1"
+    assert execution.question_id == "q1"
+    assert execution.correlation_id == "corr-1"
+    assert execution.command_id == "cmd-1"
+    assert execution.evidence_ids == ["e1", "e2"]
+
+
+def test_invocation_context_builds_reviewer_execution_context():
+    execution = build_agent_execution_context(
+        agent_id="interview-reviewer",
+        skill="evaluate-interview",
+        invocation_context=InvocationContext(context_id="session-1"),
+        request={},
+    )
+    assert execution.agent == "shadow_reviewer"
+    assert execution.phase == "review"
+    assert execution.session_id == "session-1"
+
+
+def test_local_invoker_builds_execution_context_from_invocation_context():
+    invoker = LocalAgentInvoker()
+    seen = {}
+
+    def handler(request, execution_context):
+        seen["execution_context"] = execution_context
+        return make_followup_artifact()
+
+    invoker.register(
+        agent_id="interview-examiner",
+        skill="generate-followup",
+        handler=handler,
+    )
+    invoker.invoke(
+        agent_id="interview-examiner",
+        skill="generate-followup",
+        request={"question_id": "q1"},
+        invocation_context=InvocationContext(
+            context_id="session-1",
+            correlation_id="corr-1",
+        ),
+    )
+    execution = seen["execution_context"]
+    assert execution is not None
+    assert execution.agent == "examiner"
+    assert execution.session_id == "session-1"

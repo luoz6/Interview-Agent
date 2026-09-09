@@ -4,7 +4,11 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from app.a2a.invocation.local import LocalAgentInvoker
-from app.a2a.contracts import FollowupArtifactPayload
+from app.a2a.contracts import (
+    EvaluationArtifactPayload,
+    EvaluationArtifactSetPayload,
+    FollowupArtifactPayload,
+)
 from app.a2a.official_server import install_official_a2a_routes
 
 
@@ -44,6 +48,23 @@ def test_official_rest_routes_are_mounted_for_four_agents():
     assert any("knowledge-and-grounding" in path for path in rest_paths)
     assert any("interview-reviewer" in path for path in rest_paths)
     assert any("report-coach" in path for path in rest_paths)
+
+
+def test_each_professional_agent_has_discovery_card():
+    client = TestClient(make_app_with_fake_examiner())
+    for agent_id in (
+        "interview-examiner",
+        "knowledge-and-grounding",
+        "interview-reviewer",
+        "report-coach",
+    ):
+        response = client.get(
+            f"/a2a/{agent_id}/.well-known/agent-card.json"
+        )
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["name"]
+        assert payload["skills"]
 
 
 def test_official_examiner_task_returns_completed_artifact():
@@ -111,3 +132,54 @@ def test_examiner_local_and_official_http_parity():
     assert official_artifact.question_id == local_artifact.question_id
     assert official_artifact.followup_text == local_artifact.followup_text
 
+
+def test_official_reviewer_receives_execution_context():
+    invoker = LocalAgentInvoker()
+    seen = {}
+
+    def reviewer_handler(request, execution_context):
+        seen["execution_context"] = execution_context
+        assert execution_context is not None
+        assert execution_context.agent == "shadow_reviewer"
+        assert execution_context.phase == "review"
+        assert execution_context.session_id == "session-1"
+        assert execution_context.correlation_id == "corr-1"
+        return EvaluationArtifactSetPayload(
+            evaluations=[
+                EvaluationArtifactPayload(
+                    question_id="q1",
+                    score=80,
+                    evaluation_policy_version="review-policy-v1",
+                    evaluation_status="evaluated",
+                )
+            ]
+        )
+
+    invoker.register(
+        agent_id="interview-reviewer",
+        skill="evaluate-interview",
+        handler=reviewer_handler,
+    )
+    app = FastAPI()
+    install_official_a2a_routes(app, invoker=invoker)
+    client = TestClient(app)
+    response = client.post(
+        "/a2a/interview-reviewer/message:send",
+        headers={"A2A-Version": "1.0"},
+        json={
+            "message": {
+                "message_id": "m-reviewer",
+                "context_id": "session-1",
+                "role": "ROLE_USER",
+                "parts": [
+                    {"text": '{"skill":"evaluate-interview","input":{"state":{}}}'}
+                ],
+            },
+            "metadata": {"correlation_id": "corr-1"},
+        },
+    )
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["task"]["status"]["state"] == "TASK_STATE_COMPLETED"
+    assert payload["task"]["artifacts"][0]["name"] == "evaluation-artifact-set"
+    assert seen["execution_context"] is not None

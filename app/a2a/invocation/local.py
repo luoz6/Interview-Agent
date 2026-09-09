@@ -6,6 +6,7 @@ from typing import Any
 from app.a2a.contracts.common import DomainArtifact
 from app.a2a.contracts.errors import A2AAgentError
 from app.a2a.invocation.context import InvocationContext
+from app.a2a.invocation.execution_context import build_agent_execution_context
 
 
 LocalSkillHandler = Callable[[dict[str, Any], Any | None], DomainArtifact]
@@ -49,4 +50,10 @@ class LocalAgentInvoker:
                 public_message="Agent skill is not available.",
                 internal_reason=f"{agent_id}:{skill} is not registered locally",
             )
-        return handler(request, execution_context)
+        resolved_execution_context = execution_context or build_agent_execution_context(
+            agent_id=agent_id,
+            skill=skill,
+            invocation_context=invocation_context,
+            request=request,
+        )
+        return handler(request, resolved_execution_context)

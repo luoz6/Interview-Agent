@@ -7,7 +7,10 @@ from a2a import types
 from a2a.server.agent_execution import AgentExecutor
 from a2a.server.events import InMemoryQueueManager
 from a2a.server.request_handlers import LegacyRequestHandler
-from a2a.server.routes.agent_card_routes import create_agent_card_routes
+from a2a.server.routes.agent_card_routes import (
+    agent_card_to_dict,
+    create_agent_card_routes,
+)
 from a2a.server.routes.fastapi_routes import add_a2a_routes_to_fastapi
 from a2a.server.routes.jsonrpc_routes import create_jsonrpc_routes
 from a2a.server.routes.rest_routes import create_rest_routes
@@ -29,6 +32,7 @@ class OfficialA2AAgentExecutor(AgentExecutor):
     def __init__(self, *, invoker, agent_id: str) -> None:
         self.invoker = invoker
         self.agent_id = agent_id
+        self._canceled_task_ids: set[str] = set()
 
     async def execute(self, context, event_queue) -> None:
         text = context.get_user_input().strip()
@@ -46,6 +50,9 @@ class OfficialA2AAgentExecutor(AgentExecutor):
             task_id=context.task_id,
             context_id=context.context_id,
         )
+        if context.task_id in self._canceled_task_ids:
+            await updater.cancel()
+            return
         await updater.start_work()
         artifact = self.invoker.invoke(
             agent_id=self.agent_id,
@@ -64,7 +71,13 @@ class OfficialA2AAgentExecutor(AgentExecutor):
         await updater.complete()
 
     async def cancel(self, context, event_queue) -> None:
-        return
+        self._canceled_task_ids.add(context.task_id)
+        updater = TaskUpdater(
+            event_queue,
+            task_id=context.task_id,
+            context_id=context.context_id,
+        )
+        await updater.cancel()
 
 
 def install_official_a2a_routes(app, *, invoker) -> None:
@@ -106,4 +119,26 @@ def install_official_a2a_routes(app, *, invoker) -> None:
         agent_card_routes=create_agent_card_routes(official_card),
         jsonrpc_routes=jsonrpc_routes,
         rest_routes=rest_routes,
+    )
+    for card in (
+        EXAMINER_AGENT_CARD,
+        KNOWLEDGE_AGENT_CARD,
+        REVIEWER_AGENT_CARD,
+        REPORT_COACH_AGENT_CARD,
+    ):
+        agent_card = to_official_agent_card(card)
+
+        def discovery_endpoint(agent_card=agent_card):
+            return agent_card_to_dict(agent_card)
+
+        app.add_api_route(
+            f"/a2a/{card.agent_id}/.well-known/agent-card.json",
+            discovery_endpoint,
+            methods=["GET"],
+        )
+    app.routes.sort(
+        key=lambda route: (
+            getattr(route, "path", "") == "/{tenant}",
+            0,
+        )
     )

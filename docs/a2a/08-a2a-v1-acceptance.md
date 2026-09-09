@@ -45,12 +45,12 @@ Regression result:
 
 ## Official A2A SDK
 
-The official `a2a-sdk==1.1.2` is installed and pinned in
-`requirements-a2a.txt`, kept separate from the base reproducibility-locked
-requirements.
+The official `a2a-sdk==1.1.2` is installed and pinned in the base
+reproducibility-locked requirements.
 `app/a2a/official.py` converts internal Agent Cards into official A2A 1.0
-AgentCard protobufs. Full official server/client transport is not yet wired
-into the main FastAPI runtime.
+AgentCard protobufs. Official REST and JSON-RPC routes are mounted for four
+professional agents, and official HTTP Task/Artifact lifecycle is verified for
+Examiner and Reviewer smoke.
 
 A local A2A card discovery endpoint is available:
 
