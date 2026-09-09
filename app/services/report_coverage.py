@@ -13,6 +13,15 @@ from app.services.report import (
     ScoreEvaluation,
 )
 from app.services.report_observations import aggregate_report_observations
+from app.services.report_actions import (
+    REPORT_ACTION_PLANNER_VERSION,
+    plan_priority_actions,
+)
+from app.services.report_answer_guidance import (
+    REPORT_ANSWER_GUIDANCE_VERSION,
+    apply_safe_answer_guidance,
+)
+from app.services.report_summary import build_cross_question_summary
 
 
 DIMENSION_NAMES = (
@@ -253,20 +262,57 @@ def apply_report_coverage(
         "question_evaluations": question_evaluations(resolved_feedbacks),
     }
     if report.report_schema_version == REPORT_SCHEMA_VERSION_V2:
-        updates["coverage"] = ReportCoverageV2(
+        report_coverage = ReportCoverageV2(
             status=coverage.coverage_status,
             evaluated_count=coverage.evaluated_count,
             total_eligible_count=coverage.total_eligible_count,
             evidence_count=coverage.evidence_count,
             per_dimension=report_dimension_evaluations,
         )
+        observations = aggregate_report_observations(
+            feedbacks=resolved_feedbacks,
+            dimension_evaluations=report_dimension_evaluations,
+            evidence_refs=report.evidence_refs,
+        )
+        guidance_result = apply_safe_answer_guidance(
+            feedbacks=resolved_feedbacks,
+            observations=observations,
+            evidence_refs=report.evidence_refs,
+        )
+        summary_result = build_cross_question_summary(
+            observations=observations,
+            coverage=report_coverage,
+            evidence_refs=report.evidence_refs,
+        )
+        priority_actions = plan_priority_actions(
+            observations=observations,
+            coverage=report_coverage,
+            evidence_refs=report.evidence_refs,
+        )
+        updates["feedbacks"] = guidance_result.feedbacks
+        updates["coverage"] = report_coverage
+        updates["summary_observations"] = summary_result.summary_observations
+        updates["strengths"] = summary_result.strengths
+        updates["limitations"] = summary_result.limitations
+        updates["priority_actions"] = priority_actions
         updates["technical_appendix"] = report.technical_appendix.model_copy(
             update={
-                "observations": aggregate_report_observations(
-                    feedbacks=resolved_feedbacks,
-                    dimension_evaluations=report_dimension_evaluations,
-                    evidence_refs=report.evidence_refs,
-                )
+                "observations": observations,
+                "metadata": {
+                    **report.technical_appendix.metadata,
+                    "coverage_status": coverage.coverage_status,
+                    "summary_provider_attempted": summary_result.provider_attempted,
+                    "summary_degraded": summary_result.degraded,
+                    "action_planner_version": REPORT_ACTION_PLANNER_VERSION,
+                    "priority_action_count": len(priority_actions),
+                    "answer_guidance_version": REPORT_ANSWER_GUIDANCE_VERSION,
+                    "example_rewrite_published_count": (
+                        guidance_result.example_rewrite_published_count
+                    ),
+                    "unsafe_rewrite_omitted_count": (
+                        guidance_result.unsafe_rewrite_omitted_count
+                    ),
+                },
             }
         )
     if report_path is not None:

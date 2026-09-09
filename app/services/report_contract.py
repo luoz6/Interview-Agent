@@ -223,7 +223,7 @@ def build_report_evidence_refs(
                         evidence_ref_id=evidence_ref_id,
                         namespace="candidate",
                         question_id=feedback.question_id,
-                        excerpt=feedback.user_answer.strip(),
+                        excerpt=_bounded_excerpt(feedback.user_answer),
                     )
                 )
                 seen.add(evidence_ref_id)
@@ -237,11 +237,15 @@ def build_report_evidence_refs(
                     namespace="reference",
                     question_id=feedback.question_id,
                     source_id=reference.chunk_id,
-                    excerpt=reference.excerpt,
+                    excerpt=_bounded_excerpt(reference.excerpt),
                 )
             )
             seen.add(evidence_ref_id)
     return refs
+
+
+def _bounded_excerpt(text: str, max_length: int = 2000) -> str:
+    return text.strip()[:max_length]
 
 
 def _build_highlights(

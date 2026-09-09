@@ -56,11 +56,11 @@ class ModelCapabilityRegistry:
     ) -> ModelRuntimeProfile:
         normalized_model = model.strip()
         explicit = configured_context_window_tokens
-        if explicit is None and custom_base_url:
+        window = explicit or self._KNOWN_CONTEXT_WINDOWS.get(normalized_model)
+        if explicit is None and custom_base_url and window is None:
             raise ContextConfigurationError(
                 "custom provider requires an explicit context window"
             )
-        window = explicit or self._KNOWN_CONTEXT_WINDOWS.get(normalized_model)
         if window is None:
             raise ContextConfigurationError(
                 "unknown model requires an explicit context window"

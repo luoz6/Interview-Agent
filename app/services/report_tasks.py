@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import logging
+
 from app.services.agent_runtime import AgentExecutionRunner
 from app.services.report import (
     ReportGenerationFailed,
@@ -12,6 +14,9 @@ from app.services.runtime import (
     resolve_runtime_llm,
 )
 from app.services.session import InterviewSessionStore
+
+
+logger = logging.getLogger(__name__)
 
 
 def execute_report_generation(
@@ -52,10 +57,13 @@ def run_report_generation(
     except ValueError as exc:
         if str(exc) == "session not found":
             return None
+        logger.exception("report generation failed", exc_info=exc)
         store.fail_report(session_id, str(exc))
     except (ReportGenerationTimeout, ReportGenerationFailed) as exc:
+        logger.exception("report generation failed", exc_info=exc)
         store.fail_report(session_id, str(exc))
     except Exception as exc:
+        logger.exception("report generation failed unexpectedly", exc_info=exc)
         store.fail_report(session_id, str(exc))
     return None
 
@@ -69,6 +77,7 @@ def generate_report_for_session(
         llm = resolve_runtime_llm(store)
         execution_runner = get_agent_execution_runner()
     except Exception as exc:
+        logger.exception("report generation setup failed", exc_info=exc)
         try:
             store.fail_report(session_id, str(exc))
         except ValueError as store_exc:
