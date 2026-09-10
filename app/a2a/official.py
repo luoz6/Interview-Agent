@@ -16,6 +16,21 @@ def to_official_agent_card(card: AgentCard) -> types.AgentCard:
     )
     official.default_input_modes.extend(["text/plain", "application/json"])
     official.default_output_modes.extend(["application/json"])
+    if card.agent_id != "interview-agent-platform":
+        official.supported_interfaces.extend(
+            [
+                types.AgentInterface(
+                    url=f"/a2a/{card.agent_id}",
+                    protocol_binding="HTTP+JSON",
+                    protocol_version="1.0",
+                ),
+                types.AgentInterface(
+                    url=f"/a2a/{card.agent_id}/jsonrpc",
+                    protocol_binding="JSONRPC",
+                    protocol_version="1.0",
+                ),
+            ]
+        )
     for skill in card.skills:
         official.skills.append(
             types.AgentSkill(

@@ -56,7 +56,7 @@ class LocalA2AServer:
                 observability_code="unsupported_skill",
             )
             failed = self._with_error(task, error)
-            self._tasks[working.task_id] = failed
+            self._tasks[task.task_id] = failed
             result = A2AResult(task=failed)
             self.observability.record(result.task)
             return result
@@ -91,7 +91,7 @@ class LocalA2AServer:
                     observability_code="unexpected_error",
                 ),
             )
-            self._tasks[task.task_id] = failed
+            self._tasks[working.task_id] = failed
             result = A2AResult(
                 task=failed,
             )

@@ -28,7 +28,9 @@ def build_agent_idempotency_key(
     invocation_context: Any | None = None,
 ) -> str:
     context = invocation_context
-    session_id = getattr(context, "session_id", None)
+    session_id = getattr(context, "session_id", None) or getattr(
+        context, "context_id", None
+    )
     correlation_id = getattr(context, "correlation_id", None)
     question_id = getattr(context, "question_id", None)
     state_version = getattr(context, "state_version", None)

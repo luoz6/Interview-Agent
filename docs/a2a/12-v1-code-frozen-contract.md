@@ -2,6 +2,12 @@
 
 Status: `FROZEN_FOR_V2`
 
+A2A-V1: `CODE_FROZEN`
+
+E2E: `DEFERRED`
+
+V2 Implementation: `AUTHORIZED`
+
 ## Agent IDs
 
 ```text

@@ -3,10 +3,11 @@
 ## Status
 
 ```text
-C09 Cancellation: PASS_PREVIEW
-C10 Idempotency: PARTIAL_PREVIEW
-A2A-V1: CODE_READY
-E2E: PENDING
+C09 Cancellation: PASS
+C10 Idempotency: PASS
+A2A-V1: CODE_FROZEN
+E2E: DEFERRED
+V2 Implementation: AUTHORIZED
 ```
 
 ## Cancellation Contract

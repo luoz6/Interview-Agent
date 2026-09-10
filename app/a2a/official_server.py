@@ -28,6 +28,15 @@ from app.a2a.invocation.context import InvocationContext
 from app.a2a.official import to_official_agent_card
 
 
+def _optional_int(value: Any) -> int | None:
+    if value is None or value == "":
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
 class OfficialA2AAgentExecutor(AgentExecutor):
     def __init__(self, *, invoker, agent_id: str) -> None:
         self.invoker = invoker
@@ -37,12 +46,20 @@ class OfficialA2AAgentExecutor(AgentExecutor):
     async def execute(self, context, event_queue) -> None:
         text = context.get_user_input().strip()
         payload = json.loads(text or "{}")
+        request_input = payload.get("input") or {}
         invocation_context = InvocationContext(
             context_id=context.context_id,
             correlation_id=context.metadata.get("correlation_id") or context.context_id,
             causation_id=context.metadata.get("causation_id"),
             parent_run_id=context.metadata.get("parent_run_id"),
             command_id=context.metadata.get("command_id"),
+            session_id=context.metadata.get("session_id") or context.context_id,
+            question_id=context.metadata.get("question_id")
+            or request_input.get("question_id"),
+            state_version=_optional_int(
+                context.metadata.get("state_version")
+                or request_input.get("state_version")
+            ),
             idempotency_key=context.metadata.get("idempotency_key"),
         )
         updater = TaskUpdater(
@@ -57,9 +74,11 @@ class OfficialA2AAgentExecutor(AgentExecutor):
         artifact = self.invoker.invoke(
             agent_id=self.agent_id,
             skill=payload["skill"],
-            request=payload.get("input") or {},
+            request=request_input,
             invocation_context=invocation_context,
         )
+        if context.task_id in self._canceled_task_ids:
+            return
         await updater.add_artifact(
             parts=[types.Part(text=artifact.model_dump_json())],
             name=artifact.artifact_type,
