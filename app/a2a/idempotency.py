@@ -4,9 +4,6 @@ import hashlib
 import json
 from typing import Any
 
-from app.a2a.invocation.context import InvocationContext
-
-
 def _canonical_json(value: Any) -> str:
     return json.dumps(
         value,
@@ -28,36 +25,41 @@ def build_agent_idempotency_key(
     agent_id: str,
     skill: str,
     request: dict[str, Any],
-    invocation_context: InvocationContext | None = None,
+    invocation_context: Any | None = None,
 ) -> str:
-    context = invocation_context or InvocationContext()
+    context = invocation_context
+    session_id = getattr(context, "session_id", None)
+    correlation_id = getattr(context, "correlation_id", None)
+    question_id = getattr(context, "question_id", None)
+    state_version = getattr(context, "state_version", None)
+    command_id = getattr(context, "command_id", None)
     if agent_id == "interview-examiner":
         identity = [
-            context.session_id,
-            request.get("question_id") or context.question_id,
-            context.state_version,
-            context.command_id,
+            session_id,
+            request.get("question_id") or question_id,
+            state_version,
+            command_id,
             request.get("policy_version"),
         ]
     elif agent_id == "knowledge-and-grounding":
         identity = [
-            context.correlation_id,
+            correlation_id,
             request.get("configuration_hash"),
             request.get("knowledge_scope_hash"),
         ]
     elif agent_id == "interview-reviewer":
         identity = [
-            context.session_id,
-            context.state_version,
+            session_id,
+            state_version,
             request.get("review_policy_version"),
         ]
     elif agent_id == "report-coach":
         identity = [
-            context.session_id,
+            session_id,
             request.get("evaluation_set_hash"),
             request.get("report_policy_version"),
         ]
     else:
-        identity = [context.session_id, skill, request]
+        identity = [session_id, skill, request]
     digest = _stable_digest(*identity)
     return f"a2a-v1:{agent_id}:{skill}:{digest}"

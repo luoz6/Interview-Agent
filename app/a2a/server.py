@@ -36,11 +36,13 @@ class LocalA2AServer:
 
     def submit(self, task: A2ATask, *, execution_context: Any | None = None) -> A2AResult:
         existing = self._find_idempotent_task(task)
-        if existing is not None and not (
-            existing.status == "failed"
+        retryable_existing = (
+            existing is not None
+            and existing.status == "failed"
             and existing.error is not None
             and existing.error.retryable
-        ):
+        )
+        if existing is not None and not retryable_existing:
             return A2AResult(task=existing)
         handler = self._handlers.get((task.agent_id, task.skill))
         if handler is None:
@@ -54,24 +56,25 @@ class LocalA2AServer:
                 observability_code="unsupported_skill",
             )
             failed = self._with_error(task, error)
-            self._tasks[task.task_id] = failed
+            self._tasks[working.task_id] = failed
             result = A2AResult(task=failed)
             self.observability.record(result.task)
             return result
 
-        working = task.model_copy(
+        base_task = existing if retryable_existing else task
+        working = base_task.model_copy(
             update={
                 "status": "working",
-                "attempts": task.attempts + 1,
+                "attempts": base_task.attempts + 1,
                 "updated_at": _utc_now_iso(),
             }
         )
-        self._tasks[task.task_id] = working
+        self._tasks[working.task_id] = working
         try:
             artifact = handler(working.input, execution_context)
         except A2AAgentError as exc:
             failed = self._with_error(working, exc.to_artifact())
-            self._tasks[task.task_id] = failed
+            self._tasks[working.task_id] = failed
             result = A2AResult(task=failed)
             self.observability.record(result.task)
             return result
@@ -94,6 +97,10 @@ class LocalA2AServer:
             )
             self.observability.record(result.task)
             return result
+        current = self._tasks.get(working.task_id, working)
+        if current.status in {"canceled", "rejected"}:
+            self.observability.record(current)
+            return A2AResult(task=current)
         completed = working.model_copy(
             update={
                 "status": "completed",
@@ -103,7 +110,7 @@ class LocalA2AServer:
             }
         )
         result = A2AResult(task=completed)
-        self._tasks[task.task_id] = completed
+        self._tasks[working.task_id] = completed
         self.observability.record(result.task)
         return result
 

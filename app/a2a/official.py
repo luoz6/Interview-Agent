@@ -14,6 +14,8 @@ def to_official_agent_card(card: AgentCard) -> types.AgentCard:
         version=card.version,
         capabilities=types.AgentCapabilities(streaming=False),
     )
+    official.default_input_modes.extend(["text/plain", "application/json"])
+    official.default_output_modes.extend(["application/json"])
     for skill in card.skills:
         official.skills.append(
             types.AgentSkill(

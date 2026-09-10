@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import pytest
+from threading import Event, Thread
 
 from app.a2a.contracts import A2AAgentError, FollowupArtifactPayload
 from app.a2a.idempotency import build_agent_idempotency_key
@@ -86,3 +87,42 @@ def test_cancel_unknown_task_raises():
     server = LocalA2AServer()
     with pytest.raises(A2AAgentError):
         server.cancel("missing", reason="user_canceled")
+
+
+def test_late_result_does_not_complete_canceled_task():
+    server = LocalA2AServer()
+    started = Event()
+    release = Event()
+
+    def blocking_handler(request, execution_context):
+        started.set()
+        release.wait(timeout=5)
+        return FollowupArtifactPayload(
+            question_id="q1",
+            followup_text="late result",
+            reason_code="gap",
+            policy_version="adaptive_v1",
+        )
+
+    server.register(
+        agent_id="interview-examiner",
+        skill="generate-followup",
+        handler=blocking_handler,
+    )
+    task = A2ATask(
+        task_id="task-1",
+        agent_id="interview-examiner",
+        skill="generate-followup",
+        input={"question_id": "q1"},
+    )
+    results = []
+    thread = Thread(target=lambda: results.append(server.submit(task)))
+    thread.start()
+    started.wait(timeout=5)
+    canceled = server.cancel("task-1", reason="user_canceled").task
+    release.set()
+    thread.join(timeout=5)
+    completed = results[0].task
+    assert canceled.status == "canceled"
+    assert completed.status == "canceled"
+    assert completed.output_artifact is None
