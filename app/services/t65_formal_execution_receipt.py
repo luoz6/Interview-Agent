@@ -45,7 +45,6 @@ REQUIRED_FORMAL_EXECUTOR_PATHS = frozenset(
         "app/services/t65_production_capture.py",
         "app/services/t65_provider_http_transport.py",
         "app/services/t65_runtime_performance.py",
-        "scripts/run_t65_runtime_performance.py",
     }
 )
 

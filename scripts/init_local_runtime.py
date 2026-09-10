@@ -11,7 +11,7 @@ from app.runtime.config.compatibility import (
 from app.services.postgres_session import PostgresInterviewSessionStore
 from app.services.report_jobs import PostgresReportJobStore
 from app.adapters.pgvector.repository import PgVectorKnowledgeStore
-from scripts.load_knowledge import load_knowledge
+from scripts.load_knowledge_v2 import load_knowledge_v2
 
 
 _IDENTIFIER_PATTERN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]{0,62}$")
@@ -116,7 +116,7 @@ def initialize_runtime(
     job_store,
     knowledge_store,
     seed_knowledge: bool,
-    seed_loader=load_knowledge,
+    seed_loader=load_knowledge_v2,
     corpus_version: str | None = None,
 ) -> dict:
     knowledge_store.ensure_schema()

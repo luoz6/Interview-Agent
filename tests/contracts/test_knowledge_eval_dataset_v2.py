@@ -4,7 +4,6 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
-from app.services.knowledge_eval_dataset import KnowledgeRetrievalCase, KnowledgeRetrievalDataset
 from app.services.knowledge_eval_dataset_v2 import (
     EVALUATION_GROUP_DOMAIN_MAP,
     KnowledgeRetrievalCaseV2,
@@ -13,7 +12,6 @@ from app.services.knowledge_eval_dataset_v2 import (
 )
 
 
-MANIFEST_PATH = Path("app/data/knowledge/manifest.json")
 PILOT_PATH = Path("tests/golden/knowledge_retrieval_v2_pilot.json")
 MEMORY_P1_PATH = Path("tests/golden/knowledge_retrieval_memory_p1.json")
 MEMORY_P1_MANIFEST_PATH = Path("app/data/knowledge_v2/manifest.json")
@@ -33,21 +31,6 @@ def _case(**overrides):
     }
     payload.update(overrides)
     return payload
-
-
-def test_v1_model_shape_and_defaults_remain_frozen():
-    assert set(KnowledgeRetrievalCase.model_fields) == {
-        "case_id",
-        "category",
-        "domain",
-        "query_text",
-        "canonical_tags",
-        "source_types",
-        "relevant_chunk_ids",
-        "top_k",
-    }
-    assert KnowledgeRetrievalCase.model_fields["top_k"].default == 3
-    assert set(KnowledgeRetrievalDataset.model_fields) == {"version", "cases"}
 
 
 def test_v2_case_has_independent_shape():

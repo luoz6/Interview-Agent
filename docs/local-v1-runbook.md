@@ -117,14 +117,12 @@ $env:EMBEDDING_PROVIDER="siliconflow"
 $env:EMBEDDING_MODEL_NAME="BAAI/bge-m3"
 $env:EMBEDDING_MODEL_REVISION="siliconflow-bge-m3-20260721"
 # Set SILICONFLOW_API_KEY through a secure local mechanism without displaying it.
-python -m scripts.load_knowledge --corpus-version stage44a-bge-m3-v1
 ```
 
 For an explicitly approved remote acceptance run, keep the same provider
 identity, set `RUN_SILICONFLOW_ACCEPTANCE=1`, and use the unified profile CLI:
 
 ```powershell
-python -m scripts.knowledge_acceptance stage44a --run-id <run-id> --run-dir <run-dir>
 python -m scripts.release_artifact_audit --profile stage44a --run-id <run-id> --run-dir <run-dir>
 ```
 
@@ -507,11 +505,9 @@ text, raw provider errors, leases, paths, or connection configuration.
 
 ## 13. Stage 44B1 Chinese Corpus RC
 
-Stage 44B1 preserves `app/data/knowledge/` as the frozen v1 root and loads the
-Chinese v2 corpus only from `app/data/knowledge_v2/`. Do not point the v1 loader
-at the v2 root or regenerate the v1 manifest. All v2 natural-language corpus
-content and runtime retrieval queries must be Chinese. Technical identifiers,
-code, and SQL may keep their official spelling.
+Stage 44B1 loads the Chinese corpus only from `app/data/knowledge_v2/`. All v2
+natural-language corpus content and runtime retrieval queries must be Chinese.
+Technical identifiers, code, and SQL may keep their official spelling.
 
 Corpus authors may use only sources already approved in
 `docs/stage-44b1-chinese-source-matrix.md`. A source addition or replacement
@@ -537,7 +533,6 @@ requires separate explicit operator approval after
 `docs/stage-44b1-chinese-corpus-acceptance.md` is complete.
 
 ```powershell
-python -m scripts.knowledge_acceptance stage44b1 --run-id <run-id> --run-dir <run-dir>
 python -m scripts.release_artifact_audit --profile stage44b1 --run-id <run-id> --run-dir <run-dir>
 ```
 
@@ -845,13 +840,6 @@ must therefore be retained outside the restored backup boundary for at least
 the maximum backup retention period. A restore is incomplete until this replay
 and a deletion-count audit have succeeded.
 
-## Memory repository acceptance
-
-Run `python -m scripts.memory_system_optimization_acceptance` for the
-repository-only gate. The runner captures focused tests internally and emits
-only `READY_FOR_MEMORY_SYSTEM_SHADOW` plus
-`PRODUCTION_OBSERVATION=NOT_RUN` on success. It does not authorize a migration,
-rollout, destructive retention job, real-provider call, or production canary.
 ### 持久化记忆指标
 
 记忆指标只写入按分钟和小时聚合的 bucket，不保存原始事件，也不允许 session、principal、question、fact、artifact、prompt、回答、摘要或 excerpt 等标识和内容字段。PostgreSQL 正常时，trusted-local 的 `GET /api/runtime/memory-metrics` 返回 `store_kind=postgres_aggregate`、`data_complete=true` 与最新 bucket 时间；数据库不可用时面试业务继续运行，端点明确回退为 `process_local` 且 `data_complete=false`。
@@ -859,7 +847,6 @@ rollout, destructive retention job, real-provider call, or production canary.
 默认保留期为 minute 30 天、hour 180 天。缩短可通过经评审的部署策略执行；延长必须由隐私/合规、SRE 和技术负责人共同批准，并同步更新 retention policy version 与验收记录，不能用普通环境变量静默延长。
 Budget Shadow is prepared as a validate-only workflow documented in `docs/memory-budget-shadow-runbook.md`. Do not set `MEMORY_BUDGET_SHADOW_ENABLED=true` from this repository phase; the status endpoint is read-only and cannot activate it.
 Principal Memory is default-off. Supported repository modes are only `disabled`, `write_shadow`, and `read_shadow`; `MEMORY_LONG_TERM_MODE=consume` is rejected rather than downgraded. Identity must come from an explicit trusted resolver, never from resume text, contact data, browser/device identifiers, network metadata, candidate names, embeddings, or model output. Consent is versioned and checked again for every proposal, storage, and read-shadow operation.
-Final phase acceptance is produced by `python -m scripts.memory_validation_foundation_acceptance` only after full Python/browser/build/live-PostgreSQL results have been published as the signed `reports/memory/operational-rc-evidence-v1.json` Bundle. Configure `OPERATIONAL_INPUT_REVISION` and the Evidence HMAC signer before running it. A successful gate still reports `LONG_TERM_MEMORY_CONSUMPTION=BLOCKED` and `PRODUCTION_OBSERVATION=NOT_RUN`.
 
 ## Local V1 Principal Memory operations
 
