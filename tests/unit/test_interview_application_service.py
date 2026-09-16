@@ -8,9 +8,9 @@ from app.application.interview.session_commands import (
 )
 from app.domain.interview.commands import SessionCommand
 from app.domain.interview.errors import SessionDeletingError
-from app.services.prep import InterviewPlan, InterviewQuestion
-from app.services.runtime_events import AcceptedInterviewCommand
-from app.services.session import InterviewSessionStore
+from app.runtime.interview_prep import InterviewPlan, InterviewQuestion
+from app.application.interview.events import AcceptedInterviewCommand
+from app.adapters.memory.session_store import InterviewSessionStore
 
 
 class StubLLM:

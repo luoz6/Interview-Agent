@@ -2,10 +2,10 @@ from uuid import uuid4
 
 import pytest
 
-from app.services.decision_store import DecisionStoreConflict
-from app.services.postgres_decision_store import PostgresDecisionStore
-from app.services.postgres_session import PostgresInterviewSessionStore
-from app.services.prep import InterviewPlan, InterviewQuestion
+from app.domain.interview.decision_store import DecisionStoreConflict
+from app.adapters.persistence.postgres.decision_store import PostgresDecisionStore
+from app.adapters.persistence.postgres.session_store import PostgresInterviewSessionStore
+from app.runtime.interview_prep import InterviewPlan, InterviewQuestion
 from tests.postgres_support import require_postgres_dsn
 
 
@@ -40,7 +40,7 @@ def test_postgres_decision_unique_prepare_lease_fencing_and_retry():
         provider_invocations=1,
     )
     second = store.claim(record.decision_id, worker_id="w2")
-    from app.services.decision_store import DecisionContract
+    from app.domain.interview.decision_store import DecisionContract
 
     final = DecisionContract(
         action="next_question",

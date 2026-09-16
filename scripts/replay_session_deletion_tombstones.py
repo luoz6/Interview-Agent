@@ -5,7 +5,7 @@ import json
 import os
 from pathlib import Path
 
-from app.services.session_deletion_tombstones import (
+from app.domain.interview.session_deletion_tombstones import (
     SessionDeletionTombstone,
     validate_tombstone_integrity,
 )
@@ -94,7 +94,7 @@ def main(argv: list[str] | None = None) -> int:
         != "true"
     ):
         raise RuntimeError("trusted local deletion gate is required")
-    from app.services.runtime import (
+    from app.runtime.composition import (
         get_session_deletion_service,
         get_session_deletion_worker,
     )

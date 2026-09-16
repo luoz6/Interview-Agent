@@ -4,7 +4,7 @@ import json
 from hashlib import sha256
 
 from app.agents.knowledge import KnowledgeAgent
-from app.services.knowledge_trace import KnowledgeTraceRecorder
+from app.adapters.knowledge.trace import KnowledgeTraceRecorder
 from tests.unit.test_grounded_knowledge_agent import GroundedPlanLLM, make_repository
 
 

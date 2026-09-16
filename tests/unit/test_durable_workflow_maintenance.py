@@ -1,6 +1,6 @@
 from datetime import timedelta
 
-from app.services.durable_workflow_maintenance import (
+from app.runtime.durable_workflow_maintenance import (
     DurableWorkflowMaintenanceService,
     MaintenanceResult,
 )

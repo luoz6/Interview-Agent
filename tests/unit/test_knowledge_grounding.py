@@ -7,18 +7,16 @@ from app.domain.knowledge.source_scope import (
     SelectedUserDocumentRevision,
     build_knowledge_source_scope,
 )
-from app.services.interview_plan_revision import (
-    build_interview_knowledge_scope_snapshot,
-)
+from app.domain.interview.plan_revision import build_interview_knowledge_scope_snapshot
 
-from app.services.knowledge_grounding import (
+from app.application.knowledge.grounding import (
     attach_grounded_prep_context,
     provider_knowledge_context,
     retrieve_grounding,
 )
-from app.services.knowledge_query import build_knowledge_queries
-from app.services.knowledge_profile import build_role_profile
-from app.services.prep import (
+from app.domain.knowledge.query import build_knowledge_queries
+from app.domain.knowledge.profile import build_role_profile
+from app.runtime.interview_prep import (
     InterviewPlan,
     InterviewQuestion,
     public_interview_plan_payload,

@@ -15,7 +15,7 @@ from app.domain.knowledge.retrieval import (
     SanitizedRetrievalQueryFacts,
 )
 from app.ports.runtime import KnowledgeLookupResult
-from app.services.knowledge_eval_artifacts_v3 import (
+from app.application.knowledge.eval_artifacts_v3 import (
     KnowledgeEvalArtifactV3,
     build_engine_identity_v3,
     canonical_sha256,
@@ -26,7 +26,7 @@ from app.services.knowledge_eval_artifacts_v3 import (
     write_retrieval_diagnostic_snapshots_v1,
     load_retrieval_diagnostic_snapshot_v1,
 )
-from app.services.knowledge_eval_dataset_v3 import (
+from app.domain.knowledge.eval_dataset_v3 import (
     KnowledgeRetrievalCaseV3,
     KnowledgeRetrievalDatasetV3,
 )

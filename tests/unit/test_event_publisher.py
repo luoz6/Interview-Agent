@@ -1,11 +1,11 @@
 import pytest
 
-from app.services.event_publisher import (
+from app.runtime.event_publisher import (
     CeleryRuntimeEventPublisher,
     LocalRoundReviewEventPublisher,
     NoopRuntimeEventPublisher,
 )
-from app.services.runtime_domain_events import RoundClosedEvent
+from app.domain.runtime_events import RoundClosedEvent
 
 
 class FakeCeleryApp:
@@ -17,10 +17,10 @@ class FakeCeleryApp:
 
 
 def test_celery_worker_imports_round_review_task():
-    from app.services.celery_app import celery_app
+    from app.runtime.celery_app import celery_app
 
-    assert "app.services.round_review_tasks" in celery_app.conf.include
-    assert "app.services.review_workflow_tasks" in celery_app.conf.include
+    assert "app.runtime.round_review_tasks" in celery_app.conf.include
+    assert "app.runtime.review_workflow_tasks" in celery_app.conf.include
 
 
 class FakeExecutor:
@@ -43,7 +43,14 @@ def test_noop_runtime_event_publisher_still_ignores_events():
 
 def test_local_round_review_event_publisher_schedules_round_closed_event():
     executor = FakeExecutor()
-    publisher = LocalRoundReviewEventPublisher(executor=executor)
+
+    def run_round_review_event_payload(payload):
+        return payload
+
+    publisher = LocalRoundReviewEventPublisher(
+        executor=executor,
+        payload_runner=run_round_review_event_payload,
+    )
 
     publisher.publish(
         RoundClosedEvent(

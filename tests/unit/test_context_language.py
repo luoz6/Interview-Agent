@@ -1,5 +1,5 @@
-from app.services.context_language import classify_context_language
-from app.services.trace_sanitization import sanitize_agent_safe_metadata
+from app.domain.context.language import classify_context_language
+from app.domain.trace_sanitization import sanitize_agent_safe_metadata
 
 
 def test_context_language_buckets_are_deterministic_and_bounded():

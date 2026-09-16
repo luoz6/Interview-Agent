@@ -12,14 +12,14 @@ from app.graphs.durable_interview_graph import (
     prepare_main_question,
 )
 from app.graphs.durable_interview_state_v3 import make_durable_initial_state_v3
-from app.services.interview_plan_revision import (
+from app.domain.interview.plan_revision import (
     InterviewPlanV3,
     default_plan_configuration,
     legacy_interview_knowledge_scope_snapshot,
     plan_payload_sha256,
 )
-from app.services.session_plan_binding import SessionPlanBinding
-from app.services.main_question_generation import (
+from app.domain.interview.session_plan_binding import SessionPlanBinding
+from app.domain.interview.main_question_generation import (
     MAIN_QUESTION_GENERATION_PROMPT_SHA256,
     MAIN_QUESTION_GENERATION_PROMPT_VERSION,
 )

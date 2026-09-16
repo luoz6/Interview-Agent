@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 from typing import Any, Protocol
 
-from app.graphs.interview_state import InterviewState
+from app.domain.interview.state import InterviewState
 
 
 class InterviewQuestionView(Protocol):

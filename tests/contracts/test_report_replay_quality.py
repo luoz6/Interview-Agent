@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from app.services.report_replay import replay_fixture_with_quality
+from app.evals.report_replay import replay_fixture_with_quality
 
 
 FIXTURE_DIR = Path("tests/fixtures/report_payloads")

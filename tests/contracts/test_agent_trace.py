@@ -2,8 +2,8 @@
 
 import json
 
-from app.services.agent_runtime import AgentRunRecord
-from app.services.agent_trace import AgentTraceRecorder
+from app.runtime.agent_execution import AgentRunRecord
+from app.adapters.observability.agent_trace import AgentTraceRecorder
 
 
 def make_record() -> AgentRunRecord:

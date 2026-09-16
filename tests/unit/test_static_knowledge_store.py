@@ -1,8 +1,16 @@
-from app.services.static_knowledge_store import StaticKnowledgeStore
+from app.adapters.knowledge.static_store import StaticKnowledgeStore
 
 
 def test_static_knowledge_store_returns_deterministic_preview_references():
-    store = StaticKnowledgeStore()
+    class TraceSink:
+        def __init__(self):
+            self.traces = []
+
+        def record_retrieval_trace(self, trace):
+            self.traces.append(trace)
+
+    trace_sink = TraceSink()
+    store = StaticKnowledgeStore(trace_sink=trace_sink)
 
     first = store.search(
         "Redis consistency",
@@ -19,7 +27,7 @@ def test_static_knowledge_store_returns_deterministic_preview_references():
 
     assert [item.chunk_id for item in first] == [item.chunk_id for item in second]
     assert all(item.metadata["preview"] is True for item in first)
-    assert store.last_search_trace["corpus_version"] == "static-preview-v1"
+    assert trace_sink.traces[-1]["corpus_version"] == "static-preview-v1"
 
 
 def test_static_knowledge_store_supports_bound_id_lookup():

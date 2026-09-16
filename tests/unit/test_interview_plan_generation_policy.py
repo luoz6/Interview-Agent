@@ -3,13 +3,13 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
-from app.services.interview_plan_audit import (
+from app.domain.interview.plan_audit import (
     PlanAuditFieldDiff,
     PlanAuditOperation,
     PlanRevisionAudit,
 )
 
-from app.services.interview_plan_generation_policy import (
+from app.application.interview.plan_generation_policy import (
     EXPECTED_CONFIGURATION_FIELDS,
     EXPECTED_DIFFICULTIES,
     EXPECTED_DURATIONS,
@@ -20,20 +20,20 @@ from app.services.interview_plan_generation_policy import (
     evaluate_plan_configuration_policy,
     load_interview_plan_generation_policy,
 )
-from app.services.interview_plan_revision import (
+from app.domain.interview.plan_revision import (
     InterviewPlanRevision,
     PlanConfigurationSnapshot,
     canonical_sha256,
     legacy_plan_to_v2,
     plan_configuration_sha256,
     plan_payload_sha256,
-    v2_plan_to_legacy,
 )
-from app.services.interview_plan_revision_store import (
+from app.domain.interview.prep import v2_plan_to_legacy
+from app.adapters.memory.plan_revision_store import (
     InMemoryInterviewPlanRevisionStore,
 )
-from app.services.prep import InterviewPlan, InterviewQuestion
-from app.services.report_rule_score import REPORT_SCORING_RUBRIC_VERSION
+from app.runtime.interview_prep import InterviewPlan, InterviewQuestion
+from app.domain.report.scoring import REPORT_SCORING_RUBRIC_VERSION
 from tests.unit.test_interview_plan_revision import configuration, plan, source
 
 

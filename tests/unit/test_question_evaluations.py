@@ -10,13 +10,13 @@ from app.domain.knowledge.evidence import (
     EvidenceSufficiency,
     ReviewEvidenceBinding,
 )
-from app.services.prep import InterviewPlan, InterviewQuestion
-from app.services.question_evaluations import (
+from app.runtime.interview_prep import InterviewPlan, InterviewQuestion
+from app.domain.report.question_evaluations import (
     QuestionEvaluationRecord,
     question_evaluation_from_feedback,
 )
-from app.services.report import DimensionScores, InterviewFeedback
-from app.services.session import InterviewSessionStore
+from app.domain.report.models import DimensionScores, InterviewFeedback
+from app.adapters.memory.session_store import InterviewSessionStore
 
 
 def make_feedback(

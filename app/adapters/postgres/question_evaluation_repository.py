@@ -8,8 +8,8 @@ from app.adapters.postgres.session_repository_support import (
     iso_timestamp,
     postgres_sql,
 )
-from app.services.postgres_connections import ConnectionProvider
-from app.services.question_evaluations import (
+from app.adapters.postgres.connections import ConnectionProvider
+from app.domain.report.question_evaluations import (
     QuestionEvaluationInputConflict,
     QuestionEvaluationRecord,
 )

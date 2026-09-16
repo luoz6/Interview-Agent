@@ -18,11 +18,11 @@ from app.application.knowledge.diagnostic_models import (
     CorpusValidateResponse,
     CorpusValidationIssue,
 )
-from app.services.knowledge_corpus_schema import (
+from app.domain.knowledge.corpus_schema import (
     KnowledgeMetadataV2,
     validate_knowledge_document_v2,
 )
-from app.services.knowledge_ingestion import KnowledgeReleaseService
+from app.application.knowledge.ingestion import KnowledgeReleaseService
 from scripts.build_knowledge_manifest_v2 import (
     KNOWLEDGE_V2_ROOT,
     build_manifest_v2,

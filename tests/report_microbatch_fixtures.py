@@ -1,6 +1,6 @@
-from app.services.prep import InterviewPlan, InterviewQuestion
-from app.services.question_evaluations import question_evaluation_from_feedback
-from app.services.report import DimensionScores, InterviewFeedback
+from app.runtime.interview_prep import InterviewPlan, InterviewQuestion
+from app.domain.report.question_evaluations import question_evaluation_from_feedback
+from app.domain.report.models import DimensionScores, InterviewFeedback
 
 
 def make_dimension_scores(score: int = 80) -> DimensionScores:

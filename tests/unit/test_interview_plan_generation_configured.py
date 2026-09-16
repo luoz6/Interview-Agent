@@ -10,14 +10,14 @@ from pydantic import ValidationError
 
 import app.api.prep.routes as route_module
 from app.main import app
-from app.services.agent_runtime import AgentExecutionRunner
-from app.services.context_budget import PLAN_CONTEXT_POLICY
-from app.services.interview_plan_budget import QUESTION_TYPE_ORDER
-from app.services.interview_plan_regenerator import (
+from app.runtime.agent_execution import AgentExecutionRunner
+from app.domain.context.budget import PLAN_CONTEXT_POLICY
+from app.domain.interview.plan_budget import QUESTION_TYPE_ORDER
+from app.runtime.interview_plan_regenerator import (
     PlanRegenerationFailed,
     ProviderPlanRegenerator,
 )
-from app.services.interview_plan_revision import (
+from app.domain.interview.plan_revision import (
     InterviewPlanV2,
     PlanConfigurationSnapshot,
     PlanSourcePayload,
@@ -25,12 +25,12 @@ from app.services.interview_plan_revision import (
     plan_configuration_sha256,
     plan_payload_sha256,
 )
-from app.services.interview_plan_revision_store import (
+from app.adapters.memory.plan_revision_store import (
     InMemoryInterviewPlanRevisionStore,
 )
-from app.services.in_memory_prep_plan_store import InMemoryPrepPlanStore
-from app.services.llm import OpenAIInterviewLLM
-from app.services.prep import (
+from app.adapters.memory.prep_plan_store import InMemoryPrepPlanStore
+from app.adapters.providers.llm import OpenAIInterviewLLM
+from app.runtime.interview_prep import (
     bind_prepared_plan_revision,
     enforce_generated_interview_plan,
     InterviewPlan,
@@ -39,7 +39,7 @@ from app.services.prep import (
     prepare_interview,
     prepared_plan_revision,
 )
-from app.services.trace_sanitization import sanitize_agent_safe_metadata
+from app.domain.trace_sanitization import sanitize_agent_safe_metadata
 
 
 PROFILE_QUESTION_COUNTS = {15: 3, 30: 5, 45: 7, 60: 9}

@@ -3,7 +3,7 @@
 from datetime import datetime, timedelta, timezone
 
 from app.api.reports.routes import _report_progress_detail
-from app.services.report import ReportProgress, ReportRecord
+from app.domain.report.models import ReportProgress, ReportRecord
 
 
 def test_stale_processing_record_without_job_is_projected_as_orphaned():

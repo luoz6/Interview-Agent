@@ -9,12 +9,12 @@ from pathlib import Path
 from uuid import uuid4
 
 from app.ports.postgres_scope import PostgresCleanupReceipt, PostgresScopeError
-from app.services.agent_runtime import AgentRunRecord
-from app.services.postgres_session import PostgresInterviewSessionStore
-from app.services.prep import InterviewPlan, InterviewQuestion
-from app.services.runtime_domain_events import RoundClosedEvent
-from app.services.runtime_event_consumer import consume_round_review_event
-from app.services.runtime_outbox_dispatcher import (
+from app.runtime.agent_execution import AgentRunRecord
+from app.adapters.persistence.postgres.session_store import PostgresInterviewSessionStore
+from app.runtime.interview_prep import InterviewPlan, InterviewQuestion
+from app.domain.runtime_events import RoundClosedEvent
+from app.runtime.composition import consume_round_review_event
+from app.runtime.outbox import (
     CeleryRuntimeEventSink,
     RuntimeOutboxDispatcher,
 )
@@ -153,7 +153,7 @@ class PostgresCeleryAcceptance:
         }
 
     def setup(self) -> None:
-        from app.services.celery_app import celery_app
+        from app.runtime.celery_app import celery_app
 
         self.celery_app = celery_app
         os.environ["INTERVIEW_RUNTIME_STORE"] = "postgres"
@@ -443,7 +443,7 @@ class PostgresCeleryAcceptance:
             "-m",
             "celery",
             "-A",
-            "app.services.celery_app.celery_app",
+            "app.runtime.celery_app.celery_app",
             "worker",
             "--loglevel=warning",
             "--pool=solo",
@@ -472,7 +472,7 @@ class PostgresCeleryAcceptance:
                     "-m",
                     "celery",
                     "-A",
-                    "app.services.celery_app.celery_app",
+                    "app.runtime.celery_app.celery_app",
                     "inspect",
                     "ping",
                     "--timeout",

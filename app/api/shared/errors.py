@@ -5,9 +5,9 @@ from fastapi.responses import JSONResponse
 
 from app.domain.interview.errors import SessionDeletingError, SessionVersionConflict
 from app.application.materials.service import UserMaterialsError
-from app.services.interview_knowledge_scope import InterviewKnowledgeScopeError
-from app.services.prep_plans import PrepPlanError
-from app.services.prep_source_import import PrepSourceImportError
+from app.application.knowledge.scope import InterviewKnowledgeScopeError
+from app.domain.interview.prep_plans import PrepPlanError
+from app.application.materials.prep_source_import import PrepSourceImportError
 
 
 _USER_MATERIALS_ERRORS = {

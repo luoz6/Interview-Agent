@@ -3,11 +3,11 @@ from __future__ import annotations
 from datetime import datetime, timezone
 
 from app.ports.principal_memory_consent import PrincipalMemoryConsentStore
-from app.services.in_memory_principal_memory_consent import (
+from app.adapters.memory.principal_memory_consent import (
     InMemoryPrincipalMemoryConsentStore,
 )
-from app.services.principal_identity import ExplicitPrincipalIdentityResolver
-from app.services.principal_memory_consent import (
+from app.adapters.memory.principal_identity import ExplicitPrincipalIdentityResolver
+from app.application.memory.consent import (
     PrincipalMemoryConsent,
     PrincipalMemoryConsentService,
 )

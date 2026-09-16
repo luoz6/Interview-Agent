@@ -369,7 +369,7 @@ def test_question_memory_consumption_readiness_fails_when_required_coverage_is_m
     monkeypatch,
 ):
     monkeypatch.setattr(
-        "app.services.knowledge_profile.load_active_knowledge_covered_tags",
+        "app.domain.knowledge.profile.load_active_knowledge_covered_tags",
         lambda: {"python"},
     )
     config = load_effective_memory_config(

@@ -1,11 +1,11 @@
 import pytest
 
-from app.services.knowledge_eval_dataset_v3 import (
+from app.domain.knowledge.eval_dataset_v3 import (
     KnowledgeRetrievalCaseV3,
     KnowledgeRetrievalDatasetV3,
 )
-from app.services.knowledge_eval_metrics_v2 import RetrievedKnowledgeItemV2
-from app.services.knowledge_eval_metrics_v3 import (
+from app.domain.knowledge.eval_metrics_v2 import RetrievedKnowledgeItemV2
+from app.domain.knowledge.eval_metrics_v3 import (
     KnowledgeRetrievalObservationV3,
     calculate_knowledge_retrieval_metrics_v3,
     compare_knowledge_retrieval_metrics_v3,

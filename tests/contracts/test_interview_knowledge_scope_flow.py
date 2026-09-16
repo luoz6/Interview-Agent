@@ -19,18 +19,18 @@ from app.domain.knowledge.user_document import (
 )
 from app.main import app
 from app.runtime.config.models import UserMaterialsRuntimeSettings
-from app.services.in_memory_prep_plan_store import InMemoryPrepPlanStore
-from app.services.interview_knowledge_scope import InterviewKnowledgeScopeResolver
-from app.services.interview_plan_revision import (
+from app.adapters.memory.prep_plan_store import InMemoryPrepPlanStore
+from app.application.knowledge.scope import InterviewKnowledgeScopeResolver
+from app.domain.interview.plan_revision import (
     build_interview_knowledge_scope_snapshot,
     plan_payload_sha256,
 )
-from app.services.interview_plan_revision_store import (
+from app.adapters.memory.plan_revision_store import (
     InMemoryInterviewPlanRevisionStore,
 )
-from app.services.prep import fallback_interview_plan
-from app.services.principal_identity import ExplicitPrincipalIdentityResolver
-from app.services.session import InterviewSessionStore
+from app.runtime.interview_prep import fallback_interview_plan
+from app.adapters.memory.principal_identity import ExplicitPrincipalIdentityResolver
+from app.adapters.memory.session_store import InterviewSessionStore
 
 
 NOW = datetime(2026, 8, 15, 10, 0, tzinfo=timezone.utc)
@@ -335,7 +335,7 @@ def test_prep_start_and_replay_preserve_one_authoritative_scope(monkeypatch):
 
 def test_legacy_plan_scope_is_deterministic_system_only_compatibility():
     legacy = fallback_interview_plan()
-    from app.services.prep import prepared_plan_revision
+    from app.runtime.interview_prep import prepared_plan_revision
 
     revision_plan = prepared_plan_revision(legacy)
 

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from app.services.report_runtime_preflight import run_report_runtime_preflight
+from app.evals.report_runtime_preflight import run_report_runtime_preflight
 
 
 def main() -> int:

@@ -2,7 +2,7 @@ import pytest
 import json
 from pydantic import ValidationError
 
-from app.services.followup_diagnostics import (
+from app.domain.interview.followup_diagnostics import (
     FOLLOWUP_DIAGNOSTICS_VERSION,
     FOLLOWUP_TEXT_MIN_NORMALIZED_CHARS,
     FOLLOWUP_TEXT_SIMILARITY_THRESHOLD,

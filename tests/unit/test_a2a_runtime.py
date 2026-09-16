@@ -21,7 +21,7 @@ from app.a2a.bridge import ExaminerAgentBridge
 from app.a2a.official_cards import OFFICIAL_AGENT_CARDS
 from app.a2a.invocation.context import InvocationContext
 from app.a2a.invocation.execution_context import build_agent_execution_context
-from app.services.agent_runtime import AgentExecutionContext
+from app.runtime.agent_execution import AgentExecutionContext
 
 
 def make_followup_artifact():

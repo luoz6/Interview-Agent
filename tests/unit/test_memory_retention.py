@@ -4,11 +4,11 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
-from app.services.memory_retention import (
+from app.adapters.memory.session_retention import (
     InMemorySessionCapacityExceeded,
     InMemorySessionRetentionPolicy,
 )
-from app.services.session import InterviewSessionStore
+from app.adapters.memory.session_store import InterviewSessionStore
 from tests.session_fixtures import FakeInterviewLLM, make_interview_plan
 
 

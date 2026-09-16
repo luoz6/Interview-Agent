@@ -24,7 +24,23 @@ REPOSITORIES = {
 COMPATIBILITY_EXPORTS = (
     ROOT / "app" / "adapters" / "postgres" / "session_repositories.py"
 )
-FACADE = ROOT / "app" / "services" / "postgres_session.py"
+FACADE = (
+    ROOT
+    / "app"
+    / "adapters"
+    / "persistence"
+    / "postgres"
+    / "session_store.py"
+)
+CORE_PRODUCTION_DIRECTORIES = (
+    ROOT / "app" / "agents",
+    ROOT / "app" / "api",
+    ROOT / "app" / "application",
+    ROOT / "app" / "domain",
+    ROOT / "app" / "graphs",
+    ROOT / "app" / "ports",
+    ROOT / "app" / "runtime",
+)
 
 
 def _class(tree: ast.Module, name: str) -> ast.ClassDef:
@@ -123,3 +139,39 @@ def test_session_store_delegates_schema_mutation_to_postgres_adapter():
 def test_repository_split_does_not_create_parallel_port_tree_or_legacy_monolith():
     assert not (ROOT / "app" / "ports" / "repositories").exists()
     assert not (ROOT / "app" / "services" / "legacy_postgres_session.py").exists()
+
+
+def test_core_production_layers_do_not_execute_sql_directly():
+    offenders: list[str] = []
+    for directory in CORE_PRODUCTION_DIRECTORIES:
+        for path in sorted(directory.rglob("*.py")):
+            tree = ast.parse(path.read_text(encoding="utf-8-sig"), filename=str(path))
+            for node in ast.walk(tree):
+                if not (
+                    isinstance(node, ast.Call)
+                    and isinstance(node.func, ast.Attribute)
+                    and node.func.attr in {"execute", "executemany"}
+                    and isinstance(node.func.value, ast.Name)
+                    and node.func.value.id == "cursor"
+                ):
+                    continue
+                offenders.append(
+                    f"{path.relative_to(ROOT).as_posix()}:{node.lineno}"
+                )
+    assert offenders == []
+
+
+def test_runtime_postgres_probes_are_adapter_canonical_aliases():
+    from app.adapters.postgres.principal_memory_migration import (
+        PostgresPrincipalMemoryMigrationProbe as AdapterMigrationProbe,
+    )
+    from app.adapters.workflows.checkpointer_schema import (
+        validate_checkpointer_schema as adapter_schema_validator,
+    )
+    from app.runtime.langgraph_runtime import validate_checkpointer_schema
+    from app.runtime.principal_memory_operations import (
+        PostgresPrincipalMemoryMigrationProbe,
+    )
+
+    assert validate_checkpointer_schema is adapter_schema_validator
+    assert PostgresPrincipalMemoryMigrationProbe is AdapterMigrationProbe

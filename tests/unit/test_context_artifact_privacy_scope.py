@@ -4,7 +4,7 @@ import re
 
 import pytest
 
-from app.services.context_artifact_scope import (
+from app.domain.context.privacy_scope import (
     StableContextArtifactPrivacyScopeResolver,
     privacy_scope_sha256,
 )

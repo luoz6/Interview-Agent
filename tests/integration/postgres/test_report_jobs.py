@@ -2,9 +2,9 @@ from uuid import uuid4
 
 import pytest
 
-from app.services.postgres_session import PostgresInterviewSessionStore
-from app.services.prep import InterviewPlan, InterviewQuestion
-from app.services.report_jobs import PostgresReportJobStore
+from app.adapters.persistence.postgres.session_store import PostgresInterviewSessionStore
+from app.runtime.interview_prep import InterviewPlan, InterviewQuestion
+from app.adapters.persistence.postgres.report_job_store import PostgresReportJobStore
 from tests.postgres_support import require_postgres_dsn as require_dsn
 
 

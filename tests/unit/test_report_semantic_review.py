@@ -4,7 +4,7 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
-from app.services.report_semantic_review import (
+from app.evals.report_semantic_review import (
     FabricationAssessment,
     HumanReviewSheet,
     HumanSemanticJudgment,

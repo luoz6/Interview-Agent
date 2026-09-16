@@ -15,16 +15,16 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from app.services.followup_performance import (
+from app.evals.followup_performance import (
     FollowupPerformanceArtifact,
     build_synthetic_performance_artifact,
     evaluate_followup_performance,
 )
-from app.services.interview_quality_gate import load_gate_config
-from app.services.interview_quality_provider_authorization import (
+from app.evals.interview_quality_gate import load_gate_config
+from app.evals.interview_quality_provider_authorization import (
     load_provider_authorization,
 )
-from app.services.report_eval_artifacts import (
+from app.evals.report_eval_artifacts import (
     EvaluationArtifactStore,
     resolve_evaluation_run_dir,
 )

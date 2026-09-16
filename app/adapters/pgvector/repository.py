@@ -28,15 +28,15 @@ from app.runtime.config.compatibility import (
     get_pgvector_table,
     get_postgres_dsn,
 )
-from app.services.embedding_providers import (
+from app.adapters.providers.embedding_providers import (
     build_embedding_provider,
     validate_embedding_batch,
 )
-from app.services.postgres_connections import (
+from app.adapters.postgres.connections import (
     ConnectionProvider,
     DirectPsycopg2ConnectionProvider,
 )
-from app.services.postgres_schema import resolve_schema_mode, validate_relations
+from app.adapters.postgres.schema import resolve_schema_mode, validate_relations
 
 
 KnowledgeSearchStore = KnowledgeRepository
@@ -1245,7 +1245,7 @@ def get_knowledge_store(
 
     profile = get_report_runtime_profile()
     if profile.knowledge_store == "static":
-        from app.services.static_knowledge_store import StaticKnowledgeStore
+        from app.adapters.knowledge.static_store import StaticKnowledgeStore
 
         if _knowledge_store is None or not isinstance(
             _knowledge_store, StaticKnowledgeStore

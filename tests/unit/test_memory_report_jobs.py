@@ -3,7 +3,7 @@ from __future__ import annotations
 from threading import Event
 from time import monotonic
 
-from app.services.memory_report_jobs import InMemoryReportJobStore
+from app.adapters.memory.report_job_store import InMemoryReportJobStore
 
 
 def test_memory_report_job_has_identity_and_runs_outside_response_lifecycle():
@@ -136,8 +136,8 @@ def test_memory_report_jobs_complete_concurrently_and_shutdown_drains_threads():
 
 
 def test_preview_runtime_factory_completes_report_and_job(monkeypatch):
-    import app.services.runtime as runtime
-    from app.services.session import InterviewSessionStore
+    import app.runtime.composition as runtime
+    from app.adapters.memory.session_store import InterviewSessionStore
     from tests.unit.test_report_tasks import ReportLLM, finish_session, start_session
 
     monkeypatch.setenv("INTERVIEW_RUNTIME_STORE", "memory")

@@ -10,7 +10,7 @@ if not __package__:
     if str(repository_root) not in sys.path:
         sys.path.insert(0, str(repository_root))
 
-from app.services.postgres_report_artifact_store import (
+from app.adapters.persistence.postgres.report_artifact_store import (
     PostgresReportArtifactStore,
 )
 

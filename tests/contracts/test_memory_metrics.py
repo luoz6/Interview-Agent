@@ -1,7 +1,7 @@
 import pytest
 from pydantic import ValidationError
 
-from app.services.memory_metrics import MemoryMetricEvent
+from app.runtime.memory_metrics import MemoryMetricEvent
 
 
 def test_metric_contract_rejects_content_ids_credentials_and_unknown_fields():

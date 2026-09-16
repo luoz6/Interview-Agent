@@ -7,7 +7,7 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from app.services.report_eval_replay import rescore_run
+from app.evals.report_eval_replay import rescore_run
 
 
 def main() -> int:

@@ -21,7 +21,7 @@ except ModuleNotFoundError:
     fake_celery.Celery = Celery
     sys.modules["celery"] = fake_celery
 
-from app.services.agent_runtime import AgentExecutionRunner
+from app.runtime.agent_execution import AgentExecutionRunner
 from app.domain.knowledge.evidence import (
     EvaluationConfidence,
     EvidenceAvailability,
@@ -29,23 +29,21 @@ from app.domain.knowledge.evidence import (
     EvidenceSufficiency,
     ReviewEvidenceBinding,
 )
-from app.services.prep import (
+from app.runtime.interview_prep import (
     PrepContext,
     PrepQuestionHint,
 )
-from app.services.question_evaluations import QuestionEvaluationRecord
-from app.services.report import DimensionScores, InterviewFeedback, InterviewReport
-from app.services.round_review import build_single_question_review_state
-from app.services.round_review_runner import (
+from app.domain.report.question_evaluations import QuestionEvaluationRecord
+from app.domain.report.models import DimensionScores, InterviewFeedback, InterviewReport
+from app.domain.report.round_review import build_single_question_review_state
+from app.runtime.round_review import (
     evaluate_round_review_event,
     run_round_review_event,
     run_round_review_event_payload,
 )
-from app.services.round_review_tasks import run_closed_round_review
-from app.services.runtime_domain_events import RoundClosedEvent
+from app.runtime.round_review_tasks import run_closed_round_review
+from app.domain.runtime_events import RoundClosedEvent
 from tests.review_fixtures import round_review_state as make_state
-
-
 def test_build_single_question_review_state_filters_other_questions():
     review_state = build_single_question_review_state(make_state(), "q1")
 
@@ -361,12 +359,12 @@ def test_run_closed_round_review_delegates_to_runner(monkeypatch):
 
     def fake_consumer(payload, *, worker_id):
         calls.append(payload)
-        from app.services.runtime_event_consumer import ConsumerOutcome
+        from app.runtime.runtime_event_consumer import ConsumerOutcome
 
         return ConsumerOutcome("completed")
 
     monkeypatch.setattr(
-        "app.services.round_review_tasks.consume_round_review_event_payload",
+        "app.runtime.round_review_tasks.consume_round_review_event_payload",
         fake_consumer,
     )
 
@@ -435,20 +433,6 @@ def test_run_closed_round_review_saves_one_question_evaluation(monkeypatch):
             )
 
     store = FakeStore()
-    monkeypatch.setattr(
-        "app.services.round_review_runner.get_session_store",
-        lambda: store,
-    )
-    monkeypatch.setattr(
-        "app.services.round_review_runner.get_knowledge_store",
-        lambda: object(),
-    )
-    monkeypatch.setattr(
-        "app.services.round_review_runner.resolve_runtime_llm",
-        lambda store: store.llm,
-    )
-    monkeypatch.setattr("app.services.round_review_runner.ShadowReviewerAgent", FakeAgent)
-
     run_round_review_event_payload(
         {
             "event_type": "round_closed",
@@ -457,7 +441,11 @@ def test_run_closed_round_review_saves_one_question_evaluation(monkeypatch):
             "answer_state": "answered",
             "job_tags": ["python", "redis"],
             "emitted_at": "2026-07-08T00:00:00Z",
-        }
+        },
+        get_session_store=lambda: store,
+        get_knowledge_store=lambda: object(),
+        resolve_runtime_llm=lambda session_store: session_store.llm,
+        reviewer_factory=FakeAgent,
     )
 
     assert len(store.saved) == 1
@@ -485,23 +473,6 @@ def test_run_closed_round_review_short_circuits_empty_answer_agents(
             self.saved.append(record)
 
     store = FakeStore()
-    monkeypatch.setattr(
-        "app.services.round_review_runner.get_session_store",
-        lambda: store,
-    )
-    monkeypatch.setattr(
-        "app.services.round_review_runner.get_knowledge_store",
-        lambda: pytest.fail("empty answers must not construct a vector store"),
-    )
-    monkeypatch.setattr(
-        "app.services.round_review_runner.resolve_runtime_llm",
-        lambda store: pytest.fail("empty answers must not construct an LLM"),
-    )
-    monkeypatch.setattr(
-        "app.services.round_review_runner.ShadowReviewerAgent",
-        lambda **kwargs: pytest.fail("empty answers must not construct a reviewer"),
-    )
-
     run_round_review_event_payload(
         {
             "event_type": "round_closed",
@@ -510,7 +481,17 @@ def test_run_closed_round_review_short_circuits_empty_answer_agents(
             "answer_state": answer_state,
             "job_tags": ["python", "redis"],
             "emitted_at": "2026-07-08T00:00:00Z",
-        }
+        },
+        get_session_store=lambda: store,
+        get_knowledge_store=lambda: pytest.fail(
+            "empty answers must not construct a vector store"
+        ),
+        resolve_runtime_llm=lambda session_store: pytest.fail(
+            "empty answers must not construct an LLM"
+        ),
+        reviewer_factory=lambda **kwargs: pytest.fail(
+            "empty answers must not construct a reviewer"
+        ),
     )
 
     assert len(store.saved) == 1

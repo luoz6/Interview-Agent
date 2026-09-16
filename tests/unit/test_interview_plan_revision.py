@@ -4,7 +4,7 @@ from uuid import uuid4
 import pytest
 from pydantic import ValidationError
 
-from app.services.interview_plan_revision import (
+from app.domain.interview.plan_revision import (
     InterviewPlanQuestionV2,
     InterviewPlanV2,
     PlanConfigurationSnapshot,
@@ -13,8 +13,8 @@ from app.services.interview_plan_revision import (
     plan_payload_sha256,
     source_payload_sha256,
 )
-from app.services.interview_plan_revision_store import (
-    InMemoryInterviewPlanRevisionStore,
+from app.adapters.memory.plan_revision_store import InMemoryInterviewPlanRevisionStore
+from app.ports.plan_revision_store import (
     PlanRevisionConflict,
     PlanSourceInUse,
     PlanSourceUnavailable,

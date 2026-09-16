@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from app.services.prep import InterviewPlan, InterviewQuestion
-from app.services.report import InterviewReport
-from app.services.session import InterviewSessionStore
+from app.runtime.interview_prep import InterviewPlan, InterviewQuestion
+from app.domain.report.models import InterviewReport
+from app.adapters.memory.session_store import InterviewSessionStore
 
 
 class FakeInterviewLLM:

@@ -2,7 +2,9 @@
 
 import json
 
-from app.services.report_trace import ReportTraceRecorder
+import app.adapters.observability.report_trace as canonical_report_trace
+
+ReportTraceRecorder = canonical_report_trace.ReportTraceRecorder
 
 
 def test_report_trace_recorder_is_noop_when_directory_is_missing(tmp_path):

@@ -14,6 +14,25 @@ class RuntimeCloser:
     close: Callable[[object, bool], None]
 
 
+@dataclass(frozen=True)
+class RuntimeStarter:
+    key: str
+    start: Callable[[object], None]
+
+
+def start_runtime_resources(
+    resolver: RuntimeResourceResolver,
+    starters: tuple[RuntimeStarter, ...],
+) -> None:
+    """Start registered runtime resources in deterministic order."""
+
+    for starter in starters:
+        resource = resolver.get(starter.key)
+        if resource is None:
+            continue
+        starter.start(resource)
+
+
 def close_runtime_resources(
     resolver: RuntimeResourceResolver,
     closers: tuple[RuntimeCloser, ...],

@@ -64,9 +64,9 @@ def _require_local_memory_mutation(request: Request) -> None:
 
 
 def _principal_memory_lifecycle(identity):
-    from app.services.principal_memory_consent import PrincipalMemoryConsentPolicy
-    from app.services.principal_memory_control import PrincipalMemoryControlPolicy
-    from app.services.principal_memory_lifecycle import PrincipalMemoryLifecycle
+    from app.application.memory.consent import PrincipalMemoryConsentPolicy
+    from app.application.memory.control import PrincipalMemoryControlPolicy
+    from app.application.memory.lifecycle import PrincipalMemoryLifecycle
 
     config = load_effective_memory_config()
     resolver = get_principal_identity_resolver()
@@ -92,7 +92,7 @@ def _principal_memory_lifecycle(identity):
 
 
 def _principal_memory_control():
-    from app.services.principal_memory_control import PrincipalMemoryControlPolicy
+    from app.application.memory.control import PrincipalMemoryControlPolicy
 
     return PrincipalMemoryControlPolicy(
         identity_resolver=get_principal_identity_resolver(),
@@ -172,7 +172,7 @@ def _principal_memory_safe_page(*, request, limit, cursor, statuses):
 
 def _resolve_principal_memory_safe_ref(request, safe_ref):
     identity = _require_trusted_local_principal_memory(request)
-    from app.services.principal_memory_safe_refs import (
+    from app.domain.memory.safe_refs import (
         PrincipalMemorySafeRefVersionConflict,
     )
 
@@ -255,7 +255,7 @@ def principal_memory_capabilities(request: Request):
         principal_memory_fact_type_for_taxonomy_key,
         principal_memory_input_policy_for_taxonomy_key,
     )
-    from app.services.principal_memory_consent import PRINCIPAL_MEMORY_PURPOSES
+    from app.domain.memory.consent import PRINCIPAL_MEMORY_PURPOSES
 
     return {
         "schema_version": "principal-memory-capabilities-v1",
@@ -281,7 +281,7 @@ def grant_principal_memory_consent(
 ):
     identity = _require_trusted_local_principal_memory(request)
     _require_local_memory_mutation(request)
-    from app.services.principal_memory_consent import PrincipalMemoryConsent
+    from app.domain.memory.consent import PrincipalMemoryConsent
 
     config = load_effective_memory_config()
     try:
@@ -540,7 +540,7 @@ def correct_principal_memory_fact(
 def export_principal_memory(request: Request):
     _require_trusted_local_principal_memory(request)
     _require_local_memory_mutation(request)
-    from app.services.principal_memory_rights import PrincipalMemoryRightsService
+    from app.application.memory.rights import PrincipalMemoryRightsService
 
     try:
         return PrincipalMemoryRightsService(
@@ -561,11 +561,11 @@ def export_principal_memory(request: Request):
 def delete_principal_memory(request: Request):
     _require_trusted_local_principal_memory(request)
     _require_local_memory_mutation(request)
-    from app.services.principal_memory_deletion import (
+    from app.application.memory.deletion import (
         PrincipalMemoryDeletionIncomplete,
     )
-    from app.services.principal_memory_rights import PrincipalMemoryRightsService
-    from app.services.runtime import get_principal_memory_durable_ledger
+    from app.application.memory.rights import PrincipalMemoryRightsService
+    from app.runtime.composition import get_principal_memory_durable_ledger
 
     try:
         durable_ledger = get_principal_memory_durable_ledger()

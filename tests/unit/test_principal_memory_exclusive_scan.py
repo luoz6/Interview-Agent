@@ -1,7 +1,9 @@
 import json
 
 from app.domain.memory.contracts import canonical_principal_fact
-from app.services.principal_memory_exclusive_scan import scan_exclusive_facts
+from app.adapters.persistence.postgres.principal_memory_exclusive_scan import (
+    scan_exclusive_facts,
+)
 
 
 def fact(

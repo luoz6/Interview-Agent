@@ -71,13 +71,15 @@ def test_fusion_has_one_authoritative_implementation():
 
 
 def test_durable_report_generation_reuses_authoritative_feedback_lock():
-    source = (ROOT / "app" / "services" / "runtime.py").read_text(encoding="utf-8")
+    source = (ROOT / "app" / "runtime" / "composition.py").read_text(
+        encoding="utf-8"
+    )
 
     assert source.count("finalize_report_with_microbatch_feedback(report, records)") == 2
 
 
 def test_report_pipeline_locks_final_output_to_persisted_question_records():
-    source = (ROOT / "app" / "services" / "report_pipeline.py").read_text(
+    source = (ROOT / "app" / "runtime" / "report_pipeline.py").read_text(
         encoding="utf-8"
     )
 
@@ -88,10 +90,10 @@ def test_report_pipeline_locks_final_output_to_persisted_question_records():
 
 
 def test_review_evidence_binding_is_persisted_as_full_record_metadata():
-    evaluator = (ROOT / "app" / "services" / "evaluator_ext.py").read_text(
+    evaluator = (ROOT / "app" / "runtime" / "expert_evaluator.py").read_text(
         encoding="utf-8"
     )
-    record = (ROOT / "app" / "services" / "question_evaluations.py").read_text(
+    record = (ROOT / "app" / "domain" / "report" / "question_evaluations.py").read_text(
         encoding="utf-8"
     )
     mapper = (
@@ -109,8 +111,8 @@ def test_review_evidence_binding_is_persisted_as_full_record_metadata():
 
 
 def test_report_path_metadata_exposes_targeted_supplementation_without_raw_query():
-    from app.services.question_evaluations import QuestionEvaluationRecord
-    from app.services.report_pipeline import QuestionEvaluationService
+    from app.domain.report.question_evaluations import QuestionEvaluationRecord
+    from app.runtime.report_pipeline import QuestionEvaluationService
 
     records = [
         QuestionEvaluationRecord(

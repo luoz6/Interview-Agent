@@ -2,9 +2,9 @@ from fastapi.testclient import TestClient
 
 from app.api.prep import routes as prep_route_module
 from app.main import app
-from app.services.in_memory_prep_plan_store import InMemoryPrepPlanStore
-from app.services.prep_question_regeneration import PrepQuestionRegenerator
-from app.services.runtime import get_prep_plan_store
+from app.adapters.memory.prep_plan_store import InMemoryPrepPlanStore
+from app.application.interview.prep_question_regeneration import PrepQuestionRegenerator
+from app.runtime.composition import get_prep_plan_store
 from tests.interview_fixtures import (
     create_in_memory_prep_plan,
     interview_plan_with_context,

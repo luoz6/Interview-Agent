@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
-from app.services.followup_eval import (
+from app.evals.followup_eval import (
     FollowupEvalAttempt,
     SavedFollowupProviderArtifact,
     build_synthetic_fixture_replay,
@@ -13,9 +13,9 @@ from app.services.followup_eval import (
     fixed_policy_attempts,
     replay_saved_provider_artifact,
 )
-from app.services.followup_diagnostics import FOLLOWUP_DIAGNOSTICS_VERSION
-from app.services.interview_quality_dataset import load_interview_quality_dataset
-from app.services.interview_quality_gate import load_gate_config
+from app.domain.interview.followup_diagnostics import FOLLOWUP_DIAGNOSTICS_VERSION
+from app.evals.interview_quality_dataset import load_interview_quality_dataset
+from app.evals.interview_quality_gate import load_gate_config
 
 
 DATASET_PATH = Path(

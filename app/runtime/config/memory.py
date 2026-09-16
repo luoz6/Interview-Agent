@@ -10,7 +10,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from app.graphs.interview_state import SUPPORTED_INTERVIEW_GRAPH_VERSIONS
 from app.runtime.config.environment import process_environment
-from app.services.model_capabilities import ModelCapabilityRegistry
+from app.domain.context.model_capabilities import ModelCapabilityRegistry
 
 
 logger = logging.getLogger(__name__)
@@ -784,7 +784,7 @@ def memory_readiness_payload(config: EffectiveMemoryConfig) -> dict:
         and config.compression.interview_question_memory
     ):
         try:
-            from app.services.knowledge_profile import (
+            from app.domain.knowledge.profile import (
                 P1_REQUIRED_COVERED_TAGS,
                 load_active_knowledge_covered_tags,
             )

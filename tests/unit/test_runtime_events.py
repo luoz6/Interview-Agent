@@ -1,6 +1,6 @@
 """Unit tests for runtime event serialization."""
 
-from app.services.runtime_events import (
+from app.application.interview.events import (
     InterviewStreamChunkEvent,
     InterviewStreamDoneEvent,
     InterviewStreamErrorEvent,

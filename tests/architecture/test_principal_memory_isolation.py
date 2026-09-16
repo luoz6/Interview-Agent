@@ -44,18 +44,16 @@ def _protected_sink_paths() -> tuple[Path, ...]:
     paths = {
         ROOT / "app" / "graphs" / "durable_review_graph.py",
         ROOT / "app" / "adapters" / "pgvector" / "repository.py",
-        ROOT / "app" / "services" / "static_knowledge_store.py",
+        ROOT / "app" / "adapters" / "knowledge" / "static_store.py",
+        ROOT / "app" / "application" / "knowledge" / "grounding.py",
     }
     patterns = (
         "app/agents/*.py",
-        "app/services/evaluator*.py",
-        "app/services/report*.py",
-        "app/services/review*.py",
-        "app/services/round_review*.py",
-        "app/services/prep*.py",
-        "app/services/knowledge*.py",
-        "app/services/*embedding*.py",
+        "app/application/report/evaluator.py",
+        "app/evals/*.py",
+        "app/adapters/providers/*embedding*.py",
         "app/domain/knowledge/*.py",
+        "app/domain/report/*.py",
         "scripts/load_knowledge*.py",
         "scripts/build_knowledge_manifest*.py",
         "scripts/evaluate_knowledge*.py",
@@ -73,13 +71,14 @@ def test_principal_memory_consumer_is_absent_from_protected_sinks():
         ROOT / "app" / "agents" / "report_coach.py",
         ROOT / "app" / "agents" / "shadow_reviewer.py",
         ROOT / "app" / "graphs" / "durable_review_graph.py",
-        ROOT / "app" / "services" / "evaluator.py",
-        ROOT / "app" / "services" / "report.py",
-        ROOT / "app" / "services" / "review_execution.py",
-        ROOT / "app" / "services" / "knowledge_grounding.py",
+        ROOT / "app" / "application" / "report" / "evaluator.py",
+        ROOT / "app" / "domain" / "report" / "models.py",
+        ROOT / "app" / "domain" / "report" / "review_execution.py",
+        ROOT / "app" / "domain" / "report" / "answer_guidance.py",
+        ROOT / "app" / "application" / "knowledge" / "grounding.py",
         ROOT / "app" / "adapters" / "pgvector" / "repository.py",
-        ROOT / "app" / "services" / "static_knowledge_store.py",
-        ROOT / "app" / "services" / "embedding_providers.py",
+        ROOT / "app" / "adapters" / "knowledge" / "static_store.py",
+        ROOT / "app" / "adapters" / "providers" / "embedding_providers.py",
         ROOT / "scripts" / "load_knowledge_v2.py",
         ROOT / "scripts" / "build_knowledge_manifest_v2.py",
         ROOT / "scripts" / "evaluate_knowledge_retrieval_v2.py",
@@ -101,11 +100,11 @@ def test_principal_memory_consumer_is_absent_from_protected_sinks():
 
 def test_public_knowledge_paths_do_not_accept_principal_scope():
     paths = (
-        ROOT / "app" / "services" / "knowledge_query.py",
-        ROOT / "app" / "services" / "knowledge_grounding.py",
+        ROOT / "app" / "domain" / "knowledge" / "query.py",
+        ROOT / "app" / "application" / "knowledge" / "grounding.py",
         ROOT / "app" / "adapters" / "pgvector" / "repository.py",
-        ROOT / "app" / "services" / "report.py",
-        ROOT / "app" / "services" / "knowledge_trace.py",
+        ROOT / "app" / "domain" / "report" / "models.py",
+        ROOT / "app" / "adapters" / "knowledge" / "trace.py",
     )
     forbidden = {"principal_memory", "normalized_fact"}
     for path in paths:
@@ -118,7 +117,7 @@ def test_public_knowledge_paths_do_not_accept_principal_scope():
 
 
 def test_principal_deletion_has_no_public_knowledge_dependency():
-    path = ROOT / "app" / "services" / "principal_memory_deletion.py"
+    path = ROOT / "app" / "application" / "memory" / "deletion.py"
     tree = _tree(path)
     imported = {
         node.module.casefold()
@@ -153,7 +152,7 @@ def test_consumer_is_wired_only_before_durable_interview_followup():
     )
     assert prepare < finalize < followup
 
-    runtime = _tree(ROOT / "app" / "services" / "runtime.py")
+    runtime = _tree(ROOT / "app" / "runtime" / "composition.py")
     assert any(
         keyword.arg == "principal_memory_consumer"
         and isinstance(keyword.value, ast.Call)

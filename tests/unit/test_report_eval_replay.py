@@ -1,8 +1,8 @@
 import json
 from pathlib import Path
 
-from app.services.report_eval_artifacts import EvaluationArtifactStore
-from app.services.report_eval_replay import rescore_run
+from app.evals.report_eval_artifacts import EvaluationArtifactStore
+from app.evals.report_eval_replay import rescore_run
 
 
 def test_rescore_run_uses_saved_evidence_without_mutating_source(tmp_path):

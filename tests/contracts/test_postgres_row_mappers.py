@@ -17,7 +17,7 @@ from app.adapters.postgres.row_mappers import (
     QuestionEvaluationRowMapper,
     UnsupportedRowSchemaVersionError,
 )
-from app.services.question_evaluations import QuestionEvaluationRecord
+from app.domain.report.question_evaluations import QuestionEvaluationRecord
 
 
 def _prep_record() -> dict:

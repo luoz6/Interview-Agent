@@ -16,8 +16,8 @@ from app.domain.memory.contracts import (
     canonical_principal_fact,
     derive_principal_fact_id,
 )
-from app.services.postgres_identifiers import runtime_schema_identifier
-from app.services.postgres_connections import PostgresSchemaNotReady
+from app.adapters.postgres.identifiers import runtime_schema_identifier
+from app.adapters.postgres.connections import PostgresSchemaNotReady
 from tests.postgres_support import assert_safe_test_prefix
 from tests.principal_memory_fixtures import FACT_NOW as NOW, make_fact
 from tests.principal_memory_store_contract import (

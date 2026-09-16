@@ -4,8 +4,11 @@ from datetime import datetime, timedelta, timezone
 import pytest
 
 from app.domain.interview.drafts import DraftWriteConflict
-from app.services.interview_plan_revision import PlanSourcePayload, source_payload_sha256
-from app.services.postgres_draft_store import PostgresDraftStore
+from app.domain.interview.plan_revision import (
+    PlanSourcePayload,
+    source_payload_sha256,
+)
+from app.adapters.persistence.postgres.draft_store import PostgresDraftStore
 
 
 NOW = datetime(2026, 8, 8, 12, 0, tzinfo=timezone.utc)

@@ -19,7 +19,7 @@ from app.domain.context.artifacts import (
     canonical_identity_payload,
     compressor_settings_sha256,
 )
-from app.services.context_compression_intent import (
+from app.domain.context.compression_intent import (
     CompressionIntent,
     canonical_compression_intent_payload,
     compression_intent_sha256,

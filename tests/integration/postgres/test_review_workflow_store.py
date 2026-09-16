@@ -2,16 +2,16 @@ from uuid import uuid4
 
 import pytest
 
-from app.services.postgres_session import PostgresInterviewSessionStore
-from app.services.prep import InterviewPlan, InterviewQuestion
-from app.services.report import DimensionScores, InterviewReport
-from app.services.report_jobs import PostgresReportJobStore
-from app.services.review_workflow_store import (
+from app.adapters.persistence.postgres.session_store import PostgresInterviewSessionStore
+from app.runtime.interview_prep import InterviewPlan, InterviewQuestion
+from app.domain.report.models import DimensionScores, InterviewReport
+from app.adapters.persistence.postgres.report_job_store import PostgresReportJobStore
+from app.adapters.persistence.postgres.review_workflow_store import (
     PostgresReviewWorkflowStore,
     ReportCommitConflict,
 )
-from app.services.review_execution import bind_review_execution_lease
-from app.services.workflow_thread_lock import (
+from app.domain.report.review_execution import bind_review_execution_lease
+from app.domain.workflow_thread_lock import (
     FencedWriteRejected,
     ReportLeaseLost,
     ReviewEffectBusy,

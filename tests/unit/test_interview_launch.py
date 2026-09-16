@@ -8,25 +8,25 @@ from fastapi.testclient import TestClient
 from app.main import app
 from app.api.prep import routes as prep_route_module
 from app.api.shared import dependencies as api_dependencies
-from app.services.in_memory_interview_launch_repository import (
+from app.adapters.memory.interview_launch_repository import (
     InMemoryInterviewLaunchRepository,
 )
-from app.services.in_memory_prep_plan_store import InMemoryPrepPlanStore
-from app.services.interview_launch import InterviewLaunchCoordinator
-from app.services.interview_plan_revision import default_plan_configuration
-from app.services.interview_plan_revision_store import (
+from app.adapters.memory.prep_plan_store import InMemoryPrepPlanStore
+from app.runtime.interview_launch import InterviewLaunchCoordinator
+from app.domain.interview.plan_revision import default_plan_configuration
+from app.adapters.memory.plan_revision_store import (
     InMemoryInterviewPlanRevisionStore,
 )
-from app.services.prep import (
+from app.runtime.interview_prep import (
     bind_prepared_plan_revision,
     fallback_interview_plan,
     InterviewPlan,
     InterviewQuestion,
     prepared_plan_revision,
 )
-from app.services.prep_plans import PrepPlanError
-from app.services.prep_question_regeneration import PrepQuestionRegenerator
-from app.services.session import InterviewSessionStore
+from app.domain.interview.prep_plans import PrepPlanError
+from app.application.interview.prep_question_regeneration import PrepQuestionRegenerator
+from app.adapters.memory.session_store import InterviewSessionStore
 
 
 def sample_plan(count: int = 4) -> InterviewPlan:

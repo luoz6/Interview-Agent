@@ -1,11 +1,11 @@
 from __future__ import annotations
 
 from app.adapters.memory.principal_memory import InMemoryPrincipalMemoryFactStore
-from app.services.in_memory_principal_memory_consent import (
+from app.adapters.memory.principal_memory_consent import (
     InMemoryPrincipalMemoryConsentStore,
 )
-from app.services.principal_identity import ExplicitPrincipalIdentityResolver
-from app.services.principal_memory_deletion import PrincipalMemoryDeletionService
+from app.adapters.memory.principal_identity import ExplicitPrincipalIdentityResolver
+from app.application.memory.deletion import PrincipalMemoryDeletionService
 from tests.principal_memory_fixtures import make_fact
 
 

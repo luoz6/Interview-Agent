@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any, Literal, TypedDict
 
-from app.services.session_plan_binding import SessionPlanBinding
+from app.domain.interview.session_plan_binding import SessionPlanBinding
 
 
 class DurableInterviewStateV3(TypedDict):

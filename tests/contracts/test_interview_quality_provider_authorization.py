@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from app.services.interview_quality_provider_authorization import (
+from app.evals.interview_quality_provider_authorization import (
     ProviderRunRequest,
     load_provider_authorization,
     provider_authorization_sha256,

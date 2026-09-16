@@ -6,7 +6,7 @@ from pydantic import ValidationError
 
 from app.api.shared.projections import plan_revision_payload
 from app.domain.interview.question_intent import QuestionIntentV1
-from app.services.interview_plan_revision import (
+from app.domain.interview.plan_revision import (
     InterviewPlanQuestionV2,
     InterviewPlanV2,
     InterviewPlanV3,
@@ -14,20 +14,20 @@ from app.services.interview_plan_revision import (
     PlanSourcePayload,
     legacy_plan_to_v3,
     plan_payload_sha256,
-    v2_plan_to_legacy,
     v2_plan_to_v3,
 )
-from app.services.interview_plan_revision_store import (
+from app.domain.interview.prep import v2_plan_to_legacy
+from app.adapters.memory.plan_revision_store import (
     InMemoryInterviewPlanRevisionStore,
 )
-from app.services.interview_plan_editor import (
+from app.application.interview.plan_editor import (
     InterviewPlanEditor,
     PlanEditRequest,
     PlanOperation,
     PlanOperationValidationError,
 )
-from app.services.prep import InterviewPlan, InterviewQuestion
-from app.services.session_plan_binding import (
+from app.runtime.interview_prep import InterviewPlan, InterviewQuestion
+from app.domain.interview.session_plan_binding import (
     SessionPlanBinding,
     session_plan_binding_from_revision,
 )

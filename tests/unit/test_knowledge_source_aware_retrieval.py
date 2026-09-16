@@ -30,9 +30,7 @@ from app.domain.knowledge.source_scope import (
     build_knowledge_source_scope,
 )
 from app.domain.knowledge.user_document import UserDocumentChunk
-from app.services.interview_plan_revision import (
-    build_interview_knowledge_scope_snapshot,
-)
+from app.domain.interview.plan_revision import build_interview_knowledge_scope_snapshot
 
 
 NOW = datetime(2026, 8, 15, 11, 0, tzinfo=timezone.utc)

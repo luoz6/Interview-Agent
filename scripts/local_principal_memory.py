@@ -29,16 +29,16 @@ def _service(*, maintenance: bool = False):
         get_runtime_table_prefix,
     )
     from app.runtime.config.memory import load_effective_memory_config
-    from app.services.memory_metrics import UnavailableMemoryMetricStore
-    from app.services.postgres_runtime_migrations import (
+    from app.runtime.memory_metrics import UnavailableMemoryMetricStore
+    from app.adapters.persistence.postgres.runtime_migrations import (
         RUNTIME_MIGRATION_CHECKSUM,
         RUNTIME_MIGRATION_ID,
     )
-    from app.services.principal_memory_operations import (
+    from app.runtime.principal_memory_operations import (
         PostgresPrincipalMemoryMigrationProbe,
         PrincipalMemoryOperationsService,
     )
-    from app.services.runtime import (
+    from app.runtime.composition import (
         get_memory_metric_store,
         get_postgres_connection_domains,
         get_principal_identity_resolver,
@@ -107,8 +107,8 @@ def _service(*, maintenance: bool = False):
 
 
 def _deletion_service():
-    from app.services.principal_memory_deletion import PrincipalMemoryDeletionService
-    from app.services.runtime import (
+    from app.application.memory.deletion import PrincipalMemoryDeletionService
+    from app.runtime.composition import (
         get_principal_identity_resolver,
         get_principal_memory_consent_store,
         get_principal_memory_control_store,
@@ -132,8 +132,8 @@ def _deletion_service():
 
 def _capture_latest_tombstone(ledger: Path):
     from app.runtime.config.memory import load_effective_memory_config
-    from app.services.principal_memory_ledger import PrincipalMemoryLedgerError
-    from app.services.runtime import (
+    from app.domain.memory.ledger import PrincipalMemoryLedgerError
+    from app.runtime.composition import (
         get_principal_identity_resolver,
         get_principal_memory_durable_ledger,
         get_principal_memory_deletion_tombstone_store,
@@ -162,15 +162,15 @@ def _capture_latest_tombstone(ledger: Path):
 def _replay_tombstones(ledger: Path):
     from app.runtime.config.compatibility import get_runtime_table_prefix
     from app.runtime.config.memory import load_effective_memory_config
-    from app.services.principal_memory_durable_ledger import (
+    from app.runtime.principal_memory_durable_ledger import (
         PrincipalMemoryDurableLedger,
     )
-    from app.services.principal_memory_ledger import PrincipalMemoryLedgerError
-    from app.services.principal_memory_ledger_replay import (
+    from app.domain.memory.ledger import PrincipalMemoryLedgerError
+    from app.adapters.memory.principal_memory_ledger_replay import (
         PostgresPrincipalMemoryScopeInventory,
         PrincipalMemoryOpaqueLedgerReplay,
     )
-    from app.services.runtime import (
+    from app.runtime.composition import (
         get_postgres_connection_domains,
         get_principal_memory_ledger_watermark_store,
     )
@@ -226,7 +226,7 @@ def main(argv: list[str] | None = None) -> int:
             "gate_codes": ["CONFIGURATION_INVALID"],
         }, 1
     except Exception as exc:
-        from app.services.principal_memory_ledger import PrincipalMemoryLedgerError
+        from app.domain.memory.ledger import PrincipalMemoryLedgerError
 
         if isinstance(exc, PrincipalMemoryLedgerError):
             payload, exit_code = {

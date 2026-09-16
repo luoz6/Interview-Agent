@@ -1,10 +1,10 @@
-from app.services.report import (
+from app.domain.report.models import (
     ReportCoverageV2,
     ReportEvidenceRefV2,
     ReportObservationV2,
     ScoreEvaluation,
 )
-from app.services.report_actions import (
+from app.domain.report.actions import (
     REPORT_ACTION_PLANNER_VERSION,
     plan_priority_actions,
 )

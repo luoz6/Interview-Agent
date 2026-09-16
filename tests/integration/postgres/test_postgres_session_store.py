@@ -6,8 +6,8 @@ from uuid import uuid4
 
 import pytest
 
-from app.services.postgres_session import PostgresInterviewSessionStore
-from app.services.prep import (
+from app.adapters.persistence.postgres.session_store import PostgresInterviewSessionStore
+from app.runtime.interview_prep import (
     InterviewPlan,
     InterviewQuestion,
     KnowledgeBindingSnapshot,
@@ -17,17 +17,17 @@ from app.services.prep import (
     PrepQuestionHint,
     RoleProfile,
 )
-from app.services.question_evaluations import question_evaluation_from_feedback
-from app.services.report import (
+from app.domain.report.question_evaluations import question_evaluation_from_feedback
+from app.domain.report.models import (
     DimensionScores,
     InterviewFeedback,
     InterviewReport,
     ReportProgress,
 )
 from app.domain.interview.errors import SessionVersionConflict
-from app.services.interview_plan_revision import v2_plan_to_legacy
-from app.services.interview_plan_revision_store import InMemoryInterviewPlanRevisionStore
-from app.services.session_plan_binding import session_plan_binding_from_revision
+from app.domain.interview.prep import v2_plan_to_legacy
+from app.adapters.memory.plan_revision_store import InMemoryInterviewPlanRevisionStore
+from app.domain.interview.session_plan_binding import session_plan_binding_from_revision
 from tests.unit.test_interview_plan_revision import plan as revision_plan, source
 from tests.unit.test_knowledge_binding_resolver import (
     make_repository as make_binding_repository,

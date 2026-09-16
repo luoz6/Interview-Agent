@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from app.services.in_memory_prep_plan_store import InMemoryPrepPlanStore
-from app.services.prep import (
+from app.adapters.memory.prep_plan_store import InMemoryPrepPlanStore
+from app.runtime.interview_prep import (
     InterviewPlan,
     InterviewQuestion,
     PrepContext,

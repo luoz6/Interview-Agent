@@ -6,14 +6,14 @@ from uuid import uuid4
 
 import pytest
 
-from app.services.interview_workflow_store import (
+from app.adapters.persistence.postgres.interview_workflow_store import (
     BootstrapConflict,
     CommandPayloadConflict,
     PostgresInterviewWorkflowStore,
     ProjectionConflict,
 )
 from app.graphs.durable_interview_state import make_durable_initial_state
-from app.services.postgres_session import PostgresInterviewSessionStore
+from app.adapters.persistence.postgres.session_store import PostgresInterviewSessionStore
 from tests.postgres_support import make_runtime_table_prefix
 from tests.integration.postgres.test_postgres_session_store import (
     make_plan,
@@ -67,7 +67,7 @@ def durable_workflow_store():
 
 
 def test_command_event_contains_no_answer():
-    from app.services.runtime_domain_events import InterviewCommandReadyEvent
+    from app.domain.runtime_events import InterviewCommandReadyEvent
 
     payload = InterviewCommandReadyEvent(
         event_id="command-event-1", session_id="s1", command_id="cmd-1"

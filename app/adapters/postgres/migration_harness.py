@@ -10,11 +10,13 @@ from app.ports.postgres_migrations import (
 )
 from app.ports.postgres_scope import OwnedPostgresLease, OwnedPostgresScopePort
 from app.runtime.config.compatibility import derive_pgvector_table_names
-from app.services.postgres_connections import DirectPsycopg2ConnectionProvider
-from app.services.postgres_identifiers import runtime_table_names
-from app.services.postgres_runtime_migrations import migrate_postgres_runtime
-from app.services.postgres_schema import validate_relations
-from app.services.postgres_schema_contract import RUNTIME_REQUIRED_COLUMNS_BY_SUFFIX
+from app.adapters.postgres.connections import DirectPsycopg2ConnectionProvider
+from app.adapters.postgres.identifiers import runtime_table_names
+from app.adapters.persistence.postgres.runtime_migrations import (
+    migrate_postgres_runtime,
+)
+from app.adapters.postgres.schema import validate_relations
+from app.adapters.postgres.schema_contract import RUNTIME_REQUIRED_COLUMNS_BY_SUFFIX
 
 
 class RuntimeMigrationHarness:

@@ -46,17 +46,13 @@ from app.domain.knowledge.retrieval import (
     RetrievalRequest,
     RetrievalRoutingHints,
 )
-from app.runtime.config import (
-    load_knowledge_runtime_settings,
-    load_rag_console_runtime_settings,
-)
-from app.services.knowledge_eval_artifacts_v3 import (
+from app.application.knowledge.eval_artifacts_v3 import (
     KnowledgeEvalArtifactV3,
     RetrievalDiagnosticSnapshotV1,
     load_eval_artifact_v3,
     load_retrieval_diagnostic_snapshot_v1,
 )
-from app.services.knowledge_eval_dataset_v3 import load_knowledge_retrieval_dataset_v3
+from app.domain.knowledge.eval_dataset_v3 import load_knowledge_retrieval_dataset_v3
 
 
 ROOT = Path(__file__).resolve().parents[3]
@@ -177,7 +173,9 @@ class RagArtifactCatalog:
         return EvalCasesResponse(artifact_sha256=artifact_sha256, cases=cases)
 
     def paired(self) -> PairedEvaluationsResponse:
-        from app.services.knowledge_eval_artifacts_v3 import KnowledgeEvalPairedArtifactV3
+        from app.application.knowledge.eval_artifacts_v3 import (
+            KnowledgeEvalPairedArtifactV3,
+        )
 
         comparisons = []
         for path in self._json_paths():
@@ -326,6 +324,8 @@ class RagDiagnosticsService:
         session_store=None,
         capacity_guard: DiagnosticCapacityGuard | None = None,
         compare_timeout_seconds: float = COMPARE_TIMEOUT_SECONDS,
+        knowledge_settings_loader=None,
+        rag_console_settings_loader=None,
     ) -> None:
         if compare_timeout_seconds <= 0:
             raise ValueError("compare_timeout_seconds must be positive")
@@ -334,10 +334,22 @@ class RagDiagnosticsService:
         self._session_store = session_store
         self._capacity_guard = capacity_guard or _LIVE_INSPECTION_CAPACITY
         self._compare_timeout_seconds = compare_timeout_seconds
+        self._knowledge_settings_loader = knowledge_settings_loader
+        self._rag_console_settings_loader = rag_console_settings_loader
+
+    def _knowledge_settings(self):
+        if self._knowledge_settings_loader is None:
+            raise RuntimeError("knowledge runtime settings are not configured")
+        return self._knowledge_settings_loader()
+
+    def _rag_console_settings(self):
+        if self._rag_console_settings_loader is None:
+            raise RuntimeError("RAG console runtime settings are not configured")
+        return self._rag_console_settings_loader()
 
     def overview(self) -> RagOverviewResponse:
-        settings = load_knowledge_runtime_settings()
-        console = load_rag_console_runtime_settings()
+        settings = self._knowledge_settings()
+        console = self._rag_console_settings()
         manifest = _manifest()
         profiles = tuple(
             resolve_runtime_profile(intent, settings).model_dump(mode="json")
@@ -416,7 +428,7 @@ class RagDiagnosticsService:
     def inspect(self, payload: RetrievalInspectionRequest) -> SafeRetrievalInspectionResponse:
         if self._repository is None:
             raise RuntimeError("knowledge repository unavailable")
-        settings = load_knowledge_runtime_settings()
+        settings = self._knowledge_settings()
         profile = resolve_runtime_profile(payload.intent, settings)
         if payload.profile_id not in {profile.profile_id, f"{profile.profile_id}@{profile.profile_version}"}:
             raise ValueError("profile_id is not allowed for this intent")
@@ -483,7 +495,7 @@ class RagDiagnosticsService:
 
         if self._repository is None:
             raise RuntimeError("knowledge repository unavailable")
-        settings = load_knowledge_runtime_settings()
+        settings = self._knowledge_settings()
         profile = resolve_runtime_profile(payload.intent, settings)
         if payload.profile_id not in {
             profile.profile_id,
@@ -882,7 +894,7 @@ class RagDiagnosticsService:
         return self._catalog.cases(artifact_sha256)
 
     def corpus(self) -> CorpusResponse:
-        console = load_rag_console_runtime_settings()
+        console = self._rag_console_settings()
         catalog_getter = getattr(self._repository, "get_corpus_catalog", None)
         if callable(catalog_getter):
             try:

@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from app.services.report_calibration_dataset import (
+from app.evals.report_calibration_dataset import (
     calibration_dataset_sha256,
     load_calibration_dataset,
 )

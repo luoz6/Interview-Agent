@@ -11,13 +11,13 @@ from app.graphs.interview_state import (
     is_durable_interview_version,
 )
 from app.graphs.durable_interview_state_v2 import make_durable_initial_state_v2
-from app.services.interview_workflow import (
+from app.runtime.interview_workflow import (
     InterviewWorkflowService,
     _followup_ui_state,
 )
-from app.services.interview_plan_revision import legacy_plan_to_v3
-from app.services.langgraph_runtime import VersionedGraphRegistry
-from app.services.report_jobs import choose_report_workflow_engine
+from app.domain.interview.plan_revision import legacy_plan_to_v3
+from app.runtime.langgraph_runtime import VersionedGraphRegistry
+from app.adapters.persistence.postgres.report_job_store import choose_report_workflow_engine
 from tests.interview_fixtures import sample_interview_plan
 from tests.langgraph_rollout_fixtures import (
     find_job_id_for_review_engine,

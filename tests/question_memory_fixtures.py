@@ -3,16 +3,16 @@ from __future__ import annotations
 from types import SimpleNamespace
 
 from app.domain.context.artifacts import ContextCompressorConfig
-from app.services.context_compression_runner import ContextCompressionRunner
+from app.application.context.compression_runner import ContextCompressionRunner
 from app.adapters.memory.context_artifacts import (
     InMemoryContextArtifactStore,
 )
-from app.services.in_memory_question_memory_index import (
+from app.adapters.memory.question_memory_index import (
     InMemoryQuestionMemoryIndexStore,
 )
 from app.runtime.config.memory import load_effective_memory_config
-from app.services.question_memory import QuestionMemoryCoordinator
-from app.services.token_estimation import ConservativeUtf8TokenEstimator
+from app.runtime.question_memory import QuestionMemoryCoordinator
+from app.domain.context.token_estimation import ConservativeUtf8TokenEstimator
 
 
 class ParentOwnership:
@@ -172,11 +172,11 @@ def make_structured_selection(
     include_source_identity=True,
     evidence_context=(),
 ):
-    from app.services.context_selection import (
+    from app.domain.context.selection import (
         ContextSelectionStats,
         InterviewContextSelection,
     )
-    from app.services.context_source_identity import (
+    from app.domain.context.source_identity import (
         ConversationSourceIdentity,
         canonical_conversation_sequence_pair,
         content_sha256,

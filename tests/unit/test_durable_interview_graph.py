@@ -36,47 +36,47 @@ from app.graphs.durable_interview_state_v2 import (
     make_durable_initial_state_v2,
 )
 from app.domain.context.artifacts import ContextCompressorConfig
-from app.services.context_budget import (
+from app.domain.context.budget import (
     FOLLOWUP_CONTEXT_POLICY,
     ContextBudgetResolver,
 )
-from app.services.context_compression_gating import ContextCompressionGates
-from app.services.context_compression_runner import ContextCompressionRunner
-from app.services.context_runtime import ContextRuntime
+from app.domain.context.compression_gating import ContextCompressionGates
+from app.application.context.compression_runner import ContextCompressionRunner
+from app.runtime.context_runtime import ContextRuntime
 from app.adapters.memory.context_artifacts import (
     InMemoryContextArtifactStore,
 )
-from app.services.interview_context_artifacts import (
+from app.application.interview.context_artifacts import (
     InterviewContextArtifactCoordinator,
 )
-from app.services.interview_generation_store import (
+from app.adapters.persistence.postgres.interview_generation_store import (
     GenerationAlreadyCompleted,
     PostgresInterviewGenerationStore,
 )
-from app.services.decision_store import InMemoryDecisionStore
-from app.services.followup_decision_service import (
+from app.adapters.memory.decision_store import InMemoryDecisionStore
+from app.application.interview.followup_decision import (
     FollowupDecisionExecutionService,
 )
-from app.services.postgres_decision_store import PostgresDecisionStore
-from app.services.interview_workflow_store import (
+from app.adapters.persistence.postgres.decision_store import PostgresDecisionStore
+from app.adapters.persistence.postgres.interview_workflow_store import (
     PostgresInterviewWorkflowStore,
 )
-from app.services.postgres_session import PostgresInterviewSessionStore
-from app.services.prep import InterviewQuestion
-from app.services.report_jobs import PostgresReportJobStore
-from app.services.report import ReportGenerationFailed
-from app.services.model_capabilities import ModelRuntimeProfile
-from app.services.llm import LLMConfig, OpenAIInterviewLLM, _build_followup_prompt
-from app.services.question_evaluations import (
+from app.adapters.persistence.postgres.session_store import PostgresInterviewSessionStore
+from app.runtime.interview_prep import InterviewQuestion
+from app.adapters.persistence.postgres.report_job_store import PostgresReportJobStore
+from app.domain.report.models import ReportGenerationFailed
+from app.domain.context.model_capabilities import ModelRuntimeProfile
+from app.adapters.providers.llm import LLMConfig, OpenAIInterviewLLM, _build_followup_prompt
+from app.domain.report.question_evaluations import (
     QuestionEvaluationRecord,
     question_evaluation_from_feedback,
 )
-from app.services.report import DimensionScores, InterviewFeedback
-from app.services.token_estimation import (
+from app.domain.report.models import DimensionScores, InterviewFeedback
+from app.domain.context.token_estimation import (
     ConservativeUtf8TokenEstimator,
     TokenEstimatorResolution,
 )
-from app.services.workflow_thread_lock import GenerationLeaseLost
+from app.domain.workflow_thread_lock import GenerationLeaseLost
 from app.application.knowledge.followup_gap_service import FollowupGapService
 from app.domain.knowledge.knowledge_unit import KnowledgeUnit
 from app.domain.knowledge.models import KnowledgeChunk
@@ -465,7 +465,7 @@ def test_enforcement_rejects_any_custom_context_before_builder_provider_or_coord
     custom_result_kind,
 ):
     import app.graphs.durable_interview_graph as durable_interview_graph
-    from app.services.context_selection import (
+    from app.domain.context.selection import (
         ContextSelectionStats,
         InterviewContextSelection,
     )
@@ -974,7 +974,7 @@ def test_status_projection_disabled_and_old_checkpoint_default_are_byte_equivale
 
 def _capture_real_followup_prompt(monkeypatch, context, *, context_runtime=None):
     monkeypatch.setattr(
-        "app.services.llm.context_enforcement_enabled",
+        "app.adapters.providers.llm.context_enforcement_enabled",
         lambda _operation: True,
     )
     chat = CapturingFollowupChat()
@@ -1266,7 +1266,7 @@ def test_graph_passes_recent_completed_question_ids_to_selection(
     enforcement_enabled,
 ):
     import app.graphs.durable_interview_graph as durable_interview_graph
-    from app.services.context_selection import (
+    from app.domain.context.selection import (
         ContextSelectionStats,
         InterviewContextSelection,
     )
@@ -1471,7 +1471,7 @@ def test_enforcement_off_preserves_provider_input_but_keeps_full_pre_loss_plan(
 
 def test_mandatory_overflow_stops_before_compressor_and_examiner(monkeypatch):
     import app.graphs.durable_interview_graph as durable_interview_graph
-    from app.services.context_selection import MandatoryBoundedRawOverflow
+    from app.domain.context.selection import MandatoryBoundedRawOverflow
 
     class OverflowGenerationStore(CharacterizationGenerationStore):
         def __init__(self):

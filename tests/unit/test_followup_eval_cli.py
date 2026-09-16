@@ -5,24 +5,24 @@ from types import SimpleNamespace
 
 import pytest
 
-from app.services.decision_store import DecisionContract
-from app.services.evaluator_candidate_identity import (
+from app.domain.interview.decision_store import DecisionContract
+from app.evals.evaluator_candidate_identity import (
     EVALUATOR_CANDIDATE_IDENTITY_VERSION,
     EvaluatorCandidateIdentity,
 )
-from app.services.followup_eval import build_synthetic_fixture_replay
-from app.services.followup_eval import SavedFollowupProviderArtifact
-from app.services.followup_diagnostics import FOLLOWUP_DIAGNOSTICS_VERSION
-from app.services.followup_provider_preflight import (
+from app.evals.followup_eval import build_synthetic_fixture_replay
+from app.evals.followup_eval import SavedFollowupProviderArtifact
+from app.domain.interview.followup_diagnostics import FOLLOWUP_DIAGNOSTICS_VERSION
+from app.evals.followup_provider_preflight import (
     DeepSeekDiscoverySnapshot,
     ProviderPrice,
 )
-from app.services.interview_quality_dataset import load_interview_quality_dataset
-from app.services.interview_quality_provider_authorization import (
+from app.evals.interview_quality_dataset import load_interview_quality_dataset
+from app.evals.interview_quality_provider_authorization import (
     load_provider_authorization,
 )
 from scripts import evaluate_followup_quality as cli
-from app.services.t65_provider_evidence import build_t65_usage_cost_ledger
+from app.evals.t65_provider_evidence import build_t65_usage_cost_ledger
 
 
 DATASET_PATH = Path(

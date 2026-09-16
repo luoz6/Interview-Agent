@@ -40,7 +40,7 @@ def test_preflight_exit_code_tracks_readiness(monkeypatch):
 def test_disabled_preflight_constructs_no_memory_or_postgres_dependencies(
     monkeypatch,
 ):
-    from app.services import runtime
+    import app.runtime.composition as runtime
 
     monkeypatch.setenv("MEMORY_LONG_TERM_MODE", "disabled")
     monkeypatch.setenv("INTERVIEW_RUNTIME_STORE", "postgres")

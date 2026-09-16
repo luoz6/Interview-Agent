@@ -8,12 +8,12 @@ import pytest
 
 from app.graphs.durable_review_graph import DurableReviewGraphDependencies, build_durable_review_graph
 from app.graphs.durable_review_state import make_durable_review_initial_state, review_thread_id
-from app.services.langgraph_runtime import PostgresCheckpointerRuntime, VersionedGraphRegistry
-from app.services.postgres_session import PostgresInterviewSessionStore
-from app.services.prep import InterviewPlan, InterviewQuestion
-from app.services.report_jobs import PostgresReportJobStore
-from app.services.review_workflow import ReviewWorkflowService
-from app.services.review_workflow_store import PostgresReviewWorkflowStore
+from app.runtime.langgraph_runtime import PostgresCheckpointerRuntime, VersionedGraphRegistry
+from app.adapters.persistence.postgres.session_store import PostgresInterviewSessionStore
+from app.runtime.interview_prep import InterviewPlan, InterviewQuestion
+from app.adapters.persistence.postgres.report_job_store import PostgresReportJobStore
+from app.runtime.review_workflow import ReviewWorkflowService
+from app.adapters.persistence.postgres.review_workflow_store import PostgresReviewWorkflowStore
 from tests.review_fixtures import FakeReviewWorkflowStore as FakeStore
 from tests.unit.test_durable_review_state import make_finished_state, make_job
 from tests.postgres_support import make_runtime_table_prefix, require_postgres_dsn

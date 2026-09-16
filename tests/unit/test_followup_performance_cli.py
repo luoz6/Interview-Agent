@@ -3,7 +3,7 @@ import hashlib
 
 import pytest
 
-from app.services.followup_performance import (
+from app.evals.followup_performance import (
     PerformancePricingSnapshot,
     build_synthetic_performance_artifact,
 )

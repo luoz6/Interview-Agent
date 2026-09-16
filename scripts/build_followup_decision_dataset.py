@@ -10,8 +10,8 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from app.services.followup_diagnostics import stable_followup_fingerprint
-from app.services.interview_quality_dataset import (
+from app.domain.interview.followup_diagnostics import stable_followup_fingerprint
+from app.evals.interview_quality_dataset import (
     InterviewQualityCase,
     InterviewQualityDataset,
     expected_case_hashes,

@@ -7,9 +7,9 @@ from app.adapters.postgres.runtime_repository_support import postgres_sql
 from app.adapters.postgres.question_evaluation_repository import (
     PostgresQuestionEvaluationRepository,
 )
-from app.services.postgres_connections import ConnectionProvider
-from app.services.question_evaluations import QuestionEvaluationRecord
-from app.services.runtime_domain_events import RoundClosedEvent
+from app.adapters.postgres.connections import ConnectionProvider
+from app.domain.report.question_evaluations import QuestionEvaluationRecord
+from app.domain.runtime_events import RoundClosedEvent
 
 
 _postgres_sql = postgres_sql

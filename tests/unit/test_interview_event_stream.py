@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from app.services.interview_event_stream import InterviewEventStreamService
-from app.services.runtime_events import InterviewGenerationChunkEvent
+from app.adapters.streaming.interview_event_stream import InterviewEventStreamService
+from app.application.interview.events import InterviewGenerationChunkEvent
 
 
 def test_chunk_sse_has_replay_cursor():

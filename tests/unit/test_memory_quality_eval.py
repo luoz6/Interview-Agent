@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import pytest
 
-from app.services.memory_quality_dataset import load_memory_quality_dataset
-from app.services.memory_quality_eval import (
+from app.evals.memory_quality_dataset import load_memory_quality_dataset
+from app.evals.memory_quality_eval import (
     evaluate_memory_quality,
     evaluate_memory_quality_case,
 )

@@ -1,7 +1,7 @@
 import pytest
 
-from app.services.postgres_connections import DirectPsycopg2ConnectionProvider
-from app.services.postgres_runtime_control import PostgresRuntimeControlStore
+from app.adapters.postgres.connections import DirectPsycopg2ConnectionProvider
+from app.adapters.persistence.postgres.runtime_control import PostgresRuntimeControlStore
 
 
 class FakeCursor:

@@ -2,7 +2,7 @@ from hashlib import sha256
 import json
 
 from app.agents.knowledge import KnowledgeAgent
-from app.services.prep import (
+from app.runtime.interview_prep import (
     InterviewPlan,
     InterviewQuestion,
     KnowledgeEvidenceRef,

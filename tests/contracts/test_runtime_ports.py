@@ -12,11 +12,11 @@ from app.ports.runtime import (
     SessionCommandRepository,
 )
 from app.ports.context_artifacts import ContextArtifactStore
-from app.services.event_publisher import NoopRuntimeEventPublisher
-from app.services.llm import OpenAIInterviewLLM
-from app.services.postgres_session import PostgresInterviewSessionStore
-from app.services.report_jobs import PostgresReportJobStore
-from app.services.session import InterviewSessionStore
+from app.runtime.event_publisher import NoopRuntimeEventPublisher
+from app.adapters.providers.llm import OpenAIInterviewLLM
+from app.adapters.persistence.postgres.session_store import PostgresInterviewSessionStore
+from app.adapters.persistence.postgres.report_job_store import PostgresReportJobStore
+from app.adapters.memory.session_store import InterviewSessionStore
 from app.adapters.memory.context_artifacts import (
     InMemoryContextArtifactStore,
 )

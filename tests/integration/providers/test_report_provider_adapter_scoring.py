@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from app.services.report import DimensionScores
-from app.services.report_provider_adapter import normalize_provider_payload
+from app.domain.report.models import DimensionScores
+from app.adapters.providers.report_payload import normalize_provider_payload
 
 
 def test_normalize_provider_payload_rejects_provider_score_but_scores_deterministic_non_answer():

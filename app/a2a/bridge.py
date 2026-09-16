@@ -6,7 +6,7 @@ from app.a2a.invocation.a2a import A2AAgentInvoker
 from app.a2a.invocation.local import LocalAgentInvoker
 from app.a2a.contracts.errors import A2AAgentError
 from app.a2a.invocation.context import InvocationContext
-from app.services.agent_runtime import AgentExecutionContext
+from app.domain.agent_execution import AgentExecutionContext
 
 
 class ExaminerAgentBridge:

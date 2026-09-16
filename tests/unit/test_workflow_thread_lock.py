@@ -4,21 +4,23 @@ from contextlib import contextmanager
 
 import pytest
 
-import app.services.review_workflow_store as review_store_module
-from app.services.review_workflow_store import (
+import app.adapters.persistence.postgres.review_workflow_store as review_store_module
+from app.adapters.persistence.postgres.review_workflow_store import (
     PostgresReviewWorkflowStore,
     ReviewEffectHeartbeat,
 )
 from app.domain.interview.errors import SessionVersionConflict
-from app.services.workflow_thread_lock import (
+from app.domain.workflow_thread_lock import (
     FencedWriteRejected,
-    NoopWorkflowThreadLock,
-    PostgresWorkflowThreadLock,
     ReviewEffectLeaseLost,
     WorkflowThreadBusy,
     advisory_lock_key,
     interview_thread_identity,
     review_thread_identity,
+)
+from app.adapters.workflows.workflow_thread_lock import (
+    NoopWorkflowThreadLock,
+    PostgresWorkflowThreadLock,
 )
 
 

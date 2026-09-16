@@ -59,11 +59,16 @@ def test_composed_openapi_has_expected_unique_operation_inventory():
         if method in methods
     ]
 
-    # RAG Corpus has separate preview/create commands; V3 sessions add one
-    # replay-safe bootstrap stream used after the asynchronous 202 response.
-    assert len(schema["paths"]) == 68
-    assert len(operations) == 76
+    # The inventory includes four complete A2A protocol surfaces in addition
+    # to the product API and its replay-safe asynchronous session endpoints.
+    assert len(schema["paths"]) == 116
+    assert len(operations) == 136
     assert len(operations) == len(set(operations))
+    operation_ids = [
+        schema["paths"][path][method]["operationId"]
+        for path, method in operations
+    ]
+    assert len(operation_ids) == len(set(operation_ids))
 
 
 def test_application_layer_does_not_import_rag_api_adapter():

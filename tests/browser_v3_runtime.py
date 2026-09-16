@@ -18,26 +18,27 @@ from app.graphs.durable_interview_graph import (
     DurableInterviewGraphDependencies,
     build_durable_interview_graph_v3,
 )
-from app.services.decision_store import DecisionContract, InMemoryDecisionStore
-from app.services.followup_decision_service import FollowupDecisionExecutionService
-from app.services.interview_generation_store import (
+from app.adapters.memory.decision_store import InMemoryDecisionStore
+from app.domain.interview.decision_store import DecisionContract
+from app.application.interview.followup_decision import FollowupDecisionExecutionService
+from app.adapters.persistence.postgres.interview_generation_store import (
     GenerationAlreadyCompleted,
     InterviewGeneration,
 )
-from app.services.interview_plan_revision import (
+from app.domain.interview.plan_revision import (
     InterviewPlanV3,
     default_plan_configuration,
     legacy_interview_knowledge_scope_snapshot,
     plan_payload_sha256,
 )
-from app.services.interview_workflow import InterviewWorkflowService
-from app.services.interview_workflow_store import (
+from app.runtime.interview_workflow import InterviewWorkflowService
+from app.adapters.persistence.postgres.interview_workflow_store import (
     InterviewCommandRecord,
     ProjectionResult,
 )
-from app.services.langgraph_runtime import VersionedGraphRegistry
-from app.services.runtime_events import AcceptedInterviewCommand
-from app.services.session_plan_binding import SessionPlanBinding
+from app.runtime.langgraph_runtime import VersionedGraphRegistry
+from app.application.interview.events import AcceptedInterviewCommand
+from app.domain.interview.session_plan_binding import SessionPlanBinding
 
 
 class BrowserV3GenerationStore:

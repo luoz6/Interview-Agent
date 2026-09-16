@@ -32,6 +32,7 @@ def build_local_a2a_runtime(
     llm=None,
     vector_store=None,
     execution_runner=None,
+    user_document_store_getter=None,
 ) -> A2ARuntime:
     observability = AgentTaskLog()
     server = LocalA2AServer(observability=observability)
@@ -40,6 +41,7 @@ def build_local_a2a_runtime(
         llm=llm,
         vector_store=vector_store,
         execution_runner=execution_runner,
+        user_document_store_getter=user_document_store_getter,
     )
     client = InProcessA2AClient(server=server)
     local_invoker = LocalAgentInvoker()

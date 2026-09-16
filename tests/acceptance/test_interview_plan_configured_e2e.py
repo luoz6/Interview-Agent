@@ -11,24 +11,24 @@ import app.api.plans.routes as route_module
 import app.api.interview.routes as interview_route_module
 import app.api.prep.routes as prep_route_module
 from app.main import app
-from app.services.in_memory_draft_store import InMemoryDraftStore
-from app.services.in_memory_prep_plan_store import InMemoryPrepPlanStore
-from app.services.interview_plan_budget import QUESTION_TYPE_ORDER
-from app.services.interview_plan_regenerator import PlanRegenerationFailed
-from app.services.interview_plan_revision import (
+from app.adapters.memory.draft_store import InMemoryDraftStore
+from app.adapters.memory.prep_plan_store import InMemoryPrepPlanStore
+from app.domain.interview.plan_budget import QUESTION_TYPE_ORDER
+from app.runtime.interview_plan_regenerator import PlanRegenerationFailed
+from app.domain.interview.plan_revision import (
     InterviewPlanQuestionV2,
     PlanConfigurationSnapshot,
 )
-from app.services.interview_plan_revision_store import (
+from app.adapters.memory.plan_revision_store import (
     InMemoryInterviewPlanRevisionStore,
 )
-from app.services.prep import (
+from app.runtime.interview_prep import (
     InterviewPlan,
     InterviewQuestion,
     prepare_interview,
     public_interview_plan_v2_payload,
 )
-from app.services.session import InterviewSessionStore
+from app.adapters.memory.session_store import InterviewSessionStore
 
 
 PROFILE_QUESTION_COUNTS = {15: 3, 30: 5, 45: 7, 60: 9}

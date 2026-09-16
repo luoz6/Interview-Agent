@@ -6,10 +6,10 @@ from datetime import datetime, timezone
 
 import pytest
 
-from app.services.postgres_principal_memory_consent import (
+from app.adapters.persistence.postgres.principal_memory_consent import (
     PostgresPrincipalMemoryConsentStore,
 )
-from app.services.principal_memory_consent import PrincipalMemoryConsent
+from app.application.memory.consent import PrincipalMemoryConsent
 
 
 @pytest.mark.pg_runtime

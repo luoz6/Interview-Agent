@@ -13,20 +13,20 @@ from app.graphs.durable_interview_graph import (
     build_durable_interview_graph,
 )
 from app.graphs.durable_interview_state import make_durable_initial_state
-from app.services.interview_generation_store import (
+from app.adapters.persistence.postgres.interview_generation_store import (
     ChunkCoalescer,
     PostgresInterviewGenerationStore,
 )
-from app.services.followup_decision_service import (
+from app.application.interview.followup_decision import (
     FollowupDecisionExecutionService,
 )
-from app.services.postgres_decision_store import PostgresDecisionStore
-from app.services.interview_workflow_store import (
+from app.adapters.persistence.postgres.decision_store import PostgresDecisionStore
+from app.adapters.persistence.postgres.interview_workflow_store import (
     PostgresInterviewWorkflowStore,
 )
-from app.services.langgraph_runtime import PostgresCheckpointerRuntime
-from app.services.postgres_session import PostgresInterviewSessionStore
-from app.services.report_jobs import PostgresReportJobStore
+from app.runtime.langgraph_runtime import PostgresCheckpointerRuntime
+from app.adapters.persistence.postgres.session_store import PostgresInterviewSessionStore
+from app.adapters.persistence.postgres.report_job_store import PostgresReportJobStore
 from tests.postgres_support import (
     make_runtime_table_prefix,
     require_postgres_dsn as require_dsn,

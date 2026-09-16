@@ -2,8 +2,8 @@ from fastapi.testclient import TestClient
 
 import app.api.reports.routes as routes
 from app.main import app
-from app.services.report_artifact import PublishReportArtifact
-from app.services.report_artifact_store import InMemoryReportArtifactStore
+from app.domain.report.artifact import PublishReportArtifact
+from app.adapters.memory.report_artifact_store import InMemoryReportArtifactStore
 from tests.contracts.test_report_pdf import make_report
 
 

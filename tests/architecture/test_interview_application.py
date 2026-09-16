@@ -43,7 +43,7 @@ def test_interview_application_does_not_depend_on_api_or_postgres():
 def test_runtime_port_uses_domain_turn_models_not_session_service():
     imported = _imports(ROOT / "app" / "ports" / "runtime.py")
     assert "app.domain.interview.models" in imported
-    assert "app.services.session" not in imported
+    assert "app.adapters.memory.session_store" not in imported
 
 
 def test_session_error_compatibility_export_is_removed():
@@ -55,7 +55,7 @@ def test_interview_router_depends_on_port_and_application_services():
     imported = _imports(path)
 
     assert "app.ports.runtime" in imported
-    assert "app.services.session" not in imported
+    assert "app.adapters.memory.session_store" not in imported
     assert "app.services.report_enqueue" not in imported
     assert "app.services.interview_rounds" not in imported
 
@@ -91,7 +91,7 @@ def test_command_routes_do_not_call_session_store_mutation_methods():
 
 
 def test_session_service_uses_domain_state_rules_without_redefining_them():
-    path = ROOT / "app" / "services" / "session.py"
+    path = ROOT / "app" / "adapters" / "memory" / "session_store.py"
     tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
     imported = _imports(path)
     defined = {

@@ -8,16 +8,17 @@ from uuid import uuid4
 
 import pytest
 
-from app.services.postgres_runtime_control import PostgresRuntimeControlStore
-from app.services.postgres_session import PostgresInterviewSessionStore
-from app.services.prep import InterviewPlan, InterviewQuestion
-from app.services.question_evaluations import question_evaluation_from_feedback
-from app.services.report import DimensionScores, InterviewFeedback
-from app.services.runtime_domain_events import RoundClosedEvent
-from app.services.runtime_outbox_dispatcher import (
+from app.adapters.persistence.postgres.runtime_control import PostgresRuntimeControlStore
+from app.adapters.persistence.postgres.session_store import PostgresInterviewSessionStore
+from app.runtime.interview_prep import InterviewPlan, InterviewQuestion
+from app.domain.report.question_evaluations import question_evaluation_from_feedback
+from app.domain.report.models import DimensionScores, InterviewFeedback
+from app.domain.runtime_events import RoundClosedEvent
+from app.runtime.outbox import (
     LocalRuntimeEventSink,
     RuntimeOutboxDispatcher,
 )
+from app.runtime.composition import consume_round_review_event_payload
 
 
 pytestmark = pytest.mark.pg_control
@@ -315,6 +316,7 @@ def test_local_dispatcher_completes_receipt_and_business_result(stores):
             control_store=stores["control"],
             worker_id="local-consumer-1",
             store=stores["session"],
+            round_review_consumer=consume_round_review_event_payload,
         ),
         batch_size=20,
         lease_seconds=60,

@@ -7,8 +7,8 @@ from types import SimpleNamespace
 
 import pytest
 
-from app.services.context_budget import ContextBudgetExceeded
-from app.services.llm import (
+from app.domain.context.budget import ContextBudgetExceeded
+from app.adapters.providers.llm import (
     LLMConfig,
     MissingLLMConfigError,
     OpenAIInterviewLLM,
@@ -26,25 +26,27 @@ from app.services.llm import (
     resolve_report_output_mode,
     verify_plan_generation_prompt_identity,
 )
-from app.services.model_capabilities import ContextConfigurationError
-from app.services.interview_plan_revision import PlanConfigurationSnapshot
-from app.services.prep import (
+from app.domain.context.model_capabilities import ContextConfigurationError
+from app.domain.interview.plan_revision import PlanConfigurationSnapshot
+from app.runtime.interview_prep import (
     bind_prepared_plan_revision,
     InterviewPlan,
     InterviewIntentDraftPlan,
     InterviewQuestion,
     PlanGenerationValidationError,
 )
-from app.services.provider_usage import (
+from app.runtime.provider_usage import (
     consume_provider_context_metadata,
     reset_provider_context_metadata,
 )
-from app.services.t65_production_capture import (
+from app.evals.t65_production_capture import (
     install_t65_controlled_http_clients,
     shutdown_t65_controlled_http_clients_async,
     shutdown_t65_controlled_http_clients_sync,
 )
-from app.services.t65_provider_http_transport import T65ProviderTransportIdentity
+from app.adapters.providers.t65_provider_http_transport import (
+    T65ProviderTransportIdentity,
+)
 
 
 def test_llm_config_reads_model_from_environment(monkeypatch):
@@ -160,7 +162,7 @@ def test_formal_t65_chat_model_requires_and_injects_both_controlled_clients(
             ChatOpenAI=lambda **kwargs: captured.update(kwargs) or object()
         ),
     )
-    import app.services.t65_provider_http_transport as controlled
+    import app.adapters.providers.t65_provider_http_transport as controlled
 
     monkeypatch.setattr(
         controlled,

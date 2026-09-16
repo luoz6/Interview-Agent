@@ -4,11 +4,11 @@ from types import SimpleNamespace
 
 import pytest
 
-from app.services.postgres_session import PostgresInterviewSessionStore
-from app.services.prep import InterviewPlan, InterviewQuestion
-from app.services.report import InterviewReport
-from app.services.report_jobs import PostgresReportJobStore
-from app.services.report_worker import run_one_job
+from app.adapters.persistence.postgres.session_store import PostgresInterviewSessionStore
+from app.runtime.interview_prep import InterviewPlan, InterviewQuestion
+from app.domain.report.models import InterviewReport
+from app.adapters.persistence.postgres.report_job_store import PostgresReportJobStore
+from app.runtime.report_worker import run_one_job
 from tests.postgres_support import (
     drop_runtime_tables,
     make_runtime_table_prefix,

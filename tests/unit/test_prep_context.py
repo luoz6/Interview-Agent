@@ -1,11 +1,11 @@
-from app.services.prep import (
+from app.runtime.interview_prep import (
     InterviewPlan,
     InterviewQuestion,
     PrepContext,
     PrepKnowledgeTopic,
     PrepQuestionHint,
 )
-from app.services.prep_context import (
+from app.domain.interview.prep_context import (
     build_question_prep_context_messages,
     get_question_prep_hint,
 )

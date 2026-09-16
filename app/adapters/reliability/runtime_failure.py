@@ -19,16 +19,16 @@ from app.domain.context.artifacts import (
     ContextArtifactProviderFailed,
     ContextArtifactValidationFailed,
 )
-from app.services.context_budget import ContextBudgetExceeded
-from app.services.model_capabilities import ContextConfigurationError
-from app.services.postgres_connections import PostgresPoolExhausted
-from app.services.report import (
+from app.domain.context.budget import ContextBudgetExceeded
+from app.domain.context.model_capabilities import ContextConfigurationError
+from app.adapters.postgres.connections import PostgresPoolExhausted
+from app.domain.report.models import (
     ReportGenerationFailed,
     ReportGenerationTimeout,
     ReportOutputFormatError,
 )
-from app.services.token_estimation import ContextEstimatorUnavailable
-from app.services.workflow_thread_lock import (
+from app.domain.context.token_estimation import ContextEstimatorUnavailable
+from app.domain.workflow_thread_lock import (
     FencedWriteRejected,
     GenerationLeaseLost,
     ProjectionConflict,

@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from app.services.knowledge_eval_artifacts_v3 import canonical_sha256
+from app.application.knowledge.eval_artifacts_v3 import canonical_sha256
 from scripts.validate_knowledge_diagnostic_dataset import (
     validate_diagnostic_dataset,
 )

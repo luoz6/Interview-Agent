@@ -2,12 +2,12 @@ from types import SimpleNamespace
 
 import pytest
 
-from app.services.context_budget import (
+from app.domain.context.budget import (
     ContextBudgetExceeded,
     ContextBudgetResolver,
     FOLLOWUP_CONTEXT_POLICY,
 )
-from app.services.llm import (
+from app.adapters.providers.llm import (
     LLMConfig,
     OpenAIInterviewLLM,
     _build_followup_prompt,

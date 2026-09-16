@@ -13,7 +13,7 @@ from app.domain.knowledge.user_document import (
     USER_DOCUMENT_MAX_BYTES,
     UserDocumentPublicStatus,
 )
-from app.services.embedding_providers import EmbeddingProviderError
+from app.adapters.providers.embedding_providers import EmbeddingProviderError
 from tests.vector_store_fixtures import FakeEmbeddingProvider
 
 

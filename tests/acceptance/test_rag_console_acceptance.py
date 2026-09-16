@@ -26,8 +26,12 @@ from app.domain.knowledge.retrieval import (
     build_retrieval_trace,
 )
 from app.main import app
-from app.runtime.config import use_environment
-from app.services.knowledge_eval_artifacts_v3 import (
+from app.runtime.config import (
+    load_knowledge_runtime_settings,
+    load_rag_console_runtime_settings,
+    use_environment,
+)
+from app.application.knowledge.eval_artifacts_v3 import (
     RetrievalDiagnosticSnapshotV1,
     canonical_sha256,
     load_eval_artifact_v3,
@@ -151,6 +155,15 @@ def _client(service):
     return TestClient(app, client=("127.0.0.1", 51000))
 
 
+def _service(*args, **kwargs):
+    return RagDiagnosticsService(
+        *args,
+        knowledge_settings_loader=load_knowledge_runtime_settings,
+        rag_console_settings_loader=load_rag_console_runtime_settings,
+        **kwargs,
+    )
+
+
 def test_default_off_and_learning_demo_runtime_remains_explicit_legacy():
     client = TestClient(app, client=("127.0.0.1", 51000))
     assert client.get("/api/rag/overview").status_code == 404
@@ -160,7 +173,7 @@ def test_default_off_and_learning_demo_runtime_remains_explicit_legacy():
     assert client.get("/api/rag/evaluations").status_code == 404
     assert client.get("/api/rag/inspections/opaque-id").status_code == 404
 
-    service = RagDiagnosticsService()
+    service = _service()
     with use_environment({"RAG_CONSOLE_ENABLED": "true"}):
         console = _client(service)
         overview = console.get("/api/rag/overview")
@@ -199,7 +212,7 @@ def test_default_off_and_learning_demo_runtime_remains_explicit_legacy():
 
 def test_live_inspection_is_synchronous_safe_and_uses_fixed_local_repository():
     repository = DeterministicDiagnosticRepository()
-    client = _client(RagDiagnosticsService(repository=repository))
+    client = _client(_service(repository=repository))
     private_query = "Explain Redis locking without leaking this query"
 
     with use_environment(CONSOLE_ENV):
@@ -230,7 +243,7 @@ def test_live_inspection_is_synchronous_safe_and_uses_fixed_local_repository():
 
 def test_live_hybrid_query_aware_mode_only_changes_diagnostic_profile_switch():
     repository = DeterministicDiagnosticRepository()
-    client = _client(RagDiagnosticsService(repository=repository))
+    client = _client(_service(repository=repository))
 
     with use_environment(CONSOLE_ENV):
         response = client.post(
@@ -257,7 +270,7 @@ def test_live_hybrid_query_aware_mode_only_changes_diagnostic_profile_switch():
 
 def test_live_legacy_reports_fixed_request_without_hybrid_fusion_execution():
     repository = DeterministicDiagnosticRepository()
-    client = _client(RagDiagnosticsService(repository=repository))
+    client = _client(_service(repository=repository))
 
     with use_environment(CONSOLE_ENV):
         response = client.post(
@@ -281,7 +294,7 @@ def test_live_legacy_reports_fixed_request_without_hybrid_fusion_execution():
 
 def test_compare_runs_both_engines_in_one_safe_request_and_returns_server_diff():
     repository = DeterministicDiagnosticRepository()
-    client = _client(RagDiagnosticsService(repository=repository))
+    client = _client(_service(repository=repository))
     private_query = "PRIVATE compare query must never be reflected"
 
     with use_environment(CONSOLE_ENV):
@@ -337,7 +350,7 @@ def test_compare_forces_fixed_profile_when_runtime_profile_is_query_aware(
         query_aware_runtime_profile,
     )
     repository = DeterministicDiagnosticRepository()
-    client = _client(RagDiagnosticsService(repository=repository))
+    client = _client(_service(repository=repository))
 
     with use_environment(CONSOLE_ENV):
         response = client.post(
@@ -363,7 +376,7 @@ def test_compare_isolates_one_engine_failure_without_leaking_exception_detail():
             return super().inspect_retrieval(request, profile=profile, engine=engine)
 
     repository = OneSideFailureRepository()
-    client = _client(RagDiagnosticsService(repository=repository))
+    client = _client(_service(repository=repository))
     with use_environment(CONSOLE_ENV):
         response = client.post(
             "/api/rag/inspections/compare",
@@ -392,7 +405,7 @@ def test_compare_timeout_is_bounded_and_does_not_discard_successful_side():
             return super().inspect_retrieval(request, profile=profile, engine=engine)
 
     guard = DiagnosticCapacityGuard(max_concurrency=1)
-    service = RagDiagnosticsService(
+    service = _service(
         repository=SlowHybridRepository(),
         capacity_guard=guard,
         compare_timeout_seconds=0.01,
@@ -422,7 +435,7 @@ def test_compare_rejects_mixed_corpus_identity_without_reflecting_query():
                 result.candidates[0].chunk.metadata["corpus_manifest_sha256"] = "d" * 64
             return result
 
-    client = _client(RagDiagnosticsService(repository=MixedIdentityRepository()))
+    client = _client(_service(repository=MixedIdentityRepository()))
     with use_environment(CONSOLE_ENV):
         response = client.post(
             "/api/rag/inspections/compare",
@@ -439,7 +452,7 @@ def test_artifact_catalog_replay_is_provider_free_and_holdout_is_diagnostic_only
         def inspect_retrieval(self, *args, **kwargs):
             raise AssertionError("artifact replay must not call retrieval")
 
-    service = RagDiagnosticsService(repository=RetrievalMustNotRun())
+    service = _service(repository=RetrievalMustNotRun())
     client = _client(service)
     catalog = service.evaluations()
     historical = next(item for item in catalog.artifacts if item.split == "holdout")
@@ -555,7 +568,7 @@ def test_valid_snapshot_supports_full_replay_without_retrieval(tmp_path):
         snapshot,
         catalog.snapshot_path(artifact.artifact_sha256, case.case_id),
     )
-    client = _client(RagDiagnosticsService(catalog=catalog, repository=repository))
+    client = _client(_service(catalog=catalog, repository=repository))
 
     with use_environment(CONSOLE_ENV):
         response = client.get(
@@ -593,7 +606,7 @@ def test_valid_snapshot_supports_full_replay_without_retrieval(tmp_path):
 
 
 def test_artifact_detail_returns_safe_dto_and_invalid_identity_fails_closed():
-    service = RagDiagnosticsService()
+    service = _service()
     client = _client(service)
     artifact = service.evaluations().artifacts[0]
 
@@ -631,7 +644,7 @@ def test_private_holdout_and_sensitive_evidence_fields_have_no_public_path(tmp_p
     )
     root = tmp_path / "private"
     write_frozen_eval_artifact(source, root / "sealed.json")
-    service = RagDiagnosticsService(
+    service = _service(
         catalog=RagArtifactCatalog(
             roots=(root,),
             snapshot_root=tmp_path / "snapshots",

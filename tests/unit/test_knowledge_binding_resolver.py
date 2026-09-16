@@ -1,5 +1,5 @@
-from app.services.knowledge_binding import KnowledgeBindingResolver
-from app.services.prep import (
+from app.application.knowledge.binding import KnowledgeBindingResolver
+from app.runtime.interview_prep import (
     InterviewPlan,
     InterviewQuestion,
     KnowledgeBindingSnapshot,
@@ -173,6 +173,27 @@ def test_v2_resolver_uses_only_current_question_ids_and_never_searches():
         "representation": "authoritative_raw",
         "mandatory_bounded_raw": True,
     }
+
+
+def test_repository_provider_is_resolved_lazily_for_bound_evidence():
+    repository = make_repository()
+    provider_calls = []
+
+    def repository_provider():
+        provider_calls.append("called")
+        return repository
+
+    resolver = KnowledgeBindingResolver(repository_provider=repository_provider)
+
+    legacy_plan = make_v2_plan()
+    legacy_plan.prep_context.schema_version = "v1"
+    assert resolver.resolve(legacy_plan, "q1").retrieval_path == "legacy_prep_hint"
+    assert provider_calls == []
+
+    resolution = resolver.resolve(make_v2_plan(), "q1")
+
+    assert resolution.retrieval_path == "bound_evidence_ids"
+    assert provider_calls == ["called"]
     assert "RocketMQ internal delivery evidence" not in str(resolution.messages)
 
 

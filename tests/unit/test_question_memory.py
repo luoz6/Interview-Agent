@@ -1,4 +1,4 @@
-from app.services.in_memory_question_memory_index import (
+from app.adapters.memory.question_memory_index import (
     InMemoryQuestionMemoryIndexStore,
 )
 from tests.question_memory_fixtures import (

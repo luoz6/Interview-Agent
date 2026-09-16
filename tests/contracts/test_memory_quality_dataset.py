@@ -5,7 +5,7 @@ import json
 import pytest
 from pydantic import ValidationError
 
-from app.services.memory_quality_dataset import (
+from app.evals.memory_quality_dataset import (
     MemoryQualityDataset,
     load_memory_quality_dataset,
 )

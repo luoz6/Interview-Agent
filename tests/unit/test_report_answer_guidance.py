@@ -4,14 +4,14 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
-from app.services.report import (
+from app.domain.report.models import (
     DimensionScores,
     FeedbackReference,
     InterviewFeedback,
     ReportEvidenceRefV2,
     ReportObservationV2,
 )
-from app.services.report_answer_guidance import (
+from app.domain.report.answer_guidance import (
     ANSWER_STRUCTURE_SUGGESTION,
     REPORT_ANSWER_GUIDANCE_VERSION,
     apply_safe_answer_guidance,

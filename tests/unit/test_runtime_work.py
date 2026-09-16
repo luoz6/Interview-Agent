@@ -4,7 +4,7 @@ import httpx
 import openai
 import pytest
 
-from app.services.report import (
+from app.domain.report.models import (
     ReportGenerationTimeout,
     ReportOutputFormatError,
 )
@@ -13,7 +13,7 @@ from app.adapters.reliability.runtime_failure import (
     classify_runtime_failure,
     retry_delay_seconds,
 )
-from app.services.context_budget import ContextBudgetExceeded
+from app.domain.context.budget import ContextBudgetExceeded
 from app.domain.context.artifacts import (
     ContextArtifactBusy,
     ContextArtifactConflict,
@@ -22,9 +22,9 @@ from app.domain.context.artifacts import (
     ContextArtifactProviderFailed,
     ContextArtifactValidationFailed,
 )
-from app.services.model_capabilities import ContextConfigurationError
-from app.services.token_estimation import ContextEstimatorUnavailable
-from app.services.workflow_thread_lock import (
+from app.domain.context.model_capabilities import ContextConfigurationError
+from app.domain.context.token_estimation import ContextEstimatorUnavailable
+from app.domain.workflow_thread_lock import (
     FencedWriteRejected,
     GenerationLeaseLost,
     ProjectionConflict,

@@ -8,7 +8,7 @@ import pytest
 from pypdf import PdfWriter
 from reportlab.pdfgen import canvas
 
-from app.services.prep_source_import import (
+from app.application.materials.prep_source_import import (
     PREP_SOURCE_MAX_BYTES,
     PREP_SOURCE_MAX_DOCX_ENTRIES,
     PREP_SOURCE_MAX_DOCX_UNCOMPRESSED_BYTES,

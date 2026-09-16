@@ -1,13 +1,13 @@
 from app.graphs.interview_graph import InterviewGraphRunner
 from app.graphs.interview_state import InterviewState, get_current_question
 from app.graphs.orchestrator_graph import OrchestratorCommand, build_orchestrator_graph
-from app.services.agent_runtime import (
+from app.domain.agent_execution import (
     AgentExecutionContext,
-    AgentExecutionRunner,
     correlation_id_from_plan,
     evidence_ids_for_question,
 )
-from app.services.llm import InterviewLLM
+from app.runtime.agent_execution import AgentExecutionRunner
+from app.ports.llm import InterviewLLM
 
 
 class OrchestratorAgent:

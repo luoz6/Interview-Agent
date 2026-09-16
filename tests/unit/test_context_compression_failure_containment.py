@@ -23,10 +23,10 @@ class Clock:
 
 def _subjects(*, clock=None):
     domain = import_module(
-        "app.services.context_compression_failure_containment"
+        "app.domain.context.failure_containment"
     )
     stores = import_module(
-        "app.services.in_memory_context_compression_failure_store"
+        "app.adapters.memory.context_compression_failure_store"
     )
     clock = clock or Clock()
     store = stores.InMemoryContextCompressionFailureStore(clock=clock)
@@ -559,7 +559,7 @@ def test_dual_scope_authorize_leaves_no_new_probe_when_second_scope_blocks():
 
 def test_dual_scope_authorize_uses_one_atomic_store_boundary():
     domain = import_module(
-        "app.services.context_compression_failure_containment"
+        "app.domain.context.failure_containment"
     )
 
     class FaultingAtomicStore:
@@ -620,7 +620,7 @@ def test_validation_failure_finishes_both_states_in_one_combined_commit():
 
 def test_combined_finish_fault_leaves_both_states_unchanged():
     domain = import_module(
-        "app.services.context_compression_failure_containment"
+        "app.domain.context.failure_containment"
     )
     provider_before = object()
     validation_before = object()
@@ -691,7 +691,7 @@ def test_scope_builders_reject_noncanonical_owner_identity(builder, changes):
 )
 def test_failure_state_lease_must_be_shorter_than_both_cooldowns(changes):
     domain = import_module(
-        "app.services.context_compression_failure_containment"
+        "app.domain.context.failure_containment"
     )
     values = {
         "provider_circuit_threshold": 3,

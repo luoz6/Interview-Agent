@@ -4,21 +4,20 @@ import inspect
 from typing import TYPE_CHECKING
 
 from app.ports.runtime import KnowledgeRepository
-from app.services.job_tags import extract_job_tags
-from app.services.knowledge_grounding import (
+from app.domain.knowledge.job_tags import extract_job_tags
+from app.application.knowledge.grounding import (
     attach_grounded_prep_context,
     degraded_grounding,
     provider_knowledge_context,
     retrieve_grounding,
     supplement_question_grounding,
 )
-from app.services.knowledge_profile import build_role_profile
-from app.services.knowledge_query import build_knowledge_queries
-from app.services.llm import InterviewLLM
-from app.services.prep import (
-    InterviewPlan,
-    PlanGenerationValidationError,
-    attach_prep_context,
+from app.domain.knowledge.profile import build_role_profile
+from app.domain.knowledge.query import build_knowledge_queries
+from app.domain.interview.prep import InterviewPlan, PlanGenerationValidationError
+from app.domain.interview.prep_context import attach_prep_context
+from app.ports.llm import InterviewLLM
+from app.domain.interview.plan_generation import (
     enforce_generated_interview_question_quality,
     enforce_generated_interview_plan,
     enforce_generated_intent_plan,
@@ -28,7 +27,7 @@ from app.runtime.config.environment import environment_value
 
 if TYPE_CHECKING:
     from app.domain.knowledge.source_scope import KnowledgeSourceScope
-    from app.services.interview_plan_revision import PlanConfigurationSnapshot
+    from app.domain.interview.plan_revision import PlanConfigurationSnapshot
 
 
 class KnowledgeAgent:
@@ -186,7 +185,7 @@ class KnowledgeAgent:
         if snapshot is None:
             return
         try:
-            from app.services.knowledge_trace import KnowledgeTraceRecorder
+            from app.adapters.knowledge.trace import KnowledgeTraceRecorder
 
             KnowledgeTraceRecorder.from_env().record(
                 prep_run_id=snapshot.prep_run_id,
@@ -222,6 +221,6 @@ class KnowledgeAgent:
 
     @staticmethod
     def _default_llm() -> InterviewLLM:
-        from app.services.llm import OpenAIInterviewLLM
+        from app.adapters.providers.llm import OpenAIInterviewLLM
 
         return OpenAIInterviewLLM()

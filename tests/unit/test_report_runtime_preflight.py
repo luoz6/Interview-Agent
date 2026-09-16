@@ -1,5 +1,5 @@
 from app.runtime.config.compatibility import get_report_runtime_profile
-from app.services.report_runtime_preflight import run_report_runtime_preflight
+from app.evals.report_runtime_preflight import run_report_runtime_preflight
 
 
 def test_memory_runtime_defaults_to_coherent_preview_profile(monkeypatch):

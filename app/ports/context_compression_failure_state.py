@@ -4,7 +4,7 @@ from datetime import datetime
 from typing import TYPE_CHECKING, Protocol
 
 if TYPE_CHECKING:
-    from app.services.context_compression_failure_containment import (
+    from app.domain.context.failure_containment import (
         AttemptAbortResult,
         AttemptAuthorization,
         AttemptFinishResult,

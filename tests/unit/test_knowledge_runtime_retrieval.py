@@ -28,7 +28,7 @@ from app.domain.knowledge.engine import (
     RuntimeEngineExecution,
     RuntimeFallbackReason,
 )
-from app.services.knowledge_grounding import retrieve_grounding
+from app.application.knowledge.grounding import retrieve_grounding
 
 
 def _result(engine: str, chunk_id: str) -> RetrievalResult:

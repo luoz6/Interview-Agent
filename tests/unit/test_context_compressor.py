@@ -5,29 +5,29 @@ import json
 import pytest
 
 from app.agents.context_compressor import ContextCompressorAgent
-from app.services.agent_runtime import AgentExecutionContext, AgentExecutionRunner
+from app.runtime.agent_execution import AgentExecutionContext, AgentExecutionRunner
 from app.domain.context.artifacts import (
     CompressionSourceSegment,
     ContextCompressionPolicy,
     compressor_settings_sha256,
 )
-from app.services.context_budget import (
+from app.domain.context.budget import (
     ContextBudgetExceeded,
     DynamicCompressionTargetPolicy,
 )
-from app.services.context_compression import (
+from app.adapters.providers.context_compression import (
     OpenAIContextCompressor,
     QUESTION_MEMORY_COMPRESSION_POLICY,
     compressor_config_from_llm,
 )
-from app.services.context_compression_intent import (
+from app.domain.context.compression_intent import (
     CompressionIntent,
     canonical_compression_intent_payload,
     compression_intent_sha256,
 )
-from app.services.context_compression_request import ResolvedCompressionRequest
+from app.domain.context.compression_request import ResolvedCompressionRequest
 from app.domain.context.artifacts import QuestionMemoryArtifact
-from app.services.llm import LLMConfig
+from app.adapters.providers.llm import LLMConfig
 
 
 class FakeStructuredModel:
@@ -342,8 +342,8 @@ def test_question_memory_compressor_binds_non_authoritative_schema_and_identity(
 
 
 def test_all_intent_aware_artifact_policies_use_prompt_contract_v2():
-    from app.services.evidence_context_artifacts import EVIDENCE_COMPRESSION_POLICY
-    from app.services.interview_context_artifacts import (
+    from app.runtime.evidence_context_artifacts import EVIDENCE_COMPRESSION_POLICY
+    from app.application.interview.context_artifacts import (
         QUESTION_CONVERSATION_COMPRESSION_POLICY,
     )
 

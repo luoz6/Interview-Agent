@@ -3,7 +3,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from app.services.interview_question_quality import (
+from app.domain.interview.question_quality import (
     HARD_QUESTION_QUALITY_CODES,
     SOFT_QUESTION_QUALITY_CODES,
     QuestionQualityInput,
@@ -11,7 +11,7 @@ from app.services.interview_question_quality import (
     compare_question_texts,
     normalize_question_text,
 )
-from app.services.prep import InterviewQuestion
+from app.runtime.interview_prep import InterviewQuestion
 
 
 def question(

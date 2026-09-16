@@ -4,13 +4,13 @@ import logging
 
 import pytest
 
-import app.services.agent_runtime as agent_runtime_module
-from app.services.agent_runtime import (
+import app.runtime.agent_execution as agent_runtime_module
+from app.runtime.agent_execution import (
     AgentExecutionContext,
     AgentExecutionRunner,
     AgentFallback,
 )
-from app.services.trace_sanitization import sanitize_agent_safe_metadata
+from app.domain.trace_sanitization import sanitize_agent_safe_metadata
 
 
 class CapturingRecorder:

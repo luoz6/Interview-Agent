@@ -15,17 +15,19 @@ from langgraph.types import interrupt
 from app.agents.examiner import fallback_followup
 from app.graphs.durable_interview_state import DurableInterviewState
 from app.graphs.interview_state import latest_candidate_answer_for_question
-from app.services.agent_runtime import AgentExecutionContext
-from app.services.interview_generation_store import ChunkCoalescer
-from app.services.interview_generation_store import GenerationAlreadyCompleted
-from app.services.followup_diagnostics import (
+from app.domain.agent_execution import AgentExecutionContext
+from app.domain.interview.generation_execution import (
+    ChunkCoalescer,
+    GenerationAlreadyCompleted,
+)
+from app.domain.interview.followup_diagnostics import (
     FollowupDiagnosticInput,
     FollowupPolicySnapshot,
     diagnose_followup,
     is_duplicate_followup_text,
     stable_followup_fingerprint,
 )
-from app.services.followup_prompts import (
+from app.domain.interview.followup_prompts import (
     FOLLOWUP_DECISION_PROMPT_SHA256,
     FOLLOWUP_DECISION_PROMPT_VERSION,
     FOLLOWUP_GENERATION_PROMPT_SHA256,
@@ -34,8 +36,8 @@ from app.services.followup_prompts import (
     generation_context_for_target,
     validate_followup_output,
 )
-from app.services.knowledge_binding import resolve_evidence_by_ids
-from app.services.interview_plan_knowledge import parse_question_knowledge_binding
+from app.application.knowledge.binding import resolve_evidence_by_ids
+from app.domain.interview.plan_knowledge import parse_question_knowledge_binding
 from app.application.knowledge.followup_gap_service import (
     FollowupGapService,
     append_followup_gap_message,
@@ -45,13 +47,12 @@ from app.adapters.reliability.runtime_failure import (
     classify_runtime_failure,
     retry_delay_seconds,
 )
-from app.services.workflow_thread_lock import GenerationLeaseLost
-from app.services.context_budget import (
+from app.domain.workflow_thread_lock import GenerationLeaseLost
+from app.domain.context.budget import (
     FOLLOWUP_CONTEXT_POLICY,
     MAIN_QUESTION_CONTEXT_POLICY,
-    context_enforcement_enabled,
 )
-from app.services.context_selection import (
+from app.domain.context.selection import (
     ContextSelectionStats,
     InterviewContextSelection,
     MandatoryBoundedRawOverflow,
@@ -63,13 +64,17 @@ from app.services.context_selection import (
     deduplicate_evidence_replays,
     select_interview_messages,
 )
-from app.services.context_source_identity import (
+from app.domain.context.source_identity import (
     ContextSourceIdentityConfig,
     canonical_conversation_sequence_pair,
 )
-from app.services.context_runtime import ContextRuntime, get_context_runtime
-from app.services.model_capabilities import ContextConfigurationError
-from app.services.interview_status_projection import (
+from app.runtime.context_runtime import (
+    ContextRuntime,
+    context_enforcement_enabled,
+    get_context_runtime,
+)
+from app.domain.context.model_capabilities import ContextConfigurationError
+from app.domain.interview.status_projection import (
     build_interview_status_projection,
     render_interview_status_message,
 )
@@ -80,11 +85,13 @@ from app.domain.interview.question_intent import (
     main_question_generation_identity,
     question_intent_sha256,
 )
-from app.services.main_question_generation import (
+from app.domain.interview.main_question_generation import (
     MAIN_QUESTION_GENERATION_PROMPT_SHA256,
     MAIN_QUESTION_GENERATION_PROMPT_VERSION,
     MainQuestionValidationError,
     deterministic_main_question_fallback,
+)
+from app.runtime.config.main_question_generation import (
     load_main_question_generation_settings,
 )
 
@@ -558,7 +565,7 @@ def generate_followup(state, deps) -> dict:
         )
         with heartbeat_context as heartbeat:
             if is_v2:
-                from app.services.interview_context_artifacts import (
+                from app.application.interview.context_artifacts import (
                     GenerationAttemptOwnership,
                 )
 
@@ -687,7 +694,7 @@ def generate_followup(state, deps) -> dict:
                     )
                     context = consume_result.provider_context
                     try:
-                        from app.services.memory_metrics import (
+                        from app.runtime.memory_metrics import (
                             publish_principal_local_consume_metric,
                         )
 
@@ -1970,7 +1977,7 @@ def generate_main_question_node(state, deps) -> dict:
                             settings.attempt_timeout_seconds, remaining
                         ),
                     )
-                    from app.services.main_question_generation import (
+                    from app.domain.interview.main_question_generation import (
                         validate_main_question,
                     )
 

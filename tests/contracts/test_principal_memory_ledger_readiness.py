@@ -3,11 +3,11 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
-from app.services.principal_memory_ledger import (
+from app.adapters.memory.principal_memory_ledger import (
     GENESIS_HEAD_SHA256,
     ProtectedPrincipalMemoryLedger,
 )
-from app.services.principal_memory_ledger_readiness import (
+from app.runtime.principal_memory_ledger_readiness import (
     check_principal_memory_ledger_readiness,
     evaluate_ledger_watermark,
 )

@@ -11,28 +11,28 @@ from app.graphs.durable_interview_graph import (
     DurableInterviewGraphDependencies,
     build_durable_interview_graph_v3,
 )
-from app.services.interview_generation_store import (
+from app.adapters.persistence.postgres.interview_generation_store import (
     PostgresInterviewGenerationStore,
 )
-from app.services.interview_plan_revision import (
+from app.domain.interview.plan_revision import (
     InterviewPlanV3,
     default_plan_configuration,
     legacy_interview_knowledge_scope_snapshot,
     plan_payload_sha256,
 )
-from app.services.interview_workflow import InterviewWorkflowService
-from app.services.interview_workflow_consumer import InterviewWorkflowConsumer
-from app.services.interview_workflow_store import (
+from app.runtime.interview_workflow import InterviewWorkflowService
+from app.runtime.interview_workflow_consumer import InterviewWorkflowConsumer
+from app.adapters.persistence.postgres.interview_workflow_store import (
     PostgresInterviewWorkflowStore,
 )
-from app.services.langgraph_runtime import (
+from app.runtime.langgraph_runtime import (
     PostgresCheckpointerRuntime,
     VersionedGraphRegistry,
 )
-from app.services.postgres_connections import DirectPsycopg2ConnectionProvider
-from app.services.postgres_session import PostgresInterviewSessionStore
-from app.services.runtime_domain_events import InterviewBootstrapReadyEvent
-from app.services.session_plan_binding import SessionPlanBinding
+from app.adapters.postgres.connections import DirectPsycopg2ConnectionProvider
+from app.adapters.persistence.postgres.session_store import PostgresInterviewSessionStore
+from app.domain.runtime_events import InterviewBootstrapReadyEvent
+from app.domain.interview.session_plan_binding import SessionPlanBinding
 from tests.postgres_v3_checkpointer_support import (
     AUTHORIZED_RELATIONS,
     AuthorizedCheckpointRowScope,

@@ -3,15 +3,15 @@ from __future__ import annotations
 from copy import deepcopy
 
 from app.graphs.interview_graph import InterviewGraphRunner
-from app.services.interview_rounds import round_closed_event_from_transition
-from app.services.prep import (
+from app.graphs.interview_rounds import round_closed_event_from_transition
+from app.runtime.interview_prep import (
     InterviewPlan,
     InterviewQuestion,
     KnowledgeBindingSnapshot,
     PrepContext,
 )
-from app.services.report import InterviewReport
-from app.services.session import finish_interview_state, skip_interview_question_state
+from app.domain.report.models import InterviewReport
+from app.adapters.memory.session_store import finish_interview_state, skip_interview_question_state
 
 
 def make_plan():

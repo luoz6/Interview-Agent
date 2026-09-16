@@ -218,7 +218,9 @@ def run_audit(
     )
 
     evidence_gate = _read(root / "app/domain/knowledge/evidence_gate.py")
-    eval_artifacts = _read(root / "app/services/knowledge_eval_artifacts_v3.py")
+    eval_artifacts = _read(
+        root / "app/application/knowledge/eval_artifacts_v3.py"
+    )
     evaluation_page = _read(root / "frontend/src/pages/RagEvaluationPage.jsx")
     record(
         "algorithm.candidate_evidence_sufficiency",

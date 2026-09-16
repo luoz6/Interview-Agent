@@ -11,8 +11,8 @@ from app.adapters.postgres.session_repository_support import (
 )
 from app.domain.interview.errors import SessionVersionConflict
 from app.graphs.interview_state import InterviewState
-from app.services.postgres_connections import ConnectionProvider
-from app.services.runtime_domain_events import RoundClosedEvent
+from app.adapters.postgres.connections import ConnectionProvider
+from app.domain.runtime_events import RoundClosedEvent
 
 
 _postgres_sql = postgres_sql

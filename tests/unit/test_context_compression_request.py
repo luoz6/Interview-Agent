@@ -13,11 +13,11 @@ from app.domain.context.artifacts import (
     ContextCompressionPolicy,
     canonical_identity_payload,
 )
-from app.services.context_compression_intent import CompressionIntent
+from app.domain.context.compression_intent import CompressionIntent
 
 
 def request_api():
-    from app.services.context_compression_request import (
+    from app.domain.context.compression_request import (
         ResolvedCompressionRequest,
         bind_resolved_target_to_identity,
     )
@@ -26,7 +26,7 @@ def request_api():
 
 
 def target_policy(**changes):
-    from app.services.context_budget import DynamicCompressionTargetPolicy
+    from app.domain.context.budget import DynamicCompressionTargetPolicy
 
     values = {
         "floor_tokens": 256,
@@ -219,7 +219,7 @@ def test_public_request_constructor_cannot_claim_persisted_index_authority():
 
 
 def test_private_persisted_factory_recovers_a_removed_target_tier():
-    import app.services.context_compression_request as request_module
+    import app.domain.context.compression_request as request_module
 
     factory = (
         request_module._resolved_compression_request_from_persisted_target
@@ -249,7 +249,7 @@ def test_private_persisted_factory_recovers_a_removed_target_tier():
 
 @pytest.mark.parametrize("target", (0, -1, True, 512.0, "512", 2_001))
 def test_private_persisted_factory_enforces_strict_positive_policy_cap(target):
-    from app.services.context_compression_request import (
+    from app.domain.context.compression_request import (
         _resolved_compression_request_from_persisted_target,
     )
 
@@ -264,7 +264,7 @@ def test_private_persisted_factory_enforces_strict_positive_policy_cap(target):
 
 
 def test_persisted_authority_is_read_only_and_excluded_from_request_equality():
-    from app.services.context_compression_request import (
+    from app.domain.context.compression_request import (
         _resolved_compression_request_from_persisted_target,
     )
 

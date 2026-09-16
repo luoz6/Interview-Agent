@@ -73,7 +73,7 @@ def test_legacy_config_compatibility_exports_are_removed():
 
 
 def test_runtime_composition_keeps_only_the_root_container_as_mutable_state():
-    tree = _tree(APP / "services" / "runtime.py")
+    tree = _tree(APP / "runtime" / "composition.py")
     private_assignments = {
         target.id
         for node in tree.body
@@ -94,6 +94,27 @@ def test_runtime_composition_keeps_only_the_root_container_as_mutable_state():
 
     assert private_assignments == {"_runtime_container"}
     assert global_names == {"_runtime_container"}
+
+
+def test_runtime_container_instances_are_created_by_the_runtime_factory():
+    tree = _tree(APP / "runtime" / "composition.py")
+    direct_container_calls = [
+        node
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Name)
+        and node.func.id == "RuntimeContainer"
+    ]
+    factory_calls = [
+        node
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Name)
+        and node.func.id == "build_runtime_container"
+    ]
+
+    assert direct_container_calls == []
+    assert len(factory_calls) == 2
 
 
 def test_runtime_has_no_local_embedding_dependency():

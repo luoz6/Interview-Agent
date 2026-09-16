@@ -1,7 +1,7 @@
 from uuid import UUID
 
 from app.graphs.interview_state import choose_workflow_engine
-from app.services.report_jobs import choose_report_workflow_engine
+from app.adapters.persistence.postgres.report_job_store import choose_report_workflow_engine
 
 
 def _find_id(selector, expected: str, rollout_percent: int) -> str:

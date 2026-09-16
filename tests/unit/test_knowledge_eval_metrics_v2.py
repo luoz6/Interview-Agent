@@ -2,11 +2,11 @@ import math
 
 import pytest
 
-from app.services.knowledge_eval_dataset_v2 import (
+from app.domain.knowledge.eval_dataset_v2 import (
     KnowledgeRetrievalCaseV2,
     KnowledgeRetrievalDatasetV2,
 )
-from app.services.knowledge_eval_metrics_v2 import (
+from app.domain.knowledge.eval_metrics_v2 import (
     KnowledgeRetrievalObservationV2,
     RetrievedKnowledgeItemV2,
     calculate_knowledge_retrieval_metrics_v2,

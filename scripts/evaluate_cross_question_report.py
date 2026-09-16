@@ -9,7 +9,7 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from app.services.cross_question_report_diagnostics import (
+from app.evals.cross_question_report_diagnostics import (
     RM4B_COMPLETION_STATUS,
     build_rm4b_artifact,
     default_rm4b_fixture_path,

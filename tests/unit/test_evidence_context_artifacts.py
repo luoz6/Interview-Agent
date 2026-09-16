@@ -12,26 +12,26 @@ from app.domain.context.artifacts import (
     ContextCompressorConfig,
     EvidenceCompressionArtifact,
 )
-from app.services.context_budget import DynamicCompressionTargetPolicy
-from app.services.context_compression_gating import ContextCompressionGates
-from app.services.context_compression_intent import compression_intent_sha256
-from app.services.context_compression_eligibility import (
+from app.domain.context.budget import DynamicCompressionTargetPolicy
+from app.domain.context.compression_gating import ContextCompressionGates
+from app.domain.context.compression_intent import compression_intent_sha256
+from app.domain.context.compression_eligibility import (
     ContextCompressionEligibilityPolicy,
 )
-from app.services.context_selection import (
+from app.domain.context.selection import (
     ContextSelectionStats,
     InterviewContextSelection,
 )
-from app.services.context_source_identity import ContextSourceIdentityConfig
-from app.services.context_compression_runner import ContextCompressionRunner
-from app.services.evidence_context_artifacts import (
+from app.domain.context.source_identity import ContextSourceIdentityConfig
+from app.application.context.compression_runner import ContextCompressionRunner
+from app.runtime.evidence_context_artifacts import (
     EvidenceContextArtifactCoordinator,
 )
 from app.adapters.memory.context_artifacts import (
     InMemoryContextArtifactStore,
 )
-from app.services.llm import _build_followup_prompt
-from app.services.token_estimation import ConservativeUtf8TokenEstimator
+from app.adapters.providers.llm import _build_followup_prompt
+from app.domain.context.token_estimation import ConservativeUtf8TokenEstimator
 
 
 class ParentOwnership:

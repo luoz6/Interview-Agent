@@ -2,8 +2,8 @@ from __future__ import annotations
 
 """Unit coverage for local principal runtime composition."""
 
-import app.services.runtime as runtime
-from app.services.principal_identity import (
+import app.runtime.composition as runtime
+from app.adapters.memory.principal_identity import (
     ExplicitPrincipalIdentityResolver,
     NullPrincipalIdentityResolver,
 )
@@ -57,7 +57,7 @@ def test_runtime_builds_only_explicit_trusted_local_identity(monkeypatch):
 
 
 def test_runtime_identity_source_has_no_inference_inputs():
-    source = open("app/services/runtime.py", encoding="utf-8").read().casefold()
+    source = open("app/runtime/composition.py", encoding="utf-8").read().casefold()
     resolver_source = source.split("def get_principal_identity_resolver", 1)[1].split(
         "def get_principal_memory_consent_store", 1
     )[0]

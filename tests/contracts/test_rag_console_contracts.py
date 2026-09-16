@@ -27,7 +27,7 @@ from app.domain.knowledge.retrieval import (
     RetrievalRerankSummary,
 )
 from app.domain.knowledge.evidence_gate import RetrievalEvidenceGate
-from app.services.knowledge_eval_artifacts_v3 import (
+from app.application.knowledge.eval_artifacts_v3 import (
     build_retrieval_diagnostic_snapshot_v1,
 )
 from app.application.knowledge.diagnostic_models import EvidenceTraceResponse

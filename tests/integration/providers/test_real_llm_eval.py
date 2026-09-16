@@ -24,29 +24,31 @@ from app.graphs.durable_interview_graph import (
     build_durable_interview_graph_v3,
 )
 from app.graphs.durable_interview_state_v3 import make_durable_initial_state_v3
-from app.services.context_budget import MAIN_QUESTION_CONTEXT_POLICY
-from app.services.evaluator import build_fallback_report
-from app.services.interview_generation_store import GenerationAlreadyCompleted
-from app.services.interview_plan_revision import (
+from app.domain.context.budget import MAIN_QUESTION_CONTEXT_POLICY
+from app.application.report.evaluator import build_fallback_report
+from app.adapters.persistence.postgres.interview_generation_store import GenerationAlreadyCompleted
+from app.domain.interview.plan_revision import (
     InterviewPlanQuestionV2,
     InterviewPlanV2,
     InterviewPlanV3,
     default_plan_configuration,
     legacy_interview_knowledge_scope_snapshot,
     plan_payload_sha256,
-    v2_plan_to_legacy,
 )
-from app.services.llm import OpenAIInterviewLLM
-from app.services.main_question_generation import (
+from app.domain.interview.prep import v2_plan_to_legacy
+from app.adapters.providers.llm import OpenAIInterviewLLM
+from app.domain.interview.main_question_generation import (
     MAIN_QUESTION_ATTEMPT_TIMEOUT_SECONDS,
     MAIN_QUESTION_MAX_PROVIDER_INVOCATIONS,
     MAIN_QUESTION_TOTAL_TIMEOUT_SECONDS,
+)
+from app.domain.report.quality import collect_report_quality_issues
+from app.runtime.interview_prep import InterviewPlan, InterviewQuestion
+from app.runtime.config.main_question_generation import (
     load_main_question_generation_settings,
 )
-from app.services.report_quality import collect_report_quality_issues
-from app.services.prep import InterviewPlan, InterviewQuestion
-from app.services.session import InterviewSessionStore
-from app.services.session_plan_binding import (
+from app.adapters.memory.session_store import InterviewSessionStore
+from app.domain.interview.session_plan_binding import (
     SessionPlanBinding,
     legacy_session_plan_binding,
 )

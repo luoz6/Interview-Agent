@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from app.services.context_compression_gating import ContextCompressionGates
+from app.domain.context.compression_gating import ContextCompressionGates
 from app.runtime.config.compatibility import (
     get_context_compression_evidence_enabled,
     get_context_compression_interview_enabled,
@@ -11,6 +11,7 @@ from app.runtime.config.compatibility import (
     get_context_compression_shadow_enabled,
 )
 from app.runtime.config.memory import CompressionMemoryConfig
+from app.runtime.context_runtime import load_context_compression_gates
 
 
 @pytest.mark.parametrize(
@@ -170,4 +171,4 @@ def test_evidence_requires_workflow_and_independent_evidence_flag():
 def test_invalid_boolean_fails_closed(monkeypatch):
     monkeypatch.setenv("CONTEXT_COMPRESSION_REVIEW_ENABLED", "yes")
     with pytest.raises(ValueError, match="must be true or false"):
-        ContextCompressionGates.from_env()
+        load_context_compression_gates()

@@ -20,6 +20,17 @@ EXCLUDED_CURRENT_DOCUMENTS = frozenset(
 HISTORICAL_DOCUMENTS = frozenset(
     {
         ROOT / "docs" / "archive" / "development-history.md",
+        ROOT / "docs" / "context-compression-optimization-acceptance.md",
+        ROOT / "docs" / "interview-agent-memory-system-optimization-spec.md",
+        ROOT / "docs" / "long-term-memory-decision-packet.md",
+        ROOT / "docs" / "memory-operational-shadow-acceptance.md",
+        ROOT / "docs" / "memory-shadow-restore-drill.md",
+        ROOT / "docs" / "memory-shadow-security-review.md",
+        ROOT / "docs" / "principal-memory-data-use-decision-preflight.md",
+        ROOT / "docs" / "runbooks" / "knowledge-rocketmq-v4-preflight.md",
+        ROOT / "docs" / "stage-21-browser-e2e-acceptance.md",
+        ROOT / "docs" / "stage-41-local-v1-release-closure-plan.md",
+        ROOT / "docs" / "stage-42-knowledge-agent-2.0-plan.md",
     }
 )
 SCRIPT_MODULE_PATTERN = re.compile(

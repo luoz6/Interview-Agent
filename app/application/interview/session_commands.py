@@ -10,16 +10,16 @@ from app.domain.interview.commands import SessionCommand
 from app.domain.interview.errors import SessionDeletingError
 from app.domain.interview.models import InterviewTurn
 from app.domain.interview.state_machine import extract_follow_up, turn_from_state
-from app.graphs.interview_state import is_durable_interview_version
+from app.domain.interview.state import is_durable_interview_version
 from app.ports.runtime import (
     InterviewSessionRepository,
     ReportJobQueue,
     RuntimeEventPublisher,
 )
-from app.services.interview_rounds import round_closed_event_from_transition
-from app.services.prep import public_interview_plan_payload
-from app.services.report_enqueue import enqueue_report_if_needed
-from app.services.runtime_events import (
+from app.domain.interview.rounds import round_closed_event_from_transition
+from app.domain.interview.prep import public_interview_plan_payload
+from app.application.report.enqueue import enqueue_report_if_needed
+from app.application.interview.events import (
     AcceptedInterviewCommand,
     InterviewStreamChunkEvent,
     InterviewStreamDoneEvent,

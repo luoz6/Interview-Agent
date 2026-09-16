@@ -2,7 +2,7 @@ from pathlib import Path
 
 import pytest
 
-from app.services.followup_provider_preflight import (
+from app.evals.followup_provider_preflight import (
     DeepSeekDiscoverySnapshot,
     PRICING_SOURCE_URL,
     ProviderPrice,
@@ -10,8 +10,8 @@ from app.services.followup_provider_preflight import (
     evaluate_followup_provider_preflight,
     parse_deepseek_pricing_table,
 )
-from app.services.interview_quality_dataset import load_interview_quality_dataset
-from app.services.interview_quality_provider_authorization import (
+from app.evals.interview_quality_dataset import load_interview_quality_dataset
+from app.evals.interview_quality_provider_authorization import (
     load_provider_authorization,
 )
 

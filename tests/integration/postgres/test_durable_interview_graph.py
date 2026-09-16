@@ -14,19 +14,19 @@ from app.graphs.durable_interview_graph import (
     build_durable_interview_graph,
 )
 from app.graphs.durable_interview_state import make_durable_initial_state
-from app.services.interview_generation_store import (
+from app.adapters.persistence.postgres.interview_generation_store import (
     PostgresInterviewGenerationStore,
 )
-from app.services.followup_decision_service import (
+from app.application.interview.followup_decision import (
     FollowupDecisionExecutionService,
 )
-from app.services.postgres_decision_store import PostgresDecisionStore
-from app.services.interview_workflow_store import (
+from app.adapters.persistence.postgres.decision_store import PostgresDecisionStore
+from app.adapters.persistence.postgres.interview_workflow_store import (
     PostgresInterviewWorkflowStore,
 )
-from app.services.postgres_session import PostgresInterviewSessionStore
-from app.services.report import ReportGenerationFailed
-from app.services.report_jobs import PostgresReportJobStore
+from app.adapters.persistence.postgres.session_store import PostgresInterviewSessionStore
+from app.domain.report.models import ReportGenerationFailed
+from app.adapters.persistence.postgres.report_job_store import PostgresReportJobStore
 from tests.integration.postgres.test_postgres_session_store import require_dsn
 from tests.postgres_support import make_runtime_table_prefix
 from tests.unit.test_durable_interview_state import make_start_kwargs

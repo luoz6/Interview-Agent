@@ -5,13 +5,13 @@ from types import CodeType, SimpleNamespace
 
 import pytest
 
-import app.services.runtime as runtime
-from app.services.context_budget import DynamicCompressionTargetPolicy
-from app.services.context_compression_gating import ContextCompressionGates
-from app.services.context_runtime import ContextRuntimeConfig
-from app.services.context_source_identity import ContextSourceIdentityConfig
+import app.runtime.composition as runtime
+from app.domain.context.budget import DynamicCompressionTargetPolicy
+from app.domain.context.compression_gating import ContextCompressionGates
+from app.runtime.context_runtime import ContextRuntimeConfig
+from app.domain.context.source_identity import ContextSourceIdentityConfig
 from app.runtime.config.memory import load_effective_memory_config
-from app.services.model_capabilities import ContextConfigurationError
+from app.domain.context.model_capabilities import ContextConfigurationError
 
 
 class FakeControlStore:
@@ -258,7 +258,7 @@ def test_context_compressor_agent_preserves_runtime_and_fails_closed_on_conflict
     monkeypatch,
 ):
     import app.agents.context_compressor as agent_module
-    import app.services.context_compression as compression_module
+    import app.adapters.providers.context_compression as compression_module
 
     provider_calls = []
     agent_calls = []
@@ -396,7 +396,7 @@ def test_interview_then_review_reuses_business_llm_and_compressor_authority(
     monkeypatch,
 ):
     import app.agents.context_compressor as agent_module
-    import app.services.context_compression as compression_module
+    import app.adapters.providers.context_compression as compression_module
 
     llm_config_calls = []
     llm_init_calls = []
@@ -731,7 +731,7 @@ def test_interview_composition_uses_one_effective_snapshot_and_injects_selection
     monkeypatch.setattr(runtime, "get_question_memory_index_store", lambda: object())
     monkeypatch.setattr(runtime, "get_workflow_thread_lock", lambda: object())
     monkeypatch.setattr(
-        "app.services.context_runtime.get_context_runtime",
+        "app.runtime.context_runtime.get_context_runtime",
         get_context_runtime,
     )
     monkeypatch.setattr(
@@ -751,35 +751,35 @@ def test_interview_composition_uses_one_effective_snapshot_and_injects_selection
         lambda _deps, **_kwargs: "graph-v2",
     )
     monkeypatch.setattr(
-        "app.services.interview_workflow_store.PostgresInterviewWorkflowStore",
+        "app.adapters.persistence.postgres.interview_workflow_store.PostgresInterviewWorkflowStore",
         lambda **_kwargs: object(),
     )
     monkeypatch.setattr(
-        "app.services.interview_generation_store.PostgresInterviewGenerationStore",
+        "app.adapters.persistence.postgres.interview_generation_store.PostgresInterviewGenerationStore",
         lambda **_kwargs: object(),
     )
     monkeypatch.setattr(
-        "app.services.langgraph_runtime.VersionedGraphRegistry",
+        "app.runtime.langgraph_runtime.VersionedGraphRegistry",
         FakeRegistry,
     )
     monkeypatch.setattr(
-        "app.services.context_compression_eligibility.ContextCompressionEligibilityPolicy",
+        "app.domain.context.compression_eligibility.ContextCompressionEligibilityPolicy",
         FakeEligibilityPolicy,
     )
     monkeypatch.setattr(
-        "app.services.question_memory.QuestionMemoryCoordinator",
+        "app.runtime.question_memory.QuestionMemoryCoordinator",
         FakeQuestionMemoryCoordinator,
     )
     monkeypatch.setattr(
-        "app.services.interview_context_artifacts.InterviewContextArtifactCoordinator",
+        "app.application.interview.context_artifacts.InterviewContextArtifactCoordinator",
         FakeInterviewArtifactCoordinator,
     )
     monkeypatch.setattr(
-        "app.services.evidence_context_artifacts.EvidenceContextArtifactCoordinator",
+        "app.runtime.evidence_context_artifacts.EvidenceContextArtifactCoordinator",
         FakeEvidenceArtifactCoordinator,
     )
     monkeypatch.setattr(
-        "app.services.interview_workflow.InterviewWorkflowService",
+        "app.runtime.interview_workflow.InterviewWorkflowService",
         build_service,
     )
 
@@ -833,7 +833,7 @@ def test_interview_composition_uses_one_effective_snapshot_and_injects_selection
     assert principal_consume_calls[0][0] is snapshot
     assert len(dependency_calls) == 1
     assert dependency_calls[0]["context_runtime"] is context_runtime_marker
-    from app.services.followup_decision_service import (
+    from app.application.interview.followup_decision import (
         FollowupDecisionExecutionService,
     )
 
@@ -854,9 +854,10 @@ def test_interview_composition_uses_one_effective_snapshot_and_injects_selection
     assert question_memory_calls[0]["source_identity_config"] is (
         source_identity_config
     )
-    assert eligibility_calls == [
-        {"eligibility_utilization_basis_points": 4_321}
-    ]
+    assert len(eligibility_calls) == 1
+    assert eligibility_calls[0]["eligibility_utilization_basis_points"] == 4_321
+    assert callable(eligibility_calls[0]["metric_event_publisher"])
+    assert callable(eligibility_calls[0]["observation_publisher"])
     assert len(question_memory_calls) == 1
     assert question_memory_calls[0]["context_runtime"] is context_runtime_marker
     assert question_memory_calls[0]["task_intent_enabled"] is True
@@ -1083,7 +1084,7 @@ def test_review_composition_uses_one_effective_snapshot_for_gates_and_policy(
         get_compressor_agent,
     )
     monkeypatch.setattr(
-        "app.services.context_runtime.get_context_runtime",
+        "app.runtime.context_runtime.get_context_runtime",
         get_context_runtime,
     )
     monkeypatch.setattr(
@@ -1114,7 +1115,7 @@ def test_review_composition_uses_one_effective_snapshot_for_gates_and_policy(
         lambda: "langgraph-review-v1",
     )
     monkeypatch.setattr(
-        "app.services.review_workflow_store.PostgresReviewWorkflowStore",
+        "app.adapters.persistence.postgres.review_workflow_store.PostgresReviewWorkflowStore",
         lambda **_kwargs: object(),
     )
     monkeypatch.setattr(
@@ -1126,19 +1127,19 @@ def test_review_composition_uses_one_effective_snapshot_for_gates_and_policy(
         lambda _deps, **_kwargs: "review-graph",
     )
     monkeypatch.setattr(
-        "app.services.langgraph_runtime.VersionedGraphRegistry",
+        "app.runtime.langgraph_runtime.VersionedGraphRegistry",
         FakeRegistry,
     )
     monkeypatch.setattr(
-        "app.services.context_compression_eligibility.ContextCompressionEligibilityPolicy",
+        "app.domain.context.compression_eligibility.ContextCompressionEligibilityPolicy",
         FakeEligibilityPolicy,
     )
     monkeypatch.setattr(
-        "app.services.evidence_context_artifacts.EvidenceContextArtifactCoordinator",
+        "app.runtime.evidence_context_artifacts.EvidenceContextArtifactCoordinator",
         FakeEvidenceCoordinator,
     )
     monkeypatch.setattr(
-        "app.services.review_workflow.ReviewWorkflowService",
+        "app.runtime.review_workflow.ReviewWorkflowService",
         build_service,
     )
 
@@ -1181,9 +1182,10 @@ def test_review_composition_uses_one_effective_snapshot_for_gates_and_policy(
         }
     ]
     assert compressor_agent_calls[0]["model_config"] is snapshot.model
-    assert eligibility_calls == [
-        {"eligibility_utilization_basis_points": 3_456}
-    ]
+    assert len(eligibility_calls) == 1
+    assert eligibility_calls[0]["eligibility_utilization_basis_points"] == 3_456
+    assert callable(eligibility_calls[0]["metric_event_publisher"])
+    assert callable(eligibility_calls[0]["observation_publisher"])
     assert len(evidence_calls) == 1
     assert evidence_calls[0]["deployment_scope"] == "review-composition"
     assert evidence_calls[0]["context_runtime"] is context_runtime_marker

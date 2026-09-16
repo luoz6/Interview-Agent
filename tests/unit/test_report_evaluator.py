@@ -1,9 +1,9 @@
 import pytest
 
 from app.graphs.interview_state import build_initial_state
-from app.services.evaluator import ShadowEvaluator
-from app.services.prep import InterviewPlan, InterviewQuestion
-from app.services.report import (
+from app.application.report.evaluator import ShadowEvaluator
+from app.runtime.interview_prep import InterviewPlan, InterviewQuestion
+from app.domain.report.models import (
     DimensionScores,
     InterviewFeedback,
     InterviewReport,
@@ -11,7 +11,7 @@ from app.services.report import (
     ReportGenerationTimeout,
     ReportOutputFormatError,
 )
-from app.services.report_provider_adapter import normalize_provider_payload
+from app.adapters.providers.report_payload import normalize_provider_payload
 
 
 def make_plan() -> InterviewPlan:

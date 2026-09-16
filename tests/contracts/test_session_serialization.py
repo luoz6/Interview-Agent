@@ -23,7 +23,7 @@ from app.adapters.postgres.row_mappers import (
     UnsupportedRowSchemaVersionError,
 )
 from app.graphs.interview_state import build_initial_state
-from app.services.prep import (
+from app.runtime.interview_prep import (
     InterviewPlan,
     InterviewQuestion,
     KnowledgeBindingSnapshot,
@@ -33,7 +33,7 @@ from app.services.prep import (
     PrepQuestionHint,
     RoleProfile,
 )
-from app.services.report import (
+from app.domain.report.models import (
     DimensionScores,
     FeedbackReference,
     InterviewFeedback,
@@ -41,14 +41,12 @@ from app.services.report import (
     ReportProgress,
     ReportRecord,
 )
-from app.services.interview_plan_revision import (
-    build_interview_knowledge_scope_snapshot,
-    v2_plan_to_legacy,
-)
-from app.services.interview_plan_revision_store import (
+from app.domain.interview.plan_revision import build_interview_knowledge_scope_snapshot
+from app.domain.interview.prep import v2_plan_to_legacy
+from app.adapters.memory.plan_revision_store import (
     InMemoryInterviewPlanRevisionStore,
 )
-from app.services.session_plan_binding import session_plan_binding_from_revision
+from app.domain.interview.session_plan_binding import session_plan_binding_from_revision
 from tests.unit.test_interview_plan_revision import plan as revision_plan, source
 
 
@@ -514,8 +512,8 @@ def test_processing_report_record_round_trips_from_row():
 
 
 def test_question_feedback_serializes_rule_scoring_metadata():
-    from app.services.question_evaluations import question_evaluation_from_feedback
-    from app.services.report import (
+    from app.domain.report.question_evaluations import question_evaluation_from_feedback
+    from app.domain.report.models import (
         DimensionScores,
         FeedbackReference,
         InterviewFeedback,

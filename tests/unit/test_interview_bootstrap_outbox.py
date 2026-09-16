@@ -5,13 +5,13 @@ from types import SimpleNamespace
 
 import pytest
 
-import app.services.interview_workflow as workflow_module
+import app.runtime.interview_workflow as workflow_module
 from app.api.interview import routes as interview_routes
-from app.services.interview_workflow import InterviewWorkflowService
-from app.services.interview_workflow_consumer import InterviewWorkflowConsumer
-from app.services.interview_workflow_store import PostgresInterviewWorkflowStore
-from app.services.langgraph_runtime import VersionedGraphRegistry
-from app.services.runtime_domain_events import InterviewBootstrapReadyEvent
+from app.runtime.interview_workflow import InterviewWorkflowService
+from app.runtime.interview_workflow_consumer import InterviewWorkflowConsumer
+from app.adapters.persistence.postgres.interview_workflow_store import PostgresInterviewWorkflowStore
+from app.runtime.langgraph_runtime import VersionedGraphRegistry
+from app.domain.runtime_events import InterviewBootstrapReadyEvent
 
 
 class RecordingUnitOfWork:

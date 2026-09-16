@@ -2,8 +2,8 @@ import json
 from pathlib import Path
 
 from app.graphs.interview_state import build_initial_state
-from app.services.prep import InterviewPlan, InterviewQuestion
-from app.services.report import (
+from app.runtime.interview_prep import InterviewPlan, InterviewQuestion
+from app.domain.report.models import (
     DimensionScores,
     FeedbackReference,
     InterviewFeedback,

@@ -6,7 +6,7 @@ from app.adapters.postgres import session_repository as repositories
 from app.adapters.postgres.session_repository import PostgresSessionRepository
 from app.adapters.postgres.unit_of_work import PostgresUnitOfWork
 from app.domain.interview.errors import SessionVersionConflict
-from app.services.postgres_connections import DirectPsycopg2ConnectionProvider
+from app.adapters.postgres.connections import DirectPsycopg2ConnectionProvider
 
 
 SESSION_ROW = {

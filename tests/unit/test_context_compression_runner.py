@@ -20,16 +20,16 @@ from app.domain.context.artifacts import (
     ContextArtifactValidationFailed,
     ContextCompressionPolicy,
 )
-from app.services.context_compression_intent import (
+from app.domain.context.compression_intent import (
     CompressionIntent,
     compression_intent_sha256,
 )
-from app.services.context_budget import DynamicCompressionTargetPolicy
-from app.services.context_compression_request import (
+from app.domain.context.budget import DynamicCompressionTargetPolicy
+from app.domain.context.compression_request import (
     ResolvedCompressionRequest,
     bind_resolved_target_to_identity,
 )
-from app.services.context_compression_runner import (
+from app.application.context.compression_runner import (
     ContextArtifactHeartbeat,
     ContextCompressionRunner,
 )
@@ -767,10 +767,10 @@ def make_failure_containment(
     validation_quarantine_threshold=2,
 ):
     domain = import_module(
-        "app.services.context_compression_failure_containment"
+        "app.domain.context.failure_containment"
     )
     memory = import_module(
-        "app.services.in_memory_context_compression_failure_store"
+        "app.adapters.memory.context_compression_failure_store"
     )
     failure_store = memory.InMemoryContextCompressionFailureStore()
     containment = domain.ContextCompressionFailureContainment(
@@ -1610,7 +1610,7 @@ def test_permit_abort_clears_all_probes_without_incrementing_streak(
 def test_runner_publishes_bounded_created_reused_and_circuit_observations(
     monkeypatch,
 ):
-    from app.services import context_compression_runner as runner_module
+    import app.application.context.compression_runner as runner_module
 
     observations = []
     monkeypatch.setattr(
@@ -1703,7 +1703,7 @@ def test_unexportable_metric_scope_never_blocks_authoritative_compression():
 
 
 def test_runner_observation_uses_injected_monotonic_latency_bucket(monkeypatch):
-    from app.services import context_compression_runner as runner_module
+    import app.application.context.compression_runner as runner_module
 
     observations = []
     monotonic_values = iter((10.0, 10.2))

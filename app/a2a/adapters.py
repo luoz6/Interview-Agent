@@ -72,15 +72,21 @@ def register_reviewer_adapter(
     llm=None,
     vector_store=None,
     execution_runner=None,
+    user_document_store_getter=None,
 ) -> None:
     def handler(request: dict[str, Any], execution_context):
         from app.agents.shadow_reviewer import ShadowReviewerAgent
 
-        reviewer = ShadowReviewerAgent(
-            llm=llm,
-            vector_store=vector_store,
-            execution_runner=execution_runner,
-        )
+        reviewer_kwargs = {
+            "llm": llm,
+            "vector_store": vector_store,
+            "execution_runner": execution_runner,
+        }
+        if user_document_store_getter is not None:
+            reviewer_kwargs["user_document_store_getter"] = (
+                user_document_store_getter
+            )
+        reviewer = ShadowReviewerAgent(**reviewer_kwargs)
         report = reviewer.evaluate_attempt(
             request["state"],
             execution_context=execution_context,
@@ -124,11 +130,16 @@ def register_reviewer_adapter(
     def evaluate_interview_handler(request: dict[str, Any], execution_context):
         from app.agents.shadow_reviewer import ShadowReviewerAgent
 
-        reviewer = ShadowReviewerAgent(
-            llm=llm,
-            vector_store=vector_store,
-            execution_runner=execution_runner,
-        )
+        reviewer_kwargs = {
+            "llm": llm,
+            "vector_store": vector_store,
+            "execution_runner": execution_runner,
+        }
+        if user_document_store_getter is not None:
+            reviewer_kwargs["user_document_store_getter"] = (
+                user_document_store_getter
+            )
+        reviewer = ShadowReviewerAgent(**reviewer_kwargs)
         report = reviewer.evaluate_attempt(
             request["state"],
             execution_context=execution_context,
@@ -262,6 +273,7 @@ def register_default_a2a_adapters(
     llm=None,
     vector_store=None,
     execution_runner=None,
+    user_document_store_getter=None,
 ) -> None:
     register_examiner_adapter(
         server,
@@ -278,6 +290,7 @@ def register_default_a2a_adapters(
         llm=llm,
         vector_store=vector_store,
         execution_runner=execution_runner,
+        user_document_store_getter=user_document_store_getter,
     )
     register_report_coach_adapter(
         server,

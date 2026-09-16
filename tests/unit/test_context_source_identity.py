@@ -4,7 +4,7 @@ from dataclasses import replace
 
 import pytest
 
-from app.services.context_source_identity import (
+from app.domain.context.source_identity import (
     CONTEXT_SOURCE_IDENTITY_SCHEMA_VERSION,
     SOURCE_REPRESENTATION_IDENTITY_SCHEMA_VERSION,
     ConversationSourceIdentity,

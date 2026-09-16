@@ -2,13 +2,18 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
-from app.services.interview_workflow_consumer import (
+import app.runtime.interview_workflow_consumer as canonical_interview_consumer
+from app.runtime.interview_workflow_consumer import (
     InterviewWorkflowConsumer,
 )
-from app.services.runtime_domain_events import (
+from app.domain.runtime_events import (
     InterviewCommandReadyEvent,
     InterviewRetryDueEvent,
 )
+
+
+def test_workflow_consumer_compatibility_modules_preserve_identity():
+    assert InterviewWorkflowConsumer is canonical_interview_consumer.InterviewWorkflowConsumer
 
 
 class FakeGraph:

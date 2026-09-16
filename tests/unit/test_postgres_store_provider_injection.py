@@ -6,18 +6,18 @@ from app.adapters.postgres.store_schema_adapter import (
     PostgresRuntimeControlSchemaAdapter,
     PostgresSessionSchemaAdapter,
 )
-from app.services.interview_generation_store import PostgresInterviewGenerationStore
+from app.adapters.persistence.postgres.interview_generation_store import PostgresInterviewGenerationStore
 from app.adapters.postgres.context_artifacts import PostgresContextArtifactStore
-from app.services.postgres_question_memory_index import (
+from app.adapters.persistence.postgres.question_memory_index import (
     PostgresQuestionMemoryIndexStore,
 )
-from app.services.interview_workflow_store import PostgresInterviewWorkflowStore
-from app.services.postgres_identifiers import PostgresIdentifierInvalid
-from app.services.postgres_runtime_control import PostgresRuntimeControlStore
-from app.services.postgres_session import PostgresInterviewSessionStore
-from app.services.report_jobs import PostgresReportJobStore
-from app.services.review_workflow_store import PostgresReviewWorkflowStore
-from app.services.runtime_signal_metrics import PostgresRuntimeSignalStore
+from app.adapters.persistence.postgres.interview_workflow_store import PostgresInterviewWorkflowStore
+from app.adapters.postgres.identifiers import PostgresIdentifierInvalid
+from app.adapters.persistence.postgres.runtime_control import PostgresRuntimeControlStore
+from app.adapters.persistence.postgres.session_store import PostgresInterviewSessionStore
+from app.adapters.persistence.postgres.report_job_store import PostgresReportJobStore
+from app.adapters.persistence.postgres.review_workflow_store import PostgresReviewWorkflowStore
+from app.adapters.persistence.postgres.runtime_signal_metrics import PostgresRuntimeSignalStore
 
 
 class BorrowedProvider:

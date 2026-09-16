@@ -1,4 +1,4 @@
-from app.services import runtime
+import app.runtime.composition as runtime
 
 
 def setup_function():

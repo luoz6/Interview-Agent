@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 
 import pytest
 
-from app.services.runtime_signal_metrics import (
+from app.adapters.persistence.postgres.runtime_signal_metrics import (
     CANARY_SIGNAL_CODES,
     WORKFLOW_SIGNAL_TYPES,
     NoopRuntimeSignalStore,

@@ -8,15 +8,15 @@ from uuid import uuid4
 
 import pytest
 
-from app.services.interview_launch import InterviewLaunchCoordinator
-from app.services.postgres_draft_store import PostgresDraftStore
-from app.services.postgres_interview_launch_repository import (
+from app.runtime.interview_launch import InterviewLaunchCoordinator
+from app.adapters.persistence.postgres.draft_store import PostgresDraftStore
+from app.adapters.persistence.postgres.interview_launch_repository import (
     PostgresInterviewLaunchRepository,
 )
-from app.services.postgres_prep_plan_store import PostgresPrepPlanStore
-from app.services.postgres_session import PostgresInterviewSessionStore
-from app.services.prep_plans import PrepPlanError
-from app.services.prep_question_regeneration import PrepQuestionRegenerator
+from app.adapters.persistence.postgres.prep_plan_store import PostgresPrepPlanStore
+from app.adapters.persistence.postgres.session_store import PostgresInterviewSessionStore
+from app.domain.interview.prep_plans import PrepPlanError
+from app.application.interview.prep_question_regeneration import PrepQuestionRegenerator
 from tests.postgres_support import drop_runtime_tables
 from tests.interview_fixtures import sample_interview_plan
 from tests.interview_fixtures import interview_plan_with_context

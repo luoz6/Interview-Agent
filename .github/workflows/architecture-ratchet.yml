@@ -1,0 +1,26 @@
+name: Architecture Ratchet
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  architecture-ratchet:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install pytest
+        run: python -m pip install pytest
+
+      - name: Run architecture ratchet gates
+        run: >
+          python -m pytest
+          tests/architecture/test_dependency_ratchet.py
+          tests/architecture/test_services_freeze_gate.py
+          tests/architecture/test_scan_dependencies.py
+          -q

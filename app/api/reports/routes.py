@@ -10,20 +10,23 @@ from app.api.shared.errors import raise_value_error as _raise_value_error
 from app.api.shared.models import PracticePlanRequest, RescoreReportRequest
 from app.runtime.config import load_api_runtime_settings
 from app.runtime.config.compatibility import get_report_artifact_read_mode
-from app.services.postgres_connections import PostgresSchemaNotReady
-from app.services.knowledge_citations import (
+from app.adapters.postgres.connections import PostgresSchemaNotReady
+from app.application.report.knowledge_citations import (
     sanitize_report_knowledge_citations_for_read,
 )
-from app.services.practice_plans import PracticePlanError, PracticePlanService
-from app.services.report_artifact_store import (
+from app.application.interview.practice_plans import (
+    PracticePlanError,
+    PracticePlanService,
+)
+from app.ports.report_artifacts import (
     ReportArtifactConflict,
     ReportArtifactNotFound,
 )
-from app.services.report_pdf import build_report_pdf
-from app.services.report_reliability import ReportReliabilityProjector
-from app.services.report_view import compose_report_view
-from app.services.session import InterviewSessionStore
-from app.services.trace_sanitization import sanitize_agent_safe_metadata
+from app.adapters.report.pdf import build_report_pdf
+from app.domain.report.reliability import ReportReliabilityProjector
+from app.domain.report.view import compose_report_view
+from app.adapters.memory.session_store import InterviewSessionStore
+from app.domain.trace_sanitization import sanitize_agent_safe_metadata
 
 
 router = APIRouter()
@@ -725,7 +728,7 @@ def _report_artifact_pdf_response(
     session_state,
     user_document_store,
 ):
-    from app.services.report import InterviewReport
+    from app.domain.report.models import InterviewReport
 
     try:
         report = InterviewReport.model_validate(artifact.payload)

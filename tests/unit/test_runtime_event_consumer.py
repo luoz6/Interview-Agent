@@ -1,12 +1,13 @@
 """Unit tests for runtime round-review event consumption."""
 
-from app.services.report import (
+from app.domain.report.models import (
     DimensionScores,
     InterviewFeedback,
     InterviewReport,
 )
-from app.services.runtime_domain_events import RoundClosedEvent
-from app.services.runtime_event_consumer import consume_round_review_event
+from app.domain.runtime_events import RoundClosedEvent
+from app.runtime.agent_execution import AgentExecutionRunner
+from app.runtime.runtime_event_consumer import consume_round_review_event
 from tests.review_fixtures import round_review_state as make_state
 
 
@@ -150,6 +151,7 @@ def test_result_and_receipt_complete_atomically():
         llm=object(),
         vector_store=object(),
         reviewer_factory=CountingReviewerFactory(),
+        execution_runner=AgentExecutionRunner(),
     )
 
     assert outcome.status == "completed"

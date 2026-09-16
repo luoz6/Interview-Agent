@@ -9,12 +9,12 @@ from app.domain.context.artifacts import (
     ContextArtifactValidationFailed,
     ContextCompressionPolicy,
 )
-from app.services.context_compression_validation import (
+from app.domain.context.compression_validation import (
     validate_compression_artifact,
 )
-from app.services.context_compression_intent import CompressionIntent
-from app.services.context_budget import DynamicCompressionTargetPolicy
-from app.services.context_compression_request import ResolvedCompressionRequest
+from app.domain.context.compression_intent import CompressionIntent
+from app.domain.context.budget import DynamicCompressionTargetPolicy
+from app.domain.context.compression_request import ResolvedCompressionRequest
 
 
 class CharacterEstimator:

@@ -14,7 +14,7 @@ from app.domain.knowledge.user_document import (
     UserDocumentInternalStage,
     UserDocumentPublicStatus,
 )
-from app.services.interview_plan_revision import (
+from app.domain.interview.plan_revision import (
     InterviewPlanQuestionV2,
     InterviewPlanV2,
     PlanConfigurationSnapshot,

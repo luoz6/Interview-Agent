@@ -41,22 +41,23 @@ from app.api.shared.models import (
 from app.domain.interview.commands import SessionCommand
 from app.domain.interview.drafts import DraftWriteConflict
 from app.domain.interview.errors import SessionDeletingError, SessionVersionConflict
-from app.services.agent_runtime import correlation_id_from_plan
-from app.services.interview_launch import InterviewLaunchCoordinator
-from app.services.interview_knowledge_scope import InterviewKnowledgeScopeError
-from app.services.interview_plan_revision import InterviewPlanV3, v2_plan_to_legacy
-from app.services.interview_plan_revision_store import (
+from app.domain.agent_execution import correlation_id_from_plan
+from app.runtime.interview_launch import InterviewLaunchCoordinator
+from app.application.knowledge.scope import InterviewKnowledgeScopeError
+from app.domain.interview.plan_revision import InterviewPlanV3
+from app.ports.plan_revision_store import (
     PlanRevisionNotFound,
     PlanSourceUnavailable,
 )
-from app.services.job_tags import extract_job_tags
+from app.domain.knowledge.job_tags import extract_job_tags
 from app.ports.runtime import InterviewSessionRepository
-from app.services.prep_plans import PrepPlanError
-from app.services.session_plan_binding import (
+from app.domain.interview.prep_plans import PrepPlanError
+from app.domain.interview.prep import v2_plan_to_legacy
+from app.domain.interview.session_plan_binding import (
     session_plan_binding_from_revision,
     session_plan_binding_from_state,
 )
-from app.services.principal_memory_session_choice import (
+from app.application.interview.memory_session_choice import (
     PrincipalMemorySessionChoiceBinder,
     PrincipalMemorySessionChoiceConflict,
 )

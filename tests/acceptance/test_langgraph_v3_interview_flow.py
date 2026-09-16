@@ -18,12 +18,12 @@ from app.api.interview import routes as interview_routes
 from app.api.shared import dependencies
 from app.graphs.interview_state import build_v3_session_shell_state
 from app.main import app
-from app.services.event_publisher import NoopRuntimeEventPublisher
-from app.services.interview_plan_revision import PlanSourcePayload
-from app.services.interview_plan_revision_store import (
+from app.runtime.event_publisher import NoopRuntimeEventPublisher
+from app.domain.interview.plan_revision import PlanSourcePayload
+from app.adapters.memory.plan_revision_store import (
     InMemoryInterviewPlanRevisionStore,
 )
-from app.services.session import InterviewSessionStore
+from app.adapters.memory.session_store import InterviewSessionStore
 from tests.browser_v3_runtime import BrowserV3Harness
 
 

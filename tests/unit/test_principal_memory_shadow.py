@@ -1,4 +1,4 @@
-from app.services.principal_memory_shadow import (
+from app.runtime.principal_memory_shadow import (
     PrincipalMemoryShadowService, canonical_provider_context_digest,
 )
 from tests.principal_memory_fixtures import (
@@ -57,7 +57,7 @@ def test_disabled_shadow_service_is_content_free_zero_activity(monkeypatch):
             raise AssertionError("disabled mode must not retrieve facts")
 
     monkeypatch.setattr(
-        "app.services.principal_memory_shadow.publish_principal_read_shadow_metric",
+        "app.runtime.principal_memory_shadow.publish_principal_read_shadow_metric",
         lambda **kwargs: (_ for _ in ()).throw(
             AssertionError("disabled mode must not publish a metric")
         ),

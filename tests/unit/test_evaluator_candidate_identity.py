@@ -4,7 +4,7 @@ import json
 from pathlib import Path
 import subprocess
 
-from app.services.evaluator_candidate_identity import (
+from app.evals.evaluator_candidate_identity import (
     EVALUATOR_CANDIDATE_IDENTITY_VERSION,
     capture_evaluator_candidate_identity,
 )

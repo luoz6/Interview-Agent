@@ -15,50 +15,50 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from app.services.llm import (
+from app.adapters.providers.llm import (
     LLMConfig,
     OpenAIInterviewLLM,
     REPORT_EVIDENCE_PROMPT_SHA256,
     REPORT_EVIDENCE_PROMPT_VERSION,
 )
-from app.services.evaluator_candidate_identity import (
+from app.evals.evaluator_candidate_identity import (
     capture_evaluator_candidate_identity,
 )
-from app.services.provider_usage import (
+from app.runtime.provider_usage import (
     consume_provider_context_metadata,
     reset_provider_context_metadata,
 )
-from app.services.report import ReportOutputFormatError
-from app.services.interview_quality_provider_authorization import (
+from app.domain.report.models import ReportOutputFormatError
+from app.evals.interview_quality_provider_authorization import (
     ProviderRunRequest,
     load_provider_authorization,
     validate_provider_run,
 )
-from app.services.report_eval_artifacts import (
+from app.evals.report_eval_artifacts import (
     EvaluationArtifactStore,
     EvaluationRunLockUnavailable,
     resolve_evaluation_run_dir,
 )
-from app.services.report_eval_case_builder import build_report_evaluation_input
-from app.services.report_eval_dataset import EvaluationDataset, load_evaluation_dataset
-from app.services.report_eval_metrics import (
+from app.evals.report_eval_case_builder import build_report_evaluation_input
+from app.evals.report_eval_dataset import EvaluationDataset, load_evaluation_dataset
+from app.evals.report_eval_metrics import (
     AttemptResult,
     calculate_metrics,
     classify_forbidden_claims,
 )
-from app.services.interview_quality_gate import (
+from app.evals.interview_quality_gate import (
     DEFAULT_GATE_CONFIG_PATH,
     gate_config_sha256,
     load_gate_config,
 )
-from app.services.report_eval_runner import EvaluationRunner
-from app.services.report_rule_score import (
+from app.evals.report_eval_runner import EvaluationRunner
+from app.domain.report.scoring import (
     REPORT_SCORING_RUBRIC_SHA256,
     REPORT_SCORING_RUBRIC_VERSION,
 )
-from app.services.report_trace import ReportTraceRecorder
-from app.services.report_answer_guidance import REPORT_ANSWER_GUIDANCE_VERSION
-from app.services.report_summary import (
+from app.adapters.observability.report_trace import ReportTraceRecorder
+from app.domain.report.answer_guidance import REPORT_ANSWER_GUIDANCE_VERSION
+from app.domain.report.summary import (
     REPORT_SUMMARY_PROMPT_SHA256,
     REPORT_SUMMARY_PROMPT_VERSION,
 )

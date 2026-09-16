@@ -8,10 +8,10 @@ import re
 
 import pytest
 
-import app.services.postgres_runtime_migrations as migrations
-import app.services.postgres_schema_contract as schema_contract
-from app.services.postgres_connections import PostgresSchemaNotReady
-from app.services.postgres_schema import validate_relations
+import app.adapters.persistence.postgres.runtime_migrations as migrations
+import app.adapters.postgres.schema_contract as schema_contract
+from app.adapters.postgres.connections import PostgresSchemaNotReady
+from app.adapters.postgres.schema import validate_relations
 
 
 _V1_TO_V26_MIGRATION_IDS = (

@@ -1,15 +1,15 @@
 import pytest
 
 from app.graphs.interview_state import build_initial_state
-from app.services.agent_runtime import AgentExecutionRunner
-from app.services.prep import KnowledgeBindingSnapshot, PrepContext
-from app.services.question_evaluations import QuestionEvaluationRecord
-from app.services.report import (
+from app.runtime.agent_execution import AgentExecutionRunner
+from app.runtime.interview_prep import KnowledgeBindingSnapshot, PrepContext
+from app.domain.report.question_evaluations import QuestionEvaluationRecord
+from app.domain.report.models import (
     FeedbackReference,
     InterviewReport,
     ReportGenerationTimeout,
 )
-from app.services.report_microbatch import (
+from app.runtime.report_microbatch import (
     MicrobatchReportUnavailable,
     build_report_coach_items_from_question_evaluations,
     ensure_completed_question_evaluations_for_report,
@@ -350,7 +350,7 @@ def test_ensure_completed_question_evaluations_logs_unknown_answer_state(caplog)
     store = FakeStore(state, [completed_record("s1", "q1", 78)])
     FakeReviewer.calls = []
 
-    import app.services.report_microbatch as report_microbatch
+    import app.runtime.report_microbatch as report_microbatch
 
     original_build_chunks = report_microbatch.build_evaluation_chunks
 

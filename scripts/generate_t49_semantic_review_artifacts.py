@@ -7,13 +7,13 @@ from typing import Any
 
 from pydantic import BaseModel
 
-from app.services.report_semantic_dataset import (
+from app.evals.report_semantic_dataset import (
     append_semantic_review_evidence,
     empty_semantic_review_evidence_ledger,
     load_t49_semantic_dataset_manifest,
     validate_t49_semantic_dataset,
 )
-from app.services.report_semantic_review import (
+from app.evals.report_semantic_review import (
     build_blinded_review_artifacts,
     canonical_sha256,
     disabled_offline_judge_config,

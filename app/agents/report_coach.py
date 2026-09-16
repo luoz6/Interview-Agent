@@ -1,9 +1,10 @@
 from uuid import uuid4
 
-from app.services.agent_runtime import AgentExecutionContext, AgentExecutionRunner
-from app.services.llm import InterviewLLM
-from app.services.report import InterviewReport
-from app.services.report_answer_guidance import apply_report_answer_guidance
+from app.domain.agent_execution import AgentExecutionContext
+from app.runtime.agent_execution import AgentExecutionRunner
+from app.ports.llm import InterviewLLM
+from app.domain.report.models import InterviewReport
+from app.domain.report.answer_guidance import apply_report_answer_guidance
 
 
 class ReportCoachAgent:
@@ -102,6 +103,6 @@ class ReportCoachAgent:
 
     @staticmethod
     def _default_llm() -> InterviewLLM:
-        from app.services.llm import OpenAIInterviewLLM
+        from app.adapters.providers.llm import OpenAIInterviewLLM
 
         return OpenAIInterviewLLM()

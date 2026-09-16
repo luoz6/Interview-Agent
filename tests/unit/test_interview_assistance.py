@@ -1,8 +1,8 @@
 """Unit tests for deterministic interview assistance projection."""
 
 from app.agents.examiner import fallback_followup
-from app.services.prep import InterviewPlan, InterviewQuestion
-from app.services.session import InterviewSessionStore
+from app.runtime.interview_prep import InterviewPlan, InterviewQuestion
+from app.adapters.memory.session_store import InterviewSessionStore
 
 
 class NoopLLM:

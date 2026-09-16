@@ -3,7 +3,7 @@ import json
 import re
 from pathlib import Path
 
-from app.services.trace_sanitization import (
+from app.domain.trace_sanitization import (
     AGENT_SAFE_METADATA_BLOCKED_KEY_PARTS,
     AGENT_TRACE_BLOCKED_KEYS,
     is_blocked_trace_key,

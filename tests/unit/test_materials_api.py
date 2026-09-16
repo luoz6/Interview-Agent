@@ -22,10 +22,10 @@ from app.application.materials.service import UserDocumentService
 from app.domain.knowledge.user_document import UserDocumentPublicStatus
 from app.main import app
 from app.runtime.config.models import UserMaterialsRuntimeSettings
-from app.services import runtime
-from app.services.embedding_providers import EmbeddingProviderError
-from app.services.postgres_connections import PostgresSchemaNotReady
-from app.services.principal_identity import (
+import app.runtime.composition as runtime
+from app.adapters.providers.embedding_providers import EmbeddingProviderError
+from app.adapters.postgres.connections import PostgresSchemaNotReady
+from app.adapters.memory.principal_identity import (
     ExplicitPrincipalIdentityResolver,
     NullPrincipalIdentityResolver,
 )

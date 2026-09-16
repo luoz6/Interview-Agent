@@ -2,7 +2,7 @@
 
 from datetime import datetime, timezone
 
-from app.services.question_memory_retrieval import rank_question_memory_entries
+from app.domain.memory.question_retrieval import rank_question_memory_entries
 from tests.contracts.test_question_memory_index_contracts import make_entry
 
 

@@ -20,7 +20,7 @@ from app.ports.postgres_scope import (
     PostgresPermissionDenied,
     PostgresTargetMismatch,
 )
-from app.services.postgres_connections import DirectPsycopg2ConnectionProvider
+from app.adapters.postgres.connections import DirectPsycopg2ConnectionProvider
 from contracts.evidence import EvidenceRegistry, EvidenceVerifier, HmacReceiptSigner
 from scripts import stage43b_recovery_acceptance as stage43b
 from scripts.postgres_acceptance_support import load_postgres_scope_approval

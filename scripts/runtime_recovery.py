@@ -6,11 +6,11 @@ from app.runtime.config.compatibility import (
     get_postgres_dsn,
     get_runtime_table_prefix,
 )
-from app.services.postgres_runtime_control import (
+from app.adapters.persistence.postgres.runtime_control import (
     PostgresRuntimeControlStore,
 )
-from app.services.postgres_session import PostgresInterviewSessionStore
-from app.services.report_jobs import PostgresReportJobStore
+from app.adapters.persistence.postgres.session_store import PostgresInterviewSessionStore
+from app.adapters.persistence.postgres.report_job_store import PostgresReportJobStore
 
 
 def build_parser() -> argparse.ArgumentParser:

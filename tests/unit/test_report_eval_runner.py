@@ -3,9 +3,9 @@ from types import SimpleNamespace
 
 import pytest
 
-from app.services.report_eval_artifacts import EvaluationArtifactStore
-from app.services.report_eval_dataset import load_evaluation_dataset
-from app.services.report_eval_runner import EvaluationRunner
+from app.evals.report_eval_artifacts import EvaluationArtifactStore
+from app.evals.report_eval_dataset import load_evaluation_dataset
+from app.evals.report_eval_runner import EvaluationRunner
 
 
 class FakeEvaluator:

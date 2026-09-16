@@ -1,6 +1,6 @@
 from types import SimpleNamespace
 
-from app.services.context_budget import DynamicCompressionTargetPolicy
+from app.domain.context.budget import DynamicCompressionTargetPolicy
 from app.adapters.memory.context_artifacts import (
     InMemoryContextArtifactStore,
 )

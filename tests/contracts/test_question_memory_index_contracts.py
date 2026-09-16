@@ -7,10 +7,10 @@ import pytest
 from pydantic import ValidationError
 
 from app.ports.question_memory import QuestionMemoryIndexStore
-from app.services.in_memory_question_memory_index import (
+from app.adapters.memory.question_memory_index import (
     InMemoryQuestionMemoryIndexStore,
 )
-from app.services.question_memory_index import QuestionMemoryIndexEntry
+from app.domain.memory.question_index import QuestionMemoryIndexEntry
 
 
 def make_entry(**changes):

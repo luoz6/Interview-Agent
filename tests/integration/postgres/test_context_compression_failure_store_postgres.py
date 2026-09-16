@@ -8,8 +8,8 @@ from threading import Barrier, Thread
 
 import pytest
 
-from app.services.postgres_connections import PostgresSchemaNotReady
-from app.services.postgres_schema_contract import (
+from app.adapters.postgres.connections import PostgresSchemaNotReady
+from app.adapters.postgres.schema_contract import (
     required_check_tokens_for_relation,
     required_columns_for_relation,
     required_index_tokens_for_relation,
@@ -59,7 +59,9 @@ QUARANTINE_ONLY_COLUMNS = {
 
 
 def _store_module():
-    return import_module("app.services.context_compression_failure_store")
+    return import_module(
+        "app.adapters.persistence.postgres.context_compression_failure_store"
+    )
 
 
 def _require_task8_postgres_dsn():
@@ -165,7 +167,7 @@ class CountingPostgresProvider:
 
 def _valid_row(*, kind="provider_circuit", state="closed"):
     domain = import_module(
-        "app.services.context_compression_failure_containment"
+        "app.domain.context.failure_containment"
     )
     if kind == "provider_circuit":
         scope = domain.build_provider_circuit_scope(
@@ -230,7 +232,7 @@ def _valid_row(*, kind="provider_circuit", state="closed"):
 
 def decode_failure_state_record(row):
     domain = import_module(
-        "app.services.context_compression_failure_containment"
+        "app.domain.context.failure_containment"
     )
     return domain.FailureStateRecord.from_mapping(row)
 
@@ -404,7 +406,7 @@ def test_cleanup_uses_one_explicit_application_clock_for_live_probe_filter():
 def test_postgres_half_open_claim_has_one_winner_and_stale_fencing_fails():
     dsn = _require_task8_postgres_dsn()
     module = _store_module()
-    domain = import_module("app.services.context_compression_failure_containment")
+    domain = import_module("app.domain.context.failure_containment")
     prefix = make_runtime_table_prefix("failure")
     try:
         store = module.PostgresContextCompressionFailureStore(
@@ -481,7 +483,7 @@ def test_postgres_probe_reset_rejects_each_stale_cas_dimension(
 ):
     dsn = _require_task8_postgres_dsn()
     module = _store_module()
-    domain = import_module("app.services.context_compression_failure_containment")
+    domain = import_module("app.domain.context.failure_containment")
     prefix = make_runtime_table_prefix("failure")
     try:
         store = module.PostgresContextCompressionFailureStore(
@@ -550,7 +552,7 @@ def test_postgres_probe_reset_rejects_each_stale_cas_dimension(
 def test_postgres_dual_key_authorize_and_finish_each_use_one_sorted_transaction():
     dsn = _require_task8_postgres_dsn()
     module = _store_module()
-    domain = import_module("app.services.context_compression_failure_containment")
+    domain = import_module("app.domain.context.failure_containment")
     prefix = make_runtime_table_prefix("failure")
     provider = CountingPostgresProvider(dsn)
     try:
@@ -623,7 +625,7 @@ def test_postgres_dual_key_authorize_and_finish_each_use_one_sorted_transaction(
 def test_postgres_dual_authorize_releases_probe_when_other_scope_is_blocked():
     dsn = _require_task8_postgres_dsn()
     module = _store_module()
-    domain = import_module("app.services.context_compression_failure_containment")
+    domain = import_module("app.domain.context.failure_containment")
     prefix = make_runtime_table_prefix("failure")
     try:
         store = module.PostgresContextCompressionFailureStore(
@@ -708,7 +710,7 @@ def test_postgres_dual_authorize_releases_probe_when_other_scope_is_blocked():
 def test_postgres_combined_validation_failure_rolls_back_second_row_fault():
     dsn = _require_task8_postgres_dsn()
     module = _store_module()
-    domain = import_module("app.services.context_compression_failure_containment")
+    domain = import_module("app.domain.context.failure_containment")
     prefix = make_runtime_table_prefix("failure")
     recording = None
     try:
@@ -818,7 +820,7 @@ def test_postgres_combined_validation_failure_rolls_back_second_row_fault():
 def test_expired_unreclaimed_probe_rejects_stale_success():
     dsn = _require_task8_postgres_dsn()
     module = _store_module()
-    domain = import_module("app.services.context_compression_failure_containment")
+    domain = import_module("app.domain.context.failure_containment")
     prefix = make_runtime_table_prefix("failure")
     try:
         store = module.PostgresContextCompressionFailureStore(
@@ -867,7 +869,7 @@ def test_expired_unreclaimed_probe_rejects_stale_success():
 def test_postgres_owner_delete_and_retention_preserve_live_probe():
     dsn = _require_task8_postgres_dsn()
     module = _store_module()
-    domain = import_module("app.services.context_compression_failure_containment")
+    domain = import_module("app.domain.context.failure_containment")
     prefix = make_runtime_table_prefix("failure")
     try:
         store = module.PostgresContextCompressionFailureStore(

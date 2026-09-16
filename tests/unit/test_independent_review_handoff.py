@@ -10,7 +10,7 @@ from pydantic import ValidationError
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
-from app.services.independent_review_handoff import (
+from app.evals.independent_review_handoff import (
     ATTESTATION_SCHEMA_VERSION,
     DETACHED_SIGNATURE_SCHEMA_VERSION,
     FREEZE_AUTHORIZATION_SCHEMA_VERSION,
@@ -414,7 +414,7 @@ def test_each_source_component_is_checked_for_reparse_points(
     tmp_path, monkeypatch
 ):
     workspace, sources = _workspace(tmp_path)
-    import app.services.independent_review_handoff as handoff
+    import app.evals.independent_review_handoff as handoff
 
     original = handoff._has_reparse_point
 

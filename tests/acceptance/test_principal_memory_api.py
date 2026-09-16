@@ -3,18 +3,20 @@ import pytest
 
 from app.main import app
 from app.adapters.memory.principal_memory import InMemoryPrincipalMemoryFactStore
-from app.services.in_memory_principal_memory_consent import (
+from app.adapters.memory.principal_memory_consent import (
     InMemoryPrincipalMemoryConsentStore,
 )
-from app.services.in_memory_principal_memory_control import (
+from app.adapters.memory.principal_memory_control import (
     InMemoryPrincipalMemoryControlStore,
 )
-from app.services.principal_memory_rights import (
+from app.adapters.memory.principal_memory_rights import (
     InMemoryPrincipalMemoryDeletionTombstoneStore,
     InMemoryPrincipalMemoryExportStore,
 )
-from app.services.principal_memory_safe_refs import InMemoryPrincipalMemorySafeRefStore
-from app.services.principal_identity import ExplicitPrincipalIdentityResolver
+from app.adapters.memory.principal_memory_safe_refs import (
+    InMemoryPrincipalMemorySafeRefStore,
+)
+from app.adapters.memory.principal_identity import ExplicitPrincipalIdentityResolver
 from app.domain.memory.contracts import (
     PrincipalMemoryFact,
     canonical_principal_fact,
@@ -367,7 +369,7 @@ def test_memory_center_api_full_local_workflow_and_forbidden_fields(monkeypatch)
             assert receipt == {"ledger_event_count": 1}
 
     monkeypatch.setattr(
-        "app.services.runtime.get_principal_memory_durable_ledger",
+        "app.runtime.composition.get_principal_memory_durable_ledger",
         lambda: DurableLedger(),
     )
     monkeypatch.setattr("app.api.memory.routes.get_session_store", lambda: Sessions())

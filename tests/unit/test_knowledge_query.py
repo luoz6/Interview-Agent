@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from app.services.knowledge_profile import build_role_profile
-from app.services.knowledge_query import build_knowledge_queries
+from app.domain.knowledge.profile import build_role_profile
+from app.domain.knowledge.query import build_knowledge_queries
 
 
 def test_build_queries_is_deterministic_and_has_stable_unique_ids():

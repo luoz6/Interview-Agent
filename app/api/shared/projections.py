@@ -1,6 +1,6 @@
-from app.services.interview_plan_budget import assess_interview_plan_budget
-from app.services.interview_plan_revision import v2_plan_to_legacy
-from app.services.prep import (
+from app.domain.interview.plan_budget import assess_interview_plan_budget
+from app.domain.interview.prep import (
+    v2_plan_to_legacy,
     public_interview_plan_payload,
     public_interview_plan_v2_payload,
 )

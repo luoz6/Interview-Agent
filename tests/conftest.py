@@ -9,7 +9,7 @@ from app.adapters.postgres.owned_scope import (
     OwnedPostgresScope,
     Psycopg2OwnedScopeBackend,
 )
-from app.services.postgres_connections import DirectPsycopg2ConnectionProvider
+from app.adapters.postgres.connections import DirectPsycopg2ConnectionProvider
 from tests.postgres_support import (
     make_runtime_table_prefix,
     require_postgres_dsn,

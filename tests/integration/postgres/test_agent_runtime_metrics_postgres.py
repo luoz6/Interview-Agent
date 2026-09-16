@@ -8,18 +8,18 @@ import os
 
 import pytest
 
-from app.services.agent_recorders import (
+from app.runtime.agent_recorders import (
     CompositeAgentRunRecorder,
     PostgresAgentRunRecorder,
 )
-from app.services.agent_runtime import (
+from app.runtime.agent_execution import (
     AgentExecutionContext,
     AgentExecutionRunner,
     AgentRunRecord,
 )
-from app.services.agent_trace import AgentTraceRecorder
-from app.services.postgres_runtime_control import PostgresRuntimeControlStore
-from app.services.postgres_session import PostgresInterviewSessionStore
+from app.adapters.observability.agent_trace import AgentTraceRecorder
+from app.adapters.persistence.postgres.runtime_control import PostgresRuntimeControlStore
+from app.adapters.persistence.postgres.session_store import PostgresInterviewSessionStore
 from tests.postgres_support import make_runtime_table_prefix
 from tests.integration.postgres.test_runtime_signal_metrics_postgres import (
     _drop_prefix,

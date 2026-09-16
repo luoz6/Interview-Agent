@@ -128,8 +128,8 @@ class RuntimeKnowledgeRepository:
             return resolved
         if self._session_store_factory is None:
             raise RuntimeError("session-scoped knowledge retrieval is unavailable")
-        from app.services.interview_plan_revision import InterviewPlanV2
-        from app.services.session_plan_binding import session_plan_binding_from_state
+        from app.domain.interview.plan_revision import InterviewPlanV2
+        from app.domain.interview.session_plan_binding import session_plan_binding_from_state
 
         state = self._session_store_factory().get(session_id)
         binding = session_plan_binding_from_state(state)

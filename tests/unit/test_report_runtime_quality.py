@@ -1,5 +1,5 @@
-from app.services.report import DimensionScores, InterviewFeedback, InterviewReport
-from app.services.report_runtime_quality import (
+from app.domain.report.models import DimensionScores, InterviewFeedback, InterviewReport
+from app.domain.report.runtime_quality import (
     RuntimeReportQualityResult,
     evaluate_runtime_report_quality,
 )

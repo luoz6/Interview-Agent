@@ -8,8 +8,8 @@ from uuid import uuid4
 import pytest
 from pydantic import ValidationError
 
-import app.services.interview_plan_budget as budget_module
-from app.services.interview_plan_budget import (
+import app.domain.interview.plan_budget as budget_module
+from app.domain.interview.plan_budget import (
     INTERVIEW_PLAN_BUDGET_CANONICAL_SHA256,
     INTERVIEW_PLAN_BUDGET_VERSION,
     INTERVIEW_PLAN_ESTIMATE_FORMULA_VERSION,
@@ -22,13 +22,13 @@ from app.services.interview_plan_budget import (
     estimate_plan_duration,
     validate_duration_budget_policy,
 )
-from app.services.interview_plan_revision import (
+from app.domain.interview.plan_revision import (
     InterviewPlanQuestionV2,
     InterviewPlanV2,
     PlanConfigurationSnapshot,
     legacy_plan_to_v2,
 )
-from app.services.prep import (
+from app.runtime.interview_prep import (
     InterviewPlan,
     InterviewQuestion,
     fallback_interview_plan,

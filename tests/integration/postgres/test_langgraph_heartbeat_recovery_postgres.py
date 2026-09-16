@@ -7,18 +7,18 @@ from threading import Event
 import pytest
 
 from app.graphs.durable_interview_graph import GenerationLeaseHeartbeat
-from app.services.interview_generation_store import (
+from app.adapters.persistence.postgres.interview_generation_store import (
     PostgresInterviewGenerationStore,
 )
-from app.services.postgres_session import PostgresInterviewSessionStore
-from app.services.report_jobs import PostgresReportJobStore
-from app.services.review_execution import bind_review_execution_lease
-from app.services.review_workflow import ReportLeaseHeartbeat
-from app.services.review_workflow_store import (
+from app.adapters.persistence.postgres.session_store import PostgresInterviewSessionStore
+from app.adapters.persistence.postgres.report_job_store import PostgresReportJobStore
+from app.domain.report.review_execution import bind_review_execution_lease
+from app.runtime.review_workflow import ReportLeaseHeartbeat
+from app.adapters.persistence.postgres.review_workflow_store import (
     PostgresReviewWorkflowStore,
     ReviewEffectHeartbeat,
 )
-from app.services.workflow_thread_lock import (
+from app.domain.workflow_thread_lock import (
     FencedWriteRejected,
     GenerationLeaseLost,
     ReportLeaseLost,

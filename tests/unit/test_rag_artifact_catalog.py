@@ -10,7 +10,7 @@ from app.application.knowledge.diagnostics_service import (
     RagArtifactCatalog,
     RagDiagnosticsService,
 )
-from app.services.knowledge_eval_artifacts_v3 import (
+from app.application.knowledge.eval_artifacts_v3 import (
     KnowledgeEvalArtifactV3,
     KnowledgeEvalPairedArtifactV3,
     RetrievalDiagnosticSnapshotV1,
@@ -18,6 +18,7 @@ from app.services.knowledge_eval_artifacts_v3 import (
     load_eval_artifact_v3,
     write_frozen_eval_artifact,
 )
+from app.runtime.config import load_knowledge_runtime_settings
 
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
@@ -287,6 +288,7 @@ def test_live_diagnostic_rejects_saturation_before_repository_call():
     service = RagDiagnosticsService(
         repository=RetrievalMustNotRun(),
         capacity_guard=guard,
+        knowledge_settings_loader=load_knowledge_runtime_settings,
     )
     from app.application.knowledge.diagnostic_models import RetrievalInspectionRequest
 

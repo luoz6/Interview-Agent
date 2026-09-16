@@ -8,21 +8,21 @@ import pytest
 
 from app.runtime.config.memory import load_effective_memory_config
 from app.adapters.postgres.principal_memory import PostgresPrincipalMemoryFactStore
-from app.services.postgres_principal_memory_consent import (
+from app.adapters.persistence.postgres.principal_memory_consent import (
     PostgresPrincipalMemoryConsentStore,
 )
-from app.services.postgres_principal_memory_control import (
+from app.adapters.persistence.postgres.principal_memory_control import (
     PostgresPrincipalMemoryControlStore,
 )
-from app.services.principal_identity import ExplicitPrincipalIdentityResolver
-from app.services.principal_memory_consent import (
+from app.adapters.memory.principal_identity import ExplicitPrincipalIdentityResolver
+from app.application.memory.consent import (
     PrincipalMemoryConsent,
     PrincipalMemoryConsentService,
 )
-from app.services.principal_memory_consume import PrincipalMemoryLocalConsumeService
-from app.services.principal_memory_control import PrincipalMemoryControlService
+from app.application.memory.consume import PrincipalMemoryLocalConsumeService
+from app.application.memory.control import PrincipalMemoryControlService
 from app.domain.memory.contracts import canonical_principal_fact
-from app.services.principal_memory_lifecycle import PrincipalMemoryLifecycleService
+from app.application.memory.lifecycle import PrincipalMemoryLifecycleService
 from tests.postgres_support import assert_safe_test_prefix
 
 

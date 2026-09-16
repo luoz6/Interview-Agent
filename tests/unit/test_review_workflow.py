@@ -3,9 +3,9 @@ import pytest
 from threading import Event
 
 from app.graphs.durable_review_graph import DurableReviewGraphDependencies, build_durable_review_graph
-from app.services.langgraph_runtime import VersionedGraphRegistry
-from app.services.review_workflow import ReviewWorkflowService
-from app.services.review_workflow import (
+from app.runtime.langgraph_runtime import VersionedGraphRegistry
+from app.runtime.review_workflow import ReviewWorkflowService
+from app.runtime.review_workflow import (
     ReportLeaseHeartbeat,
     ReportLeaseLost,
 )

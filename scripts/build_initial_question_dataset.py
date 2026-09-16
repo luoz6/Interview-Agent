@@ -10,7 +10,7 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from app.services.interview_quality_dataset import (
+from app.evals.interview_quality_dataset import (
     InterviewQualityCase,
     expected_case_hashes,
     load_interview_quality_dataset,

@@ -3,15 +3,15 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 
 from app.adapters.memory.principal_memory import InMemoryPrincipalMemoryFactStore
-from app.services.in_memory_principal_memory_consent import (
+from app.adapters.memory.principal_memory_consent import (
     InMemoryPrincipalMemoryConsentStore,
 )
-from app.services.in_memory_principal_memory_control import (
+from app.adapters.memory.principal_memory_control import (
     InMemoryPrincipalMemoryControlStore,
 )
 from app.runtime.config.memory import load_effective_memory_config
-from app.services.principal_identity import ExplicitPrincipalIdentityResolver
-from app.services.principal_memory_consent import (
+from app.adapters.memory.principal_identity import ExplicitPrincipalIdentityResolver
+from app.application.memory.consent import (
     PrincipalMemoryConsent,
     PrincipalMemoryConsentService,
 )
@@ -20,10 +20,10 @@ from app.domain.memory.contracts import (
     canonical_principal_fact,
     derive_principal_fact_id,
 )
-from app.services.principal_memory_control import PrincipalMemoryControlService
-from app.services.principal_memory_proposals import build_proposal_event_if_eligible
-from app.services.principal_memory_retrieval import PrincipalMemoryRetriever
-from app.services.principal_memory_shadow import (
+from app.application.memory.control import PrincipalMemoryControlService
+from app.application.memory.proposals import build_proposal_event_if_eligible
+from app.application.memory.retrieval import PrincipalMemoryRetriever
+from app.runtime.principal_memory_shadow import (
     PrincipalMemoryShadowService,
     canonical_provider_context_digest,
 )

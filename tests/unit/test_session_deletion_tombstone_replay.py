@@ -5,19 +5,19 @@ import pytest
 from app.adapters.memory.context_artifacts import (
     InMemoryContextArtifactStore,
 )
-from app.services.in_memory_question_memory_index import (
+from app.adapters.memory.question_memory_index import (
     InMemoryQuestionMemoryIndexStore,
 )
-from app.services.session_deletion import (
-    InMemorySessionDeletionJobStore,
-    SessionDeletionService,
-)
-from app.services.session_deletion_tombstones import (
+from app.adapters.memory.session_deletion import InMemorySessionDeletionJobStore
+from app.application.interview.session_deletion import SessionDeletionService
+from app.adapters.memory.session_deletion_tombstones import (
     InMemorySessionDeletionTombstoneStore,
+)
+from app.domain.interview.session_deletion_tombstones import (
     build_tombstone,
     validate_tombstone_integrity,
 )
-from app.services.session_deletion_worker import SessionDeletionWorker
+from app.runtime.session_deletion_worker import SessionDeletionWorker
 from scripts.replay_session_deletion_tombstones import (
     load_tombstones,
     replay_tombstones,

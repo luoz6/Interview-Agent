@@ -7,9 +7,9 @@ from fastapi.responses import JSONResponse
 
 from app.api.router import router
 from app.runtime.config import load_api_runtime_settings
-from app.services.runtime import shutdown_runtime, start_runtime
-from app.services.prep_plans import PrepPlanError
-from app.services.postgres_connections import PostgresConnectionError
+from app.runtime.composition import shutdown_runtime, start_runtime
+from app.domain.interview.prep_plans import PrepPlanError
+from app.adapters.postgres.connections import PostgresConnectionError
 
 
 @asynccontextmanager

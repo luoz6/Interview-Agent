@@ -22,8 +22,8 @@ from app.domain.knowledge.user_document import (
     UserDocumentPublicStatus,
     UserDocumentRevision,
 )
-from app.services.postgres_connections import PostgresSchemaNotReady
-from app.services.postgres_schema_contract import (
+from app.adapters.postgres.connections import PostgresSchemaNotReady
+from app.adapters.postgres.schema_contract import (
     LATEST_RUNTIME_MIGRATION,
     RUNTIME_MIGRATIONS,
     required_check_tokens_for_relation,

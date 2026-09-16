@@ -12,11 +12,11 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from app.services.knowledge_eval_dataset_v2 import (
+from app.domain.knowledge.eval_dataset_v2 import (
     KnowledgeRetrievalDatasetV2,
     load_knowledge_retrieval_dataset_v2,
 )
-from app.services.knowledge_eval_metrics_v2 import (
+from app.domain.knowledge.eval_metrics_v2 import (
     KnowledgeRetrievalObservationV2,
     RetrievedKnowledgeItemV2,
     calculate_knowledge_retrieval_metrics_v2,

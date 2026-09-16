@@ -7,22 +7,22 @@ from types import SimpleNamespace
 import pytest
 
 import scripts.evaluate_initial_question_quality as cli
-from app.services.followup_provider_preflight import (
+from app.evals.followup_provider_preflight import (
     DeepSeekDiscoverySnapshot,
     ProviderPrice,
 )
-from app.services.evaluator_candidate_identity import (
+from app.evals.evaluator_candidate_identity import (
     EVALUATOR_CANDIDATE_IDENTITY_VERSION,
 )
-from app.services.initial_question_eval import build_synthetic_initial_question_attempts
-from app.services.llm import (
+from app.evals.initial_question_eval import build_synthetic_initial_question_attempts
+from app.adapters.providers.llm import (
     PLAN_GENERATION_PROMPT_SHA256,
     PLAN_GENERATION_PROMPT_VERSION,
     PLAN_QUALITY_REPAIR_PROMPT_SHA256,
     PLAN_QUALITY_REPAIR_PROMPT_VERSION,
 )
-from app.services.interview_plan_revision import v2_plan_to_legacy
-from app.services.t65_provider_evidence import build_t65_usage_cost_ledger
+from app.domain.interview.prep import v2_plan_to_legacy
+from app.evals.t65_provider_evidence import build_t65_usage_cost_ledger
 
 
 def no_repair_lifecycle_metadata() -> dict[str, object]:

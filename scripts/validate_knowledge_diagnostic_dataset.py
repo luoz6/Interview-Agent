@@ -11,8 +11,8 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from app.services.knowledge_eval_artifacts_v3 import canonical_sha256
-from app.services.knowledge_eval_dataset_v3 import (
+from app.application.knowledge.eval_artifacts_v3 import canonical_sha256
+from app.domain.knowledge.eval_dataset_v3 import (
     CaseType,
     load_knowledge_retrieval_dataset_v3,
 )

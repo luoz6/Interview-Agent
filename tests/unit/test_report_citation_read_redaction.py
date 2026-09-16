@@ -20,27 +20,27 @@ from app.domain.knowledge.user_document import (
 )
 from app.graphs.interview_state import build_initial_state
 from app.main import app
-from app.services.interview_plan_revision import (
+from app.domain.interview.plan_revision import (
     InterviewPlanQuestionV2,
     InterviewPlanV2,
     build_interview_knowledge_scope_snapshot,
     default_plan_configuration,
     plan_payload_sha256,
-    v2_plan_to_legacy,
 )
-from app.services.knowledge_citations import (
+from app.domain.interview.prep import v2_plan_to_legacy
+from app.application.report.knowledge_citations import (
     project_safe_knowledge_citations,
     sanitize_report_knowledge_citations_for_read,
 )
-from app.services.report import (
+from app.domain.report.models import (
     DimensionScores,
     InterviewFeedback,
     InterviewReport,
     ReportRecord,
 )
-from app.services.report_artifact import PublishReportArtifact
-from app.services.report_artifact_store import InMemoryReportArtifactStore
-from app.services.session_plan_binding import SessionPlanBinding
+from app.domain.report.artifact import PublishReportArtifact
+from app.adapters.memory.report_artifact_store import InMemoryReportArtifactStore
+from app.domain.interview.session_plan_binding import SessionPlanBinding
 
 
 NOW = datetime(2026, 8, 15, 12, 0, tzinfo=timezone.utc)

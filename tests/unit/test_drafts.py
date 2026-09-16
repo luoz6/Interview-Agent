@@ -2,8 +2,11 @@ import pytest
 from datetime import datetime, timedelta, timezone
 
 from app.domain.interview.drafts import DraftWriteConflict
-from app.services.in_memory_draft_store import InMemoryDraftStore
-from app.services.interview_plan_revision import PlanSourcePayload, source_payload_sha256
+from app.adapters.memory.draft_store import InMemoryDraftStore
+from app.domain.interview.plan_revision import (
+    PlanSourcePayload,
+    source_payload_sha256,
+)
 
 
 def test_save_draft_creates_id_timestamps_and_tags():

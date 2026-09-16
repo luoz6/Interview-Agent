@@ -13,25 +13,25 @@ from app.domain.context.artifacts import (
     ContextCompressorConfig,
     QuestionConversationArtifact,
 )
-from app.services.context_budget import DynamicCompressionTargetPolicy
-from app.services.context_compression_eligibility import (
+from app.domain.context.budget import DynamicCompressionTargetPolicy
+from app.domain.context.compression_eligibility import (
     ContextCompressionEligibilityPolicy,
 )
-from app.services.context_compression_gating import ContextCompressionGates
-from app.services.context_compression_intent import compression_intent_sha256
-from app.services.context_compression_request import (
+from app.domain.context.compression_gating import ContextCompressionGates
+from app.domain.context.compression_intent import compression_intent_sha256
+from app.domain.context.compression_request import (
     bind_resolved_target_to_identity,
 )
-from app.services.context_selection import (
+from app.domain.context.selection import (
     ContextSelectionStats,
     InterviewContextSelection,
 )
-from app.services.context_source_identity import ContextSourceIdentityConfig
-from app.services.interview_context_artifacts import (
+from app.domain.context.source_identity import ContextSourceIdentityConfig
+from app.application.interview.context_artifacts import (
     InterviewContextArtifactCoordinator,
 )
-from app.services.token_estimation import ConservativeUtf8TokenEstimator
-from app.services.workflow_thread_lock import GenerationLeaseLost
+from app.domain.context.token_estimation import ConservativeUtf8TokenEstimator
+from app.domain.workflow_thread_lock import GenerationLeaseLost
 
 
 class ParentOwnership:

@@ -1,12 +1,13 @@
 from __future__ import annotations
 
-from app.services.agent_runtime import AgentExecutionContext, AgentExecutionRunner
+from app.domain.agent_execution import AgentExecutionContext
+from app.runtime.agent_execution import AgentExecutionRunner
 from app.domain.context.artifacts import (
     CompressionSourceSegment,
     ContextCompressionPolicy,
 )
-from app.services.context_compression import OpenAIContextCompressor
-from app.services.context_compression_request import ResolvedCompressionRequest
+from app.adapters.providers.context_compression import OpenAIContextCompressor
+from app.domain.context.compression_request import ResolvedCompressionRequest
 
 
 class ContextCompressorAgent:

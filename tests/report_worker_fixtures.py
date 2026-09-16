@@ -1,6 +1,6 @@
 """Shared deterministic fixtures for report worker tests."""
 
-from app.services.report import (
+from app.domain.report.models import (
     DimensionScores,
     InterviewFeedback,
     InterviewReport,

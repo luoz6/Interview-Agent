@@ -105,8 +105,8 @@ def test_only_the_two_scoped_materials_postgres_adapters_are_implemented():
 def test_materials_schema_is_not_wired_into_global_runtime_or_rag_migration():
     helper_module = "app.adapters.postgres.user_materials_schema"
     for relative_path in (
-        "services/runtime.py",
-        "services/postgres_runtime_migrations.py",
+        "runtime/composition.py",
+        "adapters/persistence/postgres/runtime_migrations.py",
         "adapters/postgres/migration_harness.py",
         "runtime/config/loader.py",
     ):

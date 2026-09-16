@@ -3,12 +3,12 @@ from __future__ import annotations
 from threading import Event, Thread
 from importlib import import_module
 
-from app.services.context_compression_runner import ContextCompressionRunner
+from app.application.context.compression_runner import ContextCompressionRunner
 from app.adapters.memory.context_artifacts import (
     InMemoryContextArtifactStore,
 )
 
-from app.services.in_memory_question_memory_index import (
+from app.adapters.memory.question_memory_index import (
     InMemoryQuestionMemoryIndexStore,
 )
 from tests.question_memory_fixtures import (
@@ -163,10 +163,10 @@ class InvalidPayloadAgent(CompressorAgent):
 
 def _guarded_coordinator(agent, *, failure_store=None):
     domain = import_module(
-        "app.services.context_compression_failure_containment"
+        "app.domain.context.failure_containment"
     )
     memory = import_module(
-        "app.services.in_memory_context_compression_failure_store"
+        "app.adapters.memory.context_compression_failure_store"
     )
     failure_store = failure_store or (
         memory.InMemoryContextCompressionFailureStore()

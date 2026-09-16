@@ -1,6 +1,6 @@
 """Shared deterministic fixtures for agent runtime tests."""
 
-from app.services.agent_runtime import AgentRunRecord
+from app.runtime.agent_execution import AgentRunRecord
 
 
 def make_record(

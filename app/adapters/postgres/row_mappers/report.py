@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from app.adapters.postgres.row_mappers.errors import require_supported_row_version
-from app.services.report import InterviewReport, ReportProgress, ReportRecord
+from app.domain.report.models import InterviewReport, ReportProgress, ReportRecord
 
 
 REPORT_ROW_SCHEMA_VERSION = "report-row-v1"

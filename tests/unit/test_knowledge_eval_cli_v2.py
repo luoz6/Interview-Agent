@@ -1,7 +1,7 @@
 import json
 
 from app.ports.runtime import KnowledgeLookupResult
-from app.services.knowledge_eval_dataset_v2 import (
+from app.domain.knowledge.eval_dataset_v2 import (
     KnowledgeRetrievalCaseV2,
     KnowledgeRetrievalDatasetV2,
 )

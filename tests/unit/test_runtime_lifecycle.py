@@ -1,7 +1,8 @@
 """Unit tests for runtime start, shutdown, and reset ordering."""
 
-import app.services.runtime as runtime
+import app.runtime.composition as runtime
 import pytest
+from app.runtime.lifecycle import RuntimeStarter, start_runtime_resources
 
 
 class FakeService:
@@ -14,6 +15,25 @@ class FakeService:
 
     def shutdown(self, *, wait=True):
         self.shutdowns.append(wait)
+
+
+def test_start_runtime_resources_skips_missing_and_preserves_order():
+    events = []
+
+    class Resource:
+        def __init__(self, name):
+            self.name = name
+
+    start_runtime_resources(
+        {"second": Resource("second"), "first": Resource("first")},
+        (
+            RuntimeStarter("first", lambda resource: events.append(resource.name)),
+            RuntimeStarter("missing", lambda resource: events.append("missing")),
+            RuntimeStarter("second", lambda resource: events.append(resource.name)),
+        ),
+    )
+
+    assert events == ["first", "second"]
 
 
 def test_start_runtime_starts_postgres_local_dispatcher(monkeypatch):

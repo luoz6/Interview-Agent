@@ -5,18 +5,18 @@ from datetime import datetime, timedelta, timezone
 import pytest
 
 from app.ports.principal_memory_control import PrincipalMemoryControlStore
-from app.services.in_memory_principal_memory_consent import (
+from app.adapters.memory.principal_memory_consent import (
     InMemoryPrincipalMemoryConsentStore,
 )
-from app.services.in_memory_principal_memory_control import (
+from app.adapters.memory.principal_memory_control import (
     InMemoryPrincipalMemoryControlStore,
 )
-from app.services.principal_identity import ExplicitPrincipalIdentityResolver
-from app.services.principal_memory_consent import (
+from app.adapters.memory.principal_identity import ExplicitPrincipalIdentityResolver
+from app.application.memory.consent import (
     PrincipalMemoryConsent,
     PrincipalMemoryConsentService,
 )
-from app.services.principal_memory_control import (
+from app.application.memory.control import (
     PrincipalMemoryControlConflict,
     PrincipalMemoryControlService,
 )

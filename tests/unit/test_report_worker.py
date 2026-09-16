@@ -4,13 +4,13 @@ import logging
 from threading import Event
 from types import SimpleNamespace
 
-from app.services.report import (
+from app.domain.report.models import (
     ReportGenerationFailed,
     ReportGenerationTimeout,
     ReportQualityFailed,
 )
-from app.services.report_worker import run_one_job
-from app.services.workflow_thread_lock import ReportLeaseLost
+from app.runtime.report_worker import run_one_job
+from app.domain.workflow_thread_lock import ReportLeaseLost
 from tests.report_worker_fixtures import make_report
 
 
@@ -297,7 +297,7 @@ def test_durable_effect_lease_loss_outcome_records_one_fenced_incident():
 
 def test_run_one_job_repairs_orphan_before_claiming(monkeypatch):
     monkeypatch.setattr(
-        "app.services.report_worker.execute_report_generation",
+        "app.runtime.report_worker.execute_report_generation",
         lambda **kwargs: make_report(kwargs["session_id"]),
     )
 
@@ -324,7 +324,7 @@ def test_run_one_job_repairs_orphan_before_claiming(monkeypatch):
 
 def test_run_one_job_marks_completed_when_execution_succeeds(monkeypatch):
     monkeypatch.setattr(
-        "app.services.report_worker.execute_report_generation",
+        "app.runtime.report_worker.execute_report_generation",
         lambda **kwargs: make_report(kwargs["session_id"]),
     )
     job_store = FakeJobStore(claimed_job={"job_id": "job-1", "session_id": "s1"})
@@ -380,7 +380,7 @@ def test_legacy_report_job_publishes_heartbeat_while_execution_is_active(
         return make_report(kwargs["session_id"])
 
     monkeypatch.setattr(
-        "app.services.report_worker.execute_report_generation",
+        "app.runtime.report_worker.execute_report_generation",
         complete_after_heartbeat,
     )
 
@@ -432,7 +432,7 @@ def test_legacy_report_job_does_not_commit_terminal_state_after_lease_loss(
         return make_report(kwargs["session_id"])
 
     monkeypatch.setattr(
-        "app.services.report_worker.execute_report_generation",
+        "app.runtime.report_worker.execute_report_generation",
         finish_after_lease_loss,
     )
 
@@ -456,7 +456,7 @@ def test_run_one_job_logs_when_completion_uses_fallback_report(monkeypatch, capl
         return report
 
     monkeypatch.setattr(
-        "app.services.report_worker.execute_report_generation",
+        "app.runtime.report_worker.execute_report_generation",
         complete_with_fallback,
     )
     job_store = FakeJobStore(claimed_job={"job_id": "job-1", "session_id": "s1"})
@@ -476,7 +476,7 @@ def test_run_one_job_marks_retryable_failure_for_timeout(monkeypatch):
     def raise_timeout(**kwargs):
         raise ReportGenerationTimeout("report generation timed out")
 
-    monkeypatch.setattr("app.services.report_worker.execute_report_generation", raise_timeout)
+    monkeypatch.setattr("app.runtime.report_worker.execute_report_generation", raise_timeout)
     job_store = FakeJobStore(claimed_job={"job_id": "job-1", "session_id": "s1"})
     store = FakeStore()
 
@@ -498,7 +498,7 @@ def test_run_one_job_marks_retryable_failure_for_pgvector_unavailable(monkeypatc
         raise ReportGenerationFailed("pgvector knowledge store is unavailable")
 
     monkeypatch.setattr(
-        "app.services.report_worker.execute_report_generation",
+        "app.runtime.report_worker.execute_report_generation",
         raise_retrieval_error,
     )
     job_store = FakeJobStore(claimed_job={"job_id": "job-1", "session_id": "s1"})
@@ -522,7 +522,7 @@ def test_run_one_job_marks_terminal_failure_for_non_retryable_report_error(monke
         raise ReportGenerationFailed("interview is not finished")
 
     monkeypatch.setattr(
-        "app.services.report_worker.execute_report_generation",
+        "app.runtime.report_worker.execute_report_generation",
         raise_terminal_error,
     )
     job_store = FakeJobStore(claimed_job={"job_id": "job-1", "session_id": "s1"})
@@ -548,7 +548,7 @@ def test_run_one_job_marks_terminal_failure_for_runtime_quality_failure(monkeypa
         )
 
     monkeypatch.setattr(
-        "app.services.report_worker.execute_report_generation",
+        "app.runtime.report_worker.execute_report_generation",
         raise_quality_failure,
     )
     job_store = FakeJobStore(claimed_job={"job_id": "job-1", "session_id": "s1"})

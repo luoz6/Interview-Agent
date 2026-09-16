@@ -4,7 +4,7 @@ from types import TracebackType
 from typing import Any
 
 from app.ports.unit_of_work import UnitOfWorkPort
-from app.services.postgres_connections import ConnectionProvider
+from app.adapters.postgres.connections import ConnectionProvider
 
 
 class _RollbackOnlyExit(RuntimeError):

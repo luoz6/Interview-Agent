@@ -9,14 +9,14 @@ import app.api.shared.dependencies as api_dependencies
 import app.application.interview.interview_start as interview_start_module
 from app.api.shared.dependencies import get_session_store
 from app.main import app
-from app.services.in_memory_draft_store import InMemoryDraftStore
-from app.services.in_memory_prep_plan_store import InMemoryPrepPlanStore
-from app.services.event_publisher import NoopRuntimeEventPublisher
-from app.services.interview_plan_revision_store import (
+from app.adapters.memory.draft_store import InMemoryDraftStore
+from app.adapters.memory.prep_plan_store import InMemoryPrepPlanStore
+from app.runtime.event_publisher import NoopRuntimeEventPublisher
+from app.adapters.memory.plan_revision_store import (
     InMemoryInterviewPlanRevisionStore,
 )
-from app.services.interview_plan_revision import legacy_plan_to_v2
-from app.services.prep import (
+from app.domain.interview.plan_revision import legacy_plan_to_v2
+from app.runtime.interview_prep import (
     fallback_interview_plan,
     InterviewPlan,
     InterviewQuestion,
@@ -26,11 +26,11 @@ from app.services.prep import (
     PrepQuestionHint,
     prepare_interview as prepare_interview_service,
 )
-from app.services.question_evaluations import question_evaluation_from_feedback
-from app.services.report import DimensionScores, InterviewFeedback, InterviewReport
-from app.services.runtime import get_draft_store
-from app.services.runtime_events import AcceptedInterviewCommand
-from app.services.session import InterviewSessionStore
+from app.domain.report.question_evaluations import question_evaluation_from_feedback
+from app.domain.report.models import DimensionScores, InterviewFeedback, InterviewReport
+from app.runtime.composition import get_draft_store
+from app.application.interview.events import AcceptedInterviewCommand
+from app.adapters.memory.session_store import InterviewSessionStore
 
 
 class FakeApiLLM:

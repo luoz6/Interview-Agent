@@ -5,11 +5,11 @@ from datetime import datetime, timezone
 
 import pytest
 
-from app.services.postgres_connections import PostgresSchemaNotReady
-from app.services.postgres_principal_memory_ledger import (
+from app.adapters.postgres.connections import PostgresSchemaNotReady
+from app.adapters.persistence.postgres.principal_memory_ledger import (
     PostgresPrincipalMemoryLedgerWatermarkStore,
 )
-from app.services.principal_memory_ledger import GENESIS_HEAD_SHA256
+from app.adapters.memory.principal_memory_ledger import GENESIS_HEAD_SHA256
 from tests.postgres_support import assert_safe_test_prefix
 
 

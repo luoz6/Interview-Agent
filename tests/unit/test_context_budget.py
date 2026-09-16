@@ -2,20 +2,20 @@ from __future__ import annotations
 
 import pytest
 
-from app.services.context_budget import (
+from app.domain.context.budget import (
     ContextBudgetExceeded,
     ContextBudgetResolver,
     ContextSelectionBudget,
     FOLLOWUP_CONTEXT_POLICY,
     OperationContextPolicy,
     RenderedPromptGuard,
-    context_enforcement_enabled,
 )
-from app.services.model_capabilities import (
+from app.runtime.context_runtime import context_enforcement_enabled
+from app.domain.context.model_capabilities import (
     ContextConfigurationError,
     ModelCapabilityRegistry,
 )
-from app.services.token_estimation import (
+from app.domain.context.token_estimation import (
     ConservativeUtf8TokenEstimator,
     TokenEstimatorResolution,
 )
@@ -216,7 +216,7 @@ def test_context_enforcement_defaults_off_and_is_operation_specific(monkeypatch)
 
 
 def dynamic_target_api():
-    from app.services.context_budget import (
+    from app.domain.context.budget import (
         DynamicCompressionTargetPolicy,
         allocate_dynamic_compression_target,
     )

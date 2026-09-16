@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from app.services.interview_quality_dataset import (
+from app.evals.interview_quality_dataset import (
     InitialQuestionCaseInput,
     InterviewQualityDataset,
     load_interview_quality_dataset,

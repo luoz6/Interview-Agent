@@ -1,8 +1,8 @@
 import pytest
 
-from app.services.llm import OpenAIInterviewLLM
+from app.adapters.providers.llm import OpenAIInterviewLLM
 from app.agents.examiner import ExaminerAgent
-from app.services.principal_memory_sink_policy import (
+from app.domain.memory.sink_policy import (
     ASSISTANCE_CONTEXT_KIND,
     ASSISTANCE_LABEL,
     ASSISTANCE_WARNING,

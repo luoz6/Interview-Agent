@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from app.services.synthetic_session_diagnostics import (
+from app.evals.synthetic_session_diagnostics import (
     RM5_COMPLETION_STATUS,
     RM5_FAILURE_STATUS,
     build_rm5_artifact,

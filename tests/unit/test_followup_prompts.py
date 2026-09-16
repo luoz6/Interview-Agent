@@ -6,27 +6,29 @@ from types import SimpleNamespace
 
 import pytest
 
-import app.services.followup_prompts as followup_prompts
+import app.domain.interview.followup_prompts as followup_prompts
 
-from app.services.context_budget import FOLLOWUP_CONTEXT_POLICY
-from app.services.decision_store import DecisionContract
-from app.services.followup_prompts import (
+from app.domain.context.budget import FOLLOWUP_CONTEXT_POLICY
+from app.domain.interview.decision_store import DecisionContract
+from app.domain.interview.followup_prompts import (
     FOLLOWUP_DECISION_PROMPT_SHA256,
     FOLLOWUP_DECISION_PROMPT_VERSION,
     FOLLOWUP_GENERATION_PROMPT_SHA256,
     FOLLOWUP_GENERATION_PROMPT_VERSION,
-    StructuredFollowupDecisionProvider,
-    StructuredFollowupGenerationProvider,
-    StructuredFollowupOutputError,
-    build_followup_decision_provider,
-    build_followup_decision_provider_for_llm,
     generation_context_for_decision,
     generation_context_for_target,
     render_followup_decision_prompt,
     render_followup_generation_prompt,
     resolve_followup_decision_output_mode,
 )
-from app.services.provider_usage import (
+from app.adapters.providers.followup_prompts import (
+    StructuredFollowupDecisionProvider,
+    StructuredFollowupGenerationProvider,
+    StructuredFollowupOutputError,
+    build_followup_decision_provider,
+    build_followup_decision_provider_for_llm,
+)
+from app.runtime.provider_usage import (
     consume_provider_context_metadata,
     reset_provider_context_metadata,
 )

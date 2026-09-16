@@ -20,7 +20,7 @@ from app.application.knowledge import (
 )
 from app.application.knowledge.retrieval_profiles import compatibility_profile
 from app.domain.knowledge.retrieval import ResolvedRetrievalProfile
-from app.services.knowledge_eval_artifacts_v3 import (
+from app.application.knowledge.eval_artifacts_v3 import (
     build_engine_identity_v3,
     canonical_sha256,
     compare_knowledge_eval_artifacts_v3,
@@ -29,7 +29,7 @@ from app.services.knowledge_eval_artifacts_v3 import (
     write_frozen_eval_artifact,
     write_retrieval_diagnostic_snapshots_v1,
 )
-from app.services.knowledge_eval_dataset_v3 import (
+from app.domain.knowledge.eval_dataset_v3 import (
     DEFAULT_DATASET_V3_PATH,
     load_knowledge_retrieval_dataset_v3,
 )

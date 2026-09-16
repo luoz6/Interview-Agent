@@ -1,0 +1,30 @@
+{
+  "generated_by": "tools/architecture/scan_violation_baseline.py",
+  "source_artifacts": [
+    "artifacts/architecture/dependency-edges.json",
+    "artifacts/architecture/infrastructure-imports.json"
+  ],
+  "counting_rule": "violations are unique source_module -> target_module pairs; edge_count is the raw import edge count for that pair",
+  "rules": {
+    "DOMAIN_MUST_NOT_IMPORT_APPLICATION": 0,
+    "DOMAIN_MUST_NOT_IMPORT_ADAPTERS": 0,
+    "DOMAIN_MUST_NOT_IMPORT_RUNTIME": 0,
+    "DOMAIN_MUST_NOT_IMPORT_SERVICES": 0,
+    "APPLICATION_MUST_NOT_IMPORT_ADAPTERS": 0,
+    "APPLICATION_MUST_NOT_IMPORT_RUNTIME": 0,
+    "APPLICATION_MUST_NOT_IMPORT_SERVICES": 0,
+    "PORTS_MUST_NOT_IMPORT_ADAPTERS": 0,
+    "PORTS_MUST_NOT_IMPORT_RUNTIME": 0,
+    "PORTS_MUST_NOT_IMPORT_SERVICES": 0
+  },
+  "violations": [],
+  "infrastructure_import_reference": {
+    "infrastructure_match_count": 229,
+    "classification_counts": {
+      "合法技术依赖": 229,
+      "潜在违规": 0,
+      "明确违规": 0,
+      "暂时无法判断": 0
+    }
+  }
+}

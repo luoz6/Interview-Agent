@@ -1,7 +1,7 @@
 import ast
 from pathlib import Path
 
-from app.services.agent_runtime import AgentExecutionContext
+from app.runtime.agent_execution import AgentExecutionContext
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -40,12 +40,12 @@ def test_agent_modules_do_not_import_runtime_composition_root():
         tree = ast.parse(path.read_text(encoding="utf-8"))
         for node in ast.walk(tree):
             if isinstance(node, ast.ImportFrom) and node.module == (
-                "app.services.runtime"
+                "app.runtime.composition"
             ):
                 violations.append(path.name)
             if isinstance(node, ast.Import):
                 for alias in node.names:
-                    if alias.name == "app.services.runtime":
+                    if alias.name == "app.runtime.composition":
                         violations.append(path.name)
 
     assert violations == []

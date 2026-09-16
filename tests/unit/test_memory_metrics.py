@@ -5,8 +5,8 @@ from fastapi.testclient import TestClient
 from pydantic import ValidationError
 
 from app.main import app
-from app.services import memory_metrics as memory_metrics_module
-from app.services.memory_metrics import (
+import app.runtime.memory_metrics as memory_metrics_module
+from app.runtime.memory_metrics import (
     InMemoryMemoryMetricStore,
     MemoryMetricDimensions,
     MemoryMetricEvent,
@@ -162,6 +162,10 @@ def test_aggregate_rejects_unapproved_windows():
 def test_metrics_endpoint_is_hidden_then_returns_aggregate(monkeypatch):
     metrics = get_memory_metric_store()
     metrics.clear()
+    monkeypatch.setattr(
+        "app.api.runtime.routes.dependencies.get_memory_metric_store",
+        lambda: metrics,
+    )
     client = TestClient(app)
     monkeypatch.delenv("MEMORY_TRUSTED_LOCAL_METRICS_ENABLED", raising=False)
     assert client.get("/api/runtime/memory-metrics").status_code == 404

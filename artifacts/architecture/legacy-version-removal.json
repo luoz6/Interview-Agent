@@ -1,0 +1,404 @@
+{
+  "metadata": {
+    "generated_by": "tools/architecture/scan_legacy_versions.py",
+    "app_files_scanned": 470,
+    "script_files_scanned": 48,
+    "test_files_scanned": 409,
+    "parse_error_count": 0,
+    "version_family_count": 3,
+    "legacy_module_count": 4,
+    "removal_authorized_count": 0,
+    "retained_blocked_count": 4,
+    "gate_rule": "removal is authorized only when production_import, runtime_wiring, integration_dependency, and migration_dependency are all zero"
+  },
+  "parse_errors": [],
+  "families": [
+    {
+      "family": "app.domain.knowledge.eval_dataset",
+      "latest_version": 3,
+      "latest_module": "app.domain.knowledge.eval_dataset_v3",
+      "members": [
+        {
+          "version": 2,
+          "module": "app.domain.knowledge.eval_dataset_v2"
+        },
+        {
+          "version": 3,
+          "module": "app.domain.knowledge.eval_dataset_v3"
+        }
+      ]
+    },
+    {
+      "family": "app.domain.knowledge.eval_metrics",
+      "latest_version": 3,
+      "latest_module": "app.domain.knowledge.eval_metrics_v3",
+      "members": [
+        {
+          "version": 2,
+          "module": "app.domain.knowledge.eval_metrics_v2"
+        },
+        {
+          "version": 3,
+          "module": "app.domain.knowledge.eval_metrics_v3"
+        }
+      ]
+    },
+    {
+      "family": "app.graphs.durable_interview_state",
+      "latest_version": 3,
+      "latest_module": "app.graphs.durable_interview_state_v3",
+      "members": [
+        {
+          "version": 1,
+          "module": "app.graphs.durable_interview_state"
+        },
+        {
+          "version": 2,
+          "module": "app.graphs.durable_interview_state_v2"
+        },
+        {
+          "version": 3,
+          "module": "app.graphs.durable_interview_state_v3"
+        }
+      ]
+    }
+  ],
+  "legacy_module_audits": [
+    {
+      "family": "app.domain.knowledge.eval_dataset",
+      "legacy_version": 2,
+      "legacy_module": "app.domain.knowledge.eval_dataset_v2",
+      "legacy_file": "app/domain/knowledge/eval_dataset_v2.py",
+      "replacement_version": 3,
+      "replacement_module": "app.domain.knowledge.eval_dataset_v3",
+      "gates": {
+        "production_import": 2,
+        "runtime_wiring": 0,
+        "integration_dependency": 3,
+        "migration_dependency": 2
+      },
+      "removal_authorized": false,
+      "action": "retain_blocked",
+      "blockers": [
+        "production_import",
+        "integration_dependency",
+        "migration_dependency"
+      ],
+      "evidence": {
+        "production_import": [
+          {
+            "file": "app/domain/knowledge/eval_dataset_v3.py",
+            "module": "app.domain.knowledge.eval_dataset_v3",
+            "line": 10,
+            "reason": "from_import"
+          },
+          {
+            "file": "app/domain/knowledge/eval_metrics_v2.py",
+            "module": "app.domain.knowledge.eval_metrics_v2",
+            "line": 7,
+            "reason": "from_import"
+          }
+        ],
+        "runtime_wiring": [],
+        "integration_dependency": [
+          {
+            "file": "tests/contracts/test_knowledge_eval_dataset_v2.py",
+            "module": "tests.contracts.test_knowledge_eval_dataset_v2",
+            "line": 7,
+            "reason": "from_import"
+          },
+          {
+            "file": "tests/unit/test_knowledge_eval_cli_v2.py",
+            "module": "tests.unit.test_knowledge_eval_cli_v2",
+            "line": 4,
+            "reason": "from_import"
+          },
+          {
+            "file": "tests/unit/test_knowledge_eval_metrics_v2.py",
+            "module": "tests.unit.test_knowledge_eval_metrics_v2",
+            "line": 5,
+            "reason": "from_import"
+          }
+        ],
+        "migration_dependency": [
+          {
+            "file": "app/domain/knowledge/eval_dataset_v3.py",
+            "module": "app.domain.knowledge.eval_dataset_v3",
+            "line": 10,
+            "reason": "from_import"
+          },
+          {
+            "file": "scripts/evaluate_knowledge_retrieval_v2.py",
+            "module": "scripts.evaluate_knowledge_retrieval_v2",
+            "line": 15,
+            "reason": "from_import"
+          }
+        ]
+      }
+    },
+    {
+      "family": "app.domain.knowledge.eval_metrics",
+      "legacy_version": 2,
+      "legacy_module": "app.domain.knowledge.eval_metrics_v2",
+      "legacy_file": "app/domain/knowledge/eval_metrics_v2.py",
+      "replacement_version": 3,
+      "replacement_module": "app.domain.knowledge.eval_metrics_v3",
+      "gates": {
+        "production_import": 2,
+        "runtime_wiring": 0,
+        "integration_dependency": 2,
+        "migration_dependency": 3
+      },
+      "removal_authorized": false,
+      "action": "retain_blocked",
+      "blockers": [
+        "production_import",
+        "integration_dependency",
+        "migration_dependency"
+      ],
+      "evidence": {
+        "production_import": [
+          {
+            "file": "app/application/knowledge/eval_artifacts_v3.py",
+            "module": "app.application.knowledge.eval_artifacts_v3",
+            "line": 26,
+            "reason": "from_import"
+          },
+          {
+            "file": "app/domain/knowledge/eval_metrics_v3.py",
+            "module": "app.domain.knowledge.eval_metrics_v3",
+            "line": 13,
+            "reason": "from_import"
+          }
+        ],
+        "runtime_wiring": [],
+        "integration_dependency": [
+          {
+            "file": "tests/unit/test_knowledge_eval_metrics_v2.py",
+            "module": "tests.unit.test_knowledge_eval_metrics_v2",
+            "line": 9,
+            "reason": "from_import"
+          },
+          {
+            "file": "tests/unit/test_knowledge_eval_metrics_v3.py",
+            "module": "tests.unit.test_knowledge_eval_metrics_v3",
+            "line": 7,
+            "reason": "from_import"
+          }
+        ],
+        "migration_dependency": [
+          {
+            "file": "app/application/knowledge/eval_artifacts_v3.py",
+            "module": "app.application.knowledge.eval_artifacts_v3",
+            "line": 26,
+            "reason": "from_import"
+          },
+          {
+            "file": "app/domain/knowledge/eval_metrics_v3.py",
+            "module": "app.domain.knowledge.eval_metrics_v3",
+            "line": 13,
+            "reason": "from_import"
+          },
+          {
+            "file": "scripts/evaluate_knowledge_retrieval_v2.py",
+            "module": "scripts.evaluate_knowledge_retrieval_v2",
+            "line": 19,
+            "reason": "from_import"
+          }
+        ]
+      }
+    },
+    {
+      "family": "app.graphs.durable_interview_state",
+      "legacy_version": 1,
+      "legacy_module": "app.graphs.durable_interview_state",
+      "legacy_file": "app/graphs/durable_interview_state.py",
+      "replacement_version": 3,
+      "replacement_module": "app.graphs.durable_interview_state_v3",
+      "gates": {
+        "production_import": 3,
+        "runtime_wiring": 3,
+        "integration_dependency": 6,
+        "migration_dependency": 1
+      },
+      "removal_authorized": false,
+      "action": "retain_blocked",
+      "blockers": [
+        "production_import",
+        "runtime_wiring",
+        "integration_dependency",
+        "migration_dependency"
+      ],
+      "evidence": {
+        "production_import": [
+          {
+            "file": "app/graphs/durable_interview_graph.py",
+            "module": "app.graphs.durable_interview_graph",
+            "line": 16,
+            "reason": "from_import"
+          },
+          {
+            "file": "app/graphs/durable_interview_state_v2.py",
+            "module": "app.graphs.durable_interview_state_v2",
+            "line": 5,
+            "reason": "from_import"
+          },
+          {
+            "file": "app/runtime/interview_workflow.py",
+            "module": "app.runtime.interview_workflow",
+            "line": 10,
+            "reason": "from_import"
+          }
+        ],
+        "runtime_wiring": [
+          {
+            "file": "app/graphs/durable_interview_graph.py",
+            "module": "app.graphs.durable_interview_graph",
+            "line": 16,
+            "reason": "from_import"
+          },
+          {
+            "file": "app/graphs/durable_interview_state_v2.py",
+            "module": "app.graphs.durable_interview_state_v2",
+            "line": 5,
+            "reason": "from_import"
+          },
+          {
+            "file": "app/runtime/interview_workflow.py",
+            "module": "app.runtime.interview_workflow",
+            "line": 10,
+            "reason": "from_import"
+          }
+        ],
+        "integration_dependency": [
+          {
+            "file": "tests/integration/postgres/test_durable_interview_graph.py",
+            "module": "tests.integration.postgres.test_durable_interview_graph",
+            "line": 16,
+            "reason": "from_import"
+          },
+          {
+            "file": "tests/integration/postgres/test_interview_workflow_store.py",
+            "module": "tests.integration.postgres.test_interview_workflow_store",
+            "line": 15,
+            "reason": "from_import"
+          },
+          {
+            "file": "tests/integration/postgres/test_langgraph_recovery_postgres.py",
+            "module": "tests.integration.postgres.test_langgraph_recovery_postgres",
+            "line": 15,
+            "reason": "from_import"
+          },
+          {
+            "file": "tests/unit/test_durable_interview_graph.py",
+            "module": "tests.unit.test_durable_interview_graph",
+            "line": 33,
+            "reason": "from_import"
+          },
+          {
+            "file": "tests/unit/test_durable_interview_state.py",
+            "module": "tests.unit.test_durable_interview_state",
+            "line": 7,
+            "reason": "from_import"
+          },
+          {
+            "file": "tests/unit/test_principal_memory_consume_graph.py",
+            "module": "tests.unit.test_principal_memory_consume_graph",
+            "line": 5,
+            "reason": "from_import"
+          }
+        ],
+        "migration_dependency": [
+          {
+            "file": "app/graphs/durable_interview_state_v2.py",
+            "module": "app.graphs.durable_interview_state_v2",
+            "line": 5,
+            "reason": "from_import"
+          }
+        ]
+      }
+    },
+    {
+      "family": "app.graphs.durable_interview_state",
+      "legacy_version": 2,
+      "legacy_module": "app.graphs.durable_interview_state_v2",
+      "legacy_file": "app/graphs/durable_interview_state_v2.py",
+      "replacement_version": 3,
+      "replacement_module": "app.graphs.durable_interview_state_v3",
+      "gates": {
+        "production_import": 2,
+        "runtime_wiring": 2,
+        "integration_dependency": 3,
+        "migration_dependency": 0
+      },
+      "removal_authorized": false,
+      "action": "retain_blocked",
+      "blockers": [
+        "production_import",
+        "runtime_wiring",
+        "integration_dependency"
+      ],
+      "evidence": {
+        "production_import": [
+          {
+            "file": "app/runtime/composition.py",
+            "module": "app.runtime.composition",
+            "line": 1581,
+            "reason": "from_import"
+          },
+          {
+            "file": "app/runtime/interview_workflow.py",
+            "module": "app.runtime.interview_workflow",
+            "line": 11,
+            "reason": "from_import"
+          }
+        ],
+        "runtime_wiring": [
+          {
+            "file": "app/runtime/composition.py",
+            "module": "app.runtime.composition",
+            "line": 1581,
+            "reason": "from_import"
+          },
+          {
+            "file": "app/runtime/interview_workflow.py",
+            "module": "app.runtime.interview_workflow",
+            "line": 11,
+            "reason": "from_import"
+          }
+        ],
+        "integration_dependency": [
+          {
+            "file": "tests/unit/test_dual_langgraph_rollout.py",
+            "module": "tests.unit.test_dual_langgraph_rollout",
+            "line": 13,
+            "reason": "from_import"
+          },
+          {
+            "file": "tests/unit/test_durable_interview_graph.py",
+            "module": "tests.unit.test_durable_interview_graph",
+            "line": 34,
+            "reason": "from_import"
+          },
+          {
+            "file": "tests/unit/test_durable_interview_state.py",
+            "module": "tests.unit.test_durable_interview_state",
+            "line": 8,
+            "reason": "from_import"
+          }
+        ],
+        "migration_dependency": []
+      }
+    }
+  ],
+  "removal_actions": {
+    "removed": [],
+    "retained": [
+      "app.domain.knowledge.eval_dataset_v2",
+      "app.domain.knowledge.eval_metrics_v2",
+      "app.graphs.durable_interview_state",
+      "app.graphs.durable_interview_state_v2"
+    ]
+  },
+  "decision": "No legacy version is removable under the four-gate rule. Existing version contracts remain active and were not copied or deleted merely to force dependency counts to zero."
+}

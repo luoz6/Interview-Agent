@@ -1,7 +1,7 @@
 from pathlib import Path
 
-from app.services.report import DimensionScores, InterviewFeedback, InterviewReport
-from app.services.report_coverage import (
+from app.domain.report.models import DimensionScores, InterviewFeedback, InterviewReport
+from app.domain.report.coverage import (
     aggregate_report_coverage,
     apply_report_coverage,
 )
@@ -257,11 +257,11 @@ def test_rounding_is_decimal_half_up_and_empty_input_is_unscored():
 
 def test_fixed_fallback_score_and_quality_bypass_cannot_regress():
     repository = Path(__file__).resolve().parents[2]
-    evaluator_source = (repository / "app/services/evaluator.py").read_text(
-        encoding="utf-8"
-    )
+    evaluator_source = (
+        repository / "app/application/report/evaluator.py"
+    ).read_text(encoding="utf-8")
     runtime_quality_source = (
-        repository / "app/services/report_runtime_quality.py"
+        repository / "app/domain/report/runtime_quality.py"
     ).read_text(encoding="utf-8")
     react_source = (
         repository / "frontend/src/pages/ReportDetailPage.jsx"

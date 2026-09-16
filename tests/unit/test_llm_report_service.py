@@ -3,13 +3,13 @@ import inspect
 
 import pytest
 
-from app.services.llm import (
+from app.adapters.providers.llm import (
     REPORT_EVIDENCE_PROMPT_SHA256,
     REPORT_EVIDENCE_PROMPT_VERSION,
     OpenAIInterviewLLM,
 )
-from app.services.prep import InterviewPlan, InterviewQuestion
-from app.services.report import (
+from app.runtime.interview_prep import InterviewPlan, InterviewQuestion
+from app.domain.report.models import (
     DimensionScores,
     FeedbackReference,
     InterviewFeedback,
@@ -17,7 +17,7 @@ from app.services.report import (
     ReportGenerationFailed,
     ReportOutputFormatError,
 )
-from app.services.report_provider_adapter import ProviderQuestionResultsEnvelope
+from app.adapters.providers.report_payload import ProviderQuestionResultsEnvelope
 
 
 def make_plan() -> InterviewPlan:

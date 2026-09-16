@@ -5,7 +5,7 @@ from typing import Any
 from app.adapters.postgres.row_mappers import MessageRowMapper
 from app.adapters.postgres.session_repository_support import postgres_sql
 from app.graphs.interview_state import InterviewState
-from app.services.postgres_connections import ConnectionProvider
+from app.adapters.postgres.connections import ConnectionProvider
 
 
 _postgres_sql = postgres_sql

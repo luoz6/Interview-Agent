@@ -12,12 +12,12 @@ from app.domain.knowledge.user_document import (
     UserDocument,
     UserDocumentRevision,
 )
-from app.services.postgres_connections import (
+from app.adapters.postgres.connections import (
     ConnectionProvider,
     DirectPsycopg2ConnectionProvider,
 )
-from app.services.postgres_identifiers import validate_runtime_table_prefix
-from app.services.postgres_schema import resolve_schema_mode
+from app.adapters.postgres.identifiers import validate_runtime_table_prefix
+from app.adapters.postgres.schema import resolve_schema_mode
 
 
 class PostgresUserDocumentStore:

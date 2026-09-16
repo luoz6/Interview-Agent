@@ -1,7 +1,7 @@
 import pytest
 from pydantic import ValidationError
 
-from app.services.followup_performance import (
+from app.evals.followup_performance import (
     FollowupPerformanceArtifact,
     FollowupPerformanceSample,
     PerformancePricingSnapshot,
@@ -10,8 +10,8 @@ from app.services.followup_performance import (
     measure_sse_resume,
     nearest_rank,
 )
-from app.services.interview_event_stream import InterviewEventStreamService
-from app.services.interview_quality_gate import load_gate_config
+from app.adapters.streaming.interview_event_stream import InterviewEventStreamService
+from app.evals.interview_quality_gate import load_gate_config
 
 
 def _sample(**overrides):

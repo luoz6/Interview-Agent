@@ -13,13 +13,15 @@ from app.application.interview.session_commands import (
 )
 from app.application.interview.interview_start import InterviewStartService
 from app.api.shared.models import PrepRequest, StartInterviewRequest
-from app.services.interview_launch import InterviewLaunchCoordinator
+from app.runtime.interview_launch import InterviewLaunchCoordinator
 from app.runtime.config.compatibility import (
     get_interview_langgraph_rollout_percent,
     get_runtime_store,
 )
-from app.services.prep_question_regeneration import PrepQuestionRegenerator
-from app.services.runtime import (
+from app.application.interview.prep_question_regeneration import (
+    PrepQuestionRegenerator,
+)
+from app.runtime.composition import (
     get_agent_execution_runner,
     get_draft_store,
     get_event_publisher,
@@ -136,10 +138,16 @@ def get_prep_knowledge_repository():
 
 def get_rag_diagnostics_service():
     from app.application.knowledge.diagnostics_service import RagDiagnosticsService
+    from app.runtime.config import (
+        load_knowledge_runtime_settings,
+        load_rag_console_runtime_settings,
+    )
 
     return RagDiagnosticsService(
         repository=get_rag_console_knowledge_repository(),
         session_store=get_session_store(),
+        knowledge_settings_loader=load_knowledge_runtime_settings,
+        rag_console_settings_loader=load_rag_console_runtime_settings,
     )
 
 
@@ -154,8 +162,8 @@ def get_rag_corpus_write_service():
 
 
 def get_plan_regenerator():
-    from app.services.interview_plan_regenerator import ProviderPlanRegenerator
-    from app.services.prep import prepare_interview
+    from app.runtime.interview_plan_regenerator import ProviderPlanRegenerator
+    from app.runtime.interview_prep import prepare_interview
 
     return ProviderPlanRegenerator(
         lambda job_description, resume_text, configuration: prepare_interview(
@@ -201,12 +209,15 @@ def get_legacy_interview_start_service(
 ) -> InterviewStartService | None:
     if store is None:
         return None
+    from app.runtime.interview_prep import prepare_interview
+
     return InterviewStartService(
         store=store,
         workflow_service_factory=get_interview_workflow_service,
         execution_runner_factory=get_agent_execution_runner,
         runtime_store_factory=get_runtime_store,
         rollout_percent_factory=get_interview_langgraph_rollout_percent,
+        plan_factory=prepare_interview,
     )
 
 

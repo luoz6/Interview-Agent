@@ -7,7 +7,7 @@ from typing import Annotated, Literal, TypedDict
 
 from pydantic import BaseModel, Field
 
-from app.services.published_question import (
+from app.domain.interview.published_question import (
     published_question_ids,
     published_question_lineage,
     published_question_text,
@@ -66,7 +66,7 @@ class DurableReviewInputManifest(BaseModel):
         prep_context = plan.prep_context
         is_v3 = getattr(plan, "schema_version", None) == "interview-plan-v3"
         if is_v3:
-            from app.services.interview_plan_knowledge import (
+            from app.domain.interview.plan_knowledge import (
                 parse_question_knowledge_binding,
             )
 

@@ -10,14 +10,14 @@ from app.graphs.durable_review_state import (
     make_durable_review_initial_state,
     review_thread_id,
 )
-from app.services.evaluator import build_evaluation_chunks
-from app.services.interview_plan_revision import (
+from app.application.report.evaluator import build_evaluation_chunks
+from app.domain.interview.plan_revision import (
     InterviewPlanV3,
     default_plan_configuration,
 )
-from app.services.prep import InterviewPlan, InterviewQuestion
-from app.services.question_evaluations import QuestionEvaluationRecord
-from app.services.round_review import build_single_question_review_state
+from app.runtime.interview_prep import InterviewPlan, InterviewQuestion
+from app.domain.report.question_evaluations import QuestionEvaluationRecord
+from app.domain.report.round_review import build_single_question_review_state
 
 
 def make_finished_state():

@@ -10,8 +10,8 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from app.services.knowledge_corpus_schema import load_knowledge_document_v2
-from app.services.knowledge_ingestion import IngestionSummary, KnowledgeReleaseService
+from app.domain.knowledge.corpus_schema import load_knowledge_document_v2
+from app.application.knowledge.ingestion import IngestionSummary, KnowledgeReleaseService
 from app.adapters.pgvector.repository import KnowledgeChunk, PgVectorKnowledgeStore, get_knowledge_store
 from scripts.build_knowledge_manifest_v2 import (
     DEFAULT_CORPUS_VERSION,

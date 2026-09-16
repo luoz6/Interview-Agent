@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from app.services.session_deletion import InMemorySessionDeletionJobStore
-from app.services.session_deletion_worker import SessionDeletionWorker
+from app.adapters.memory.session_deletion import InMemorySessionDeletionJobStore
+from app.runtime.session_deletion_worker import SessionDeletionWorker
 
 
 class ReplaySafeSessionStore:

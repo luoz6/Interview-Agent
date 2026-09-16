@@ -7,15 +7,15 @@ from app.api.interview import routes as interview_routes
 from app.api.shared import dependencies
 from app.graphs.interview_state import build_v3_session_shell_state
 from app.main import app
-from app.services.interview_plan_revision import v2_plan_to_v3
-from app.services.interview_plan_revision_store import (
+from app.domain.interview.plan_revision import v2_plan_to_v3
+from app.adapters.memory.plan_revision_store import (
     InMemoryInterviewPlanRevisionStore,
 )
-from app.services.session import InterviewSessionStore
-from app.services.in_memory_principal_memory_control import (
+from app.adapters.memory.session_store import InterviewSessionStore
+from app.adapters.memory.principal_memory_control import (
     InMemoryPrincipalMemoryControlStore,
 )
-from app.services.principal_identity import ExplicitPrincipalIdentityResolver
+from app.adapters.memory.principal_identity import ExplicitPrincipalIdentityResolver
 from tests.unit.test_interview_plan_revision import plan, source
 
 

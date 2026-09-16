@@ -4,19 +4,19 @@ from app.adapters.memory.principal_memory import (
     InMemoryPrincipalMemoryFactStore,
     transition_fact,
 )
-from app.services.in_memory_principal_memory_consent import (
+from app.adapters.memory.principal_memory_consent import (
     InMemoryPrincipalMemoryConsentStore,
 )
-from app.services.in_memory_principal_memory_control import (
+from app.adapters.memory.principal_memory_control import (
     InMemoryPrincipalMemoryControlStore,
 )
 from app.runtime.config.memory import load_effective_memory_config
-from app.services.principal_identity import ExplicitPrincipalIdentityResolver
-from app.services.principal_memory_consent import (
+from app.adapters.memory.principal_identity import ExplicitPrincipalIdentityResolver
+from app.application.memory.consent import (
     PrincipalMemoryConsent,
     PrincipalMemoryConsentService,
 )
-from app.services.principal_memory_control import PrincipalMemoryControlService
+from app.application.memory.control import PrincipalMemoryControlService
 from app.domain.memory.contracts import (
     CONSENT_POLICY_VERSION,
     TAXONOMY_VERSION,
@@ -25,10 +25,8 @@ from app.domain.memory.contracts import (
     derive_principal_fact_id,
     derive_principal_fact_taxonomy_keys,
 )
-from app.services.principal_memory_retrieval import PrincipalMemoryRetriever
-from app.services.principal_memory_rights import (
-    InMemoryPrincipalMemoryDeletionTombstoneStore,
-)
+from app.application.memory.retrieval import PrincipalMemoryRetriever
+from app.adapters.memory.principal_memory_rights import InMemoryPrincipalMemoryDeletionTombstoneStore
 
 
 FACT_NOW = datetime(2026, 7, 30, tzinfo=timezone.utc)

@@ -2,8 +2,8 @@ import json
 
 import pytest
 
-from app.services.embedding_providers import EmbeddingProviderError
-from app.services.knowledge_ingestion import KnowledgeCorpusIngestor
+from app.adapters.providers.embedding_providers import EmbeddingProviderError
+from app.application.knowledge.ingestion import KnowledgeCorpusIngestor
 from app.domain.knowledge.models import KnowledgeChunk
 
 

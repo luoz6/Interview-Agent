@@ -8,9 +8,9 @@ from app.runtime.config.compatibility import (
     get_postgres_dsn,
     get_runtime_table_prefix,
 )
-from app.services.embedding_providers import build_embedding_provider
-from app.services.postgres_identifiers import derive_runtime_identifiers
-from app.services.postgres_runtime_migrations import (
+from app.adapters.providers.embedding_providers import build_embedding_provider
+from app.adapters.postgres.identifiers import derive_runtime_identifiers
+from app.adapters.persistence.postgres.runtime_migrations import (
     RUNTIME_MIGRATION_ID,
     migrate_postgres_runtime,
 )

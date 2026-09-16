@@ -5,7 +5,7 @@ import sys
 
 import pytest
 
-from app.services.principal_memory_ledger import (
+from app.adapters.memory.principal_memory_ledger import (
     GENESIS_HEAD_SHA256,
     LEDGER_SCHEMA_VERSION,
     PrincipalMemoryLedgerError,
@@ -148,7 +148,7 @@ def test_os_lock_times_out_across_processes_and_recovers_after_exit(tmp_path):
     value = ledger(tmp_path)
     child_code = (
         "from pathlib import Path; from time import sleep; "
-        "from app.services.principal_memory_ledger import "
+        "from app.adapters.memory.principal_memory_ledger import "
         "ProtectedPrincipalMemoryLedger; "
         f"value=ProtectedPrincipalMemoryLedger(Path({str(value.resolved_path)!r}),"
         f"workspace=Path({str(value.workspace)!r}),lock_timeout_seconds=1); "
@@ -189,9 +189,9 @@ def test_two_process_append_has_contiguous_chain_and_no_lost_event(tmp_path):
         encoded = completed_tombstone_for(principal_id).model_dump_json()
         child_code = (
             "from pathlib import Path; "
-            "from app.services.principal_memory_ledger import "
+            "from app.adapters.memory.principal_memory_ledger import "
             "ProtectedPrincipalMemoryLedger; "
-            "from app.services.principal_memory_rights import "
+            "from app.domain.memory.rights import "
             "PrincipalMemoryDeletionTombstone; "
             f"item=PrincipalMemoryDeletionTombstone.model_validate_json({encoded!r}); "
             f"ledger=ProtectedPrincipalMemoryLedger(Path({str(value.resolved_path)!r}),"

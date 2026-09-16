@@ -2,7 +2,7 @@ from pathlib import Path
 
 import pytest
 
-from app.services.knowledge_corpus_schema import (
+from app.domain.knowledge.corpus_schema import (
     DuplicateFrontMatterKeyError,
     load_knowledge_document_v2,
     strip_non_prose_markdown,

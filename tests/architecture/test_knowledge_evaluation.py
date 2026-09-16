@@ -28,7 +28,7 @@ def _is_forbidden_runtime_dependency(module: str) -> bool:
         or module.startswith("app.agents.")
         or module == "app.services.llm"
         or module.startswith("app.services.llm.")
-        or module.startswith("app.services.report")
+        or module.startswith("app.domain.report.models")
     )
 
 

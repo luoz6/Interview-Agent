@@ -2,8 +2,8 @@ from datetime import datetime, timezone
 
 import pytest
 
-from app.services.report_artifact import ReportArtifact
-from app.services.report_view import (
+from app.domain.report.artifact import ReportArtifact
+from app.domain.report.view import (
     EvaluationView,
     ReportViewError,
     ReportViewModel,
@@ -12,7 +12,7 @@ from app.services.report_view import (
 
 
 def artifact(*, score_status="scored", payload=None, coverage_status="complete"):
-    from app.services.report_artifact import report_artifact_sha256
+    from app.domain.report.artifact import report_artifact_sha256
 
     if payload is None:
         payload = {

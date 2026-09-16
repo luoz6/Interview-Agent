@@ -6,8 +6,8 @@ from types import SimpleNamespace
 
 import pytest
 
-import app.services.runtime as runtime_module
-from app.services.runtime import (
+import app.runtime.composition as runtime_module
+from app.runtime.composition import (
     build_report_executor,
     build_runtime_followup_decision_provider,
     build_event_publisher,
@@ -64,7 +64,7 @@ def test_build_session_store_uses_postgres_when_enabled(monkeypatch):
             created["llm"] = llm
 
     monkeypatch.setattr(
-        "app.services.runtime.PostgresInterviewSessionStore",
+        "app.runtime.composition.PostgresInterviewSessionStore",
         FakePostgresStore,
     )
 
@@ -98,7 +98,7 @@ def test_build_session_store_uses_runtime_table_prefix_with_legacy_fallback(monk
             created["table_prefix"] = table_prefix
 
     monkeypatch.setattr(
-        "app.services.runtime.PostgresInterviewSessionStore",
+        "app.runtime.composition.PostgresInterviewSessionStore",
         FakePostgresStore,
     )
 
@@ -130,7 +130,7 @@ def test_build_report_job_store_uses_postgres_dsn_and_runtime_prefix(monkeypatch
             created["lease_seconds"] = lease_seconds
 
     monkeypatch.setattr(
-        "app.services.runtime.PostgresReportJobStore",
+        "app.runtime.composition.PostgresReportJobStore",
         FakeReportJobStore,
     )
 
@@ -149,7 +149,7 @@ def test_build_report_job_store_uses_memory_queue_for_preview(monkeypatch):
 
     store = build_report_job_store()
 
-    from app.services.memory_report_jobs import InMemoryReportJobStore
+    from app.adapters.memory.report_job_store import InMemoryReportJobStore
 
     assert isinstance(store, InMemoryReportJobStore)
 
@@ -234,7 +234,7 @@ def test_runtime_session_deletion_worker_receives_authoritative_failure_store(
         raising=False,
     )
     monkeypatch.setattr(
-        "app.services.session_deletion_worker.SessionDeletionWorker",
+        "app.runtime.session_deletion_worker.SessionDeletionWorker",
         FakeWorker,
     )
 
@@ -264,15 +264,15 @@ def test_runtime_maintenance_receives_authoritative_failure_store(monkeypatch):
         raising=False,
     )
     monkeypatch.setattr(
-        "app.services.durable_workflow_maintenance.DurableWorkflowMaintenanceService",
+        "app.runtime.durable_workflow_maintenance.DurableWorkflowMaintenanceService",
         FakeMaintenance,
     )
     monkeypatch.setattr(
-        "app.services.interview_generation_store.PostgresInterviewGenerationStore",
+        "app.adapters.persistence.postgres.interview_generation_store.PostgresInterviewGenerationStore",
         lambda **kwargs: object(),
     )
     monkeypatch.setattr(
-        "app.services.interview_workflow_store.PostgresInterviewWorkflowStore",
+        "app.adapters.persistence.postgres.interview_workflow_store.PostgresInterviewWorkflowStore",
         lambda **kwargs: object(),
     )
 
@@ -302,7 +302,7 @@ def test_config_exposes_event_backend_and_redis_defaults(monkeypatch):
 def test_build_event_publisher_defaults_to_local_round_review(monkeypatch):
     monkeypatch.delenv("INTERVIEW_EVENT_BACKEND", raising=False)
 
-    from app.services.event_publisher import LocalRoundReviewEventPublisher
+    from app.runtime.event_publisher import LocalRoundReviewEventPublisher
 
     publisher = build_event_publisher()
 
@@ -312,7 +312,7 @@ def test_build_event_publisher_defaults_to_local_round_review(monkeypatch):
 def test_build_event_publisher_supports_explicit_noop(monkeypatch):
     monkeypatch.setenv("INTERVIEW_EVENT_BACKEND", "noop")
 
-    from app.services.event_publisher import NoopRuntimeEventPublisher
+    from app.runtime.event_publisher import NoopRuntimeEventPublisher
 
     publisher = build_event_publisher()
 
@@ -329,9 +329,9 @@ def test_build_report_executor_reuses_session_store_llm_and_vector_store(monkeyp
         def __init__(self):
             created["llm_factory_called"] = True
 
-    monkeypatch.setattr("app.services.runtime.get_session_store", lambda: fake_store)
-    monkeypatch.setattr("app.services.runtime.get_knowledge_store", lambda **kwargs: fake_vector_store)
-    monkeypatch.setattr("app.services.runtime.OpenAIInterviewLLM", FakeOpenAIInterviewLLM)
+    monkeypatch.setattr("app.runtime.composition.get_session_store", lambda: fake_store)
+    monkeypatch.setattr("app.runtime.composition.get_knowledge_store", lambda **kwargs: fake_vector_store)
+    monkeypatch.setattr("app.runtime.composition.OpenAIInterviewLLM", FakeOpenAIInterviewLLM)
 
     executor = build_report_executor()
 
@@ -366,12 +366,12 @@ def test_build_report_executor_creates_llm_when_store_has_none(monkeypatch):
     fake_vector_store = object()
     fake_llm = object()
 
-    monkeypatch.setattr("app.services.runtime.get_session_store", lambda: fake_store)
+    monkeypatch.setattr("app.runtime.composition.get_session_store", lambda: fake_store)
     monkeypatch.setattr(
-        "app.services.runtime.get_knowledge_store",
+        "app.runtime.composition.get_knowledge_store",
         lambda **kwargs: fake_vector_store,
     )
-    monkeypatch.setattr("app.services.runtime.OpenAIInterviewLLM", lambda: fake_llm)
+    monkeypatch.setattr("app.runtime.composition.OpenAIInterviewLLM", lambda: fake_llm)
 
     executor = build_report_executor()
 
@@ -384,9 +384,9 @@ def test_build_report_executor_never_requests_runtime_schema_migration(monkeypat
     fake_store = type("FakeStore", (), {"llm": object()})()
     captured = {}
 
-    monkeypatch.setattr("app.services.runtime.get_session_store", lambda: fake_store)
+    monkeypatch.setattr("app.runtime.composition.get_session_store", lambda: fake_store)
     monkeypatch.setattr(
-        "app.services.runtime.get_postgres_connection_domains",
+        "app.runtime.composition.get_postgres_connection_domains",
         lambda: None,
     )
 
@@ -395,7 +395,7 @@ def test_build_report_executor_never_requests_runtime_schema_migration(monkeypat
         return object()
 
     monkeypatch.setattr(
-        "app.services.runtime.get_knowledge_store",
+        "app.runtime.composition.get_knowledge_store",
         fake_knowledge_store,
     )
 
@@ -416,7 +416,7 @@ def test_get_report_job_store_caches_until_reset(monkeypatch):
         return value
 
     reset_runtime_for_tests()
-    monkeypatch.setattr("app.services.runtime.build_report_job_store", fake_builder)
+    monkeypatch.setattr("app.runtime.composition.build_report_job_store", fake_builder)
 
     first = get_report_job_store()
     second = get_report_job_store()
@@ -440,7 +440,7 @@ def test_get_report_executor_caches_until_reset(monkeypatch):
         return value
 
     reset_runtime_for_tests()
-    monkeypatch.setattr("app.services.runtime.build_report_executor", fake_builder)
+    monkeypatch.setattr("app.runtime.composition.build_report_executor", fake_builder)
 
     first = get_report_executor()
     second = get_report_executor()
@@ -464,7 +464,7 @@ def test_get_event_publisher_caches_until_reset(monkeypatch):
         return value
 
     reset_runtime_for_tests()
-    monkeypatch.setattr("app.services.runtime.build_event_publisher", fake_builder)
+    monkeypatch.setattr("app.runtime.composition.build_event_publisher", fake_builder)
 
     first = get_event_publisher()
     second = get_event_publisher()
@@ -487,7 +487,7 @@ def test_shutdown_runtime_drains_cached_event_publisher(monkeypatch):
             closed.append(wait)
 
     reset_runtime_for_tests()
-    monkeypatch.setattr("app.services.runtime.build_event_publisher", lambda: FakePublisher())
+    monkeypatch.setattr("app.runtime.composition.build_event_publisher", lambda: FakePublisher())
 
     get_event_publisher()
     shutdown_runtime(wait=True)
@@ -503,7 +503,7 @@ def test_reset_runtime_for_tests_shuts_down_cached_event_publisher(monkeypatch):
             closed.append(wait)
 
     reset_runtime_for_tests()
-    monkeypatch.setattr("app.services.runtime.build_event_publisher", lambda: FakePublisher())
+    monkeypatch.setattr("app.runtime.composition.build_event_publisher", lambda: FakePublisher())
 
     get_event_publisher()
     reset_runtime_for_tests()

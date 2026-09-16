@@ -1,14 +1,14 @@
 from uuid import UUID, uuid4
 
 import pytest
-from app.services.in_memory_interview_launch_repository import (
+from app.adapters.memory.interview_launch_repository import (
     InMemoryInterviewLaunchRepository,
 )
-from app.services.in_memory_prep_plan_store import InMemoryPrepPlanStore
-from app.services.interview_launch import InterviewLaunchCoordinator
-from app.services.prep_plans import PrepPlanError
-from app.services.prep_question_regeneration import PrepQuestionRegenerator
-from app.services.session import InterviewSessionStore
+from app.adapters.memory.prep_plan_store import InMemoryPrepPlanStore
+from app.runtime.interview_launch import InterviewLaunchCoordinator
+from app.domain.interview.prep_plans import PrepPlanError
+from app.application.interview.prep_question_regeneration import PrepQuestionRegenerator
+from app.adapters.memory.session_store import InterviewSessionStore
 from tests.interview_fixtures import (
     create_in_memory_prep_plan,
     interview_plan_with_context,

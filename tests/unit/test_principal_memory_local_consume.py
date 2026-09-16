@@ -3,28 +3,28 @@ from datetime import datetime, timedelta, timezone
 import pytest
 
 from app.adapters.memory.principal_memory import InMemoryPrincipalMemoryFactStore
-from app.services.in_memory_principal_memory_consent import (
+from app.adapters.memory.principal_memory_consent import (
     InMemoryPrincipalMemoryConsentStore,
 )
-from app.services.in_memory_principal_memory_control import (
+from app.adapters.memory.principal_memory_control import (
     InMemoryPrincipalMemoryControlStore,
 )
-from app.services.llm import OpenAIInterviewLLM, _build_followup_prompt
+from app.adapters.providers.llm import OpenAIInterviewLLM, _build_followup_prompt
 from app.runtime.config.memory import load_effective_memory_config
-from app.services.principal_identity import ExplicitPrincipalIdentityResolver
-from app.services.principal_memory_consent import (
+from app.adapters.memory.principal_identity import ExplicitPrincipalIdentityResolver
+from app.application.memory.consent import (
     PrincipalMemoryConsent,
     PrincipalMemoryConsentService,
 )
-from app.services.principal_memory_consume import (
+from app.application.memory.consume import (
     ASSISTANCE_CONTEXT_KIND,
     ASSISTANCE_LABEL,
     ASSISTANCE_WARNING,
     PrincipalMemoryLocalConsumeService,
 )
-from app.services.principal_memory_control import PrincipalMemoryControlService
+from app.application.memory.control import PrincipalMemoryControlService
 from app.domain.memory.contracts import canonical_principal_fact
-from app.services.principal_memory_lifecycle import PrincipalMemoryLifecycleService
+from app.application.memory.lifecycle import PrincipalMemoryLifecycleService
 
 
 NOW = datetime(2026, 8, 4, 12, tzinfo=timezone.utc)

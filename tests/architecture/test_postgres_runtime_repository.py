@@ -12,9 +12,9 @@ RECEIPT_REPOSITORY = (
 COMPATIBILITY_EXPORTS = (
     ROOT / "app" / "adapters" / "postgres" / "runtime_repositories.py"
 )
-FACADE = ROOT / "app" / "services" / "postgres_runtime_control.py"
-RUNTIME_COMPOSITION = ROOT / "app" / "services" / "runtime.py"
-LANGGRAPH_RUNTIME = ROOT / "app" / "services" / "langgraph_runtime.py"
+FACADE = ROOT / "app" / "adapters" / "persistence" / "postgres" / "runtime_control.py"
+RUNTIME_COMPOSITION = ROOT / "app" / "runtime" / "composition.py"
+LANGGRAPH_RUNTIME = ROOT / "app" / "runtime" / "langgraph_runtime.py"
 
 
 def _class(tree: ast.Module, name: str) -> ast.ClassDef:

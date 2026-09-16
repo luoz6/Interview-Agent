@@ -3,8 +3,8 @@ from __future__ import annotations
 from typing import Any
 
 from app.adapters.postgres.row_mappers.errors import require_supported_row_version
-from app.services.question_evaluations import QuestionEvaluationRecord
-from app.services.report import InterviewFeedback
+from app.domain.report.question_evaluations import QuestionEvaluationRecord
+from app.domain.report.models import InterviewFeedback
 
 
 QUESTION_EVALUATION_ROW_SCHEMA_VERSION = "question-evaluation-row-v1"

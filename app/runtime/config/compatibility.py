@@ -3,7 +3,7 @@ import math
 import re
 
 from app.runtime.config.environment import environment_value
-from app.services.postgres_identifiers import (
+from app.adapters.postgres.identifiers import (
     validate_postgres_identifier,
     validate_runtime_table_prefix,
 )

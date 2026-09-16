@@ -6,16 +6,16 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
-from app.services.memory_metrics import (
+from app.runtime.memory_metrics import (
     MemoryMetricDimensions,
     MemoryMetricEvent,
     MemoryMetricValues,
 )
-from app.services.postgres_memory_metrics import (
+from app.adapters.persistence.postgres.memory_metrics import (
     PostgresMemoryMetricStore,
     canonical_dimensions,
 )
-from app.services.postgres_schema_contract import required_columns_for_relation
+from app.adapters.postgres.schema_contract import required_columns_for_relation
 from tests.postgres_support import assert_safe_test_prefix
 
 

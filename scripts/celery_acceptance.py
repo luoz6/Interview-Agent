@@ -2,11 +2,11 @@ import argparse
 import json
 import time
 
-from app.services.celery_app import celery_app
+from app.runtime.celery_app import celery_app
 from app.runtime.config.compatibility import get_postgres_dsn, get_runtime_table_prefix
-from app.services.postgres_session import PostgresInterviewSessionStore
-from app.services.prep import InterviewPlan, InterviewQuestion
-from app.services.runtime_domain_events import RoundClosedEvent
+from app.adapters.persistence.postgres.session_store import PostgresInterviewSessionStore
+from app.runtime.interview_prep import InterviewPlan, InterviewQuestion
+from app.domain.runtime_events import RoundClosedEvent
 
 
 def wait_for_evaluation(store, session_id: str, *, timeout_seconds: float) -> object | None:

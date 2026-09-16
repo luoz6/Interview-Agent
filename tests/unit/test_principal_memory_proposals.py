@@ -1,15 +1,15 @@
 from datetime import datetime, timezone
 
-from app.services.in_memory_principal_memory_consent import (
+from app.adapters.memory.principal_memory_consent import (
     InMemoryPrincipalMemoryConsentStore,
 )
 from app.runtime.config.memory import load_effective_memory_config
-from app.services.principal_identity import ExplicitPrincipalIdentityResolver
-from app.services.principal_memory_consent import (
+from app.adapters.memory.principal_identity import ExplicitPrincipalIdentityResolver
+from app.application.memory.consent import (
     PrincipalMemoryConsent,
     PrincipalMemoryConsentService,
 )
-from app.services.principal_memory_proposals import (
+from app.application.memory.proposals import (
     build_proposal_event_if_eligible,
     derive_principal_memory_effect_id,
 )

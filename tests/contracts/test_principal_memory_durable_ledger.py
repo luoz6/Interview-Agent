@@ -5,20 +5,18 @@ from datetime import datetime, timezone
 
 import pytest
 
-from app.services.principal_memory_durable_ledger import (
+from app.runtime.principal_memory_durable_ledger import (
     PrincipalMemoryDurableLedger,
 )
-from app.services.principal_memory_ledger import (
+from app.adapters.memory.principal_memory_ledger import (
     GENESIS_HEAD_SHA256,
     PrincipalMemoryLedgerError,
     ProtectedPrincipalMemoryLedger,
 )
-from app.services.principal_memory_ledger_replay import (
+from app.adapters.memory.principal_memory_ledger_replay import (
     PrincipalMemoryOpaqueLedgerReplay,
 )
-from app.services.principal_memory_rights import (
-    InMemoryPrincipalMemoryDeletionTombstoneStore,
-)
+from app.adapters.memory.principal_memory_rights import InMemoryPrincipalMemoryDeletionTombstoneStore
 
 
 NOW = datetime(2026, 8, 4, 20, tzinfo=timezone.utc)

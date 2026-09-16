@@ -8,8 +8,8 @@ from app.runtime.config.compatibility import (
     get_postgres_dsn,
     get_runtime_table_prefix,
 )
-from app.services.postgres_session import PostgresInterviewSessionStore
-from app.services.report_jobs import PostgresReportJobStore
+from app.adapters.persistence.postgres.session_store import PostgresInterviewSessionStore
+from app.adapters.persistence.postgres.report_job_store import PostgresReportJobStore
 from app.adapters.pgvector.repository import PgVectorKnowledgeStore
 from scripts.load_knowledge_v2 import load_knowledge_v2
 

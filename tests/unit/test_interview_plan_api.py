@@ -14,24 +14,24 @@ from app.application.materials.ingestion_service import UserDocumentIngestionSer
 from app.application.materials.deletion_service import UserDocumentDeletionService
 from app.application.materials.service import UserDocumentService
 from app.main import app
-from app.services.interview_knowledge_scope import InterviewKnowledgeScopeResolver
-from app.services.interview_plan_regenerator import PlanRegenerationFailed
-from app.services.interview_plan_revision import (
+from app.application.knowledge.scope import InterviewKnowledgeScopeResolver
+from app.runtime.interview_plan_regenerator import PlanRegenerationFailed
+from app.domain.interview.plan_revision import (
     InterviewPlanQuestionV2,
     PlanSourcePayload,
     build_interview_knowledge_scope_snapshot,
 )
-from app.services.interview_plan_revision_store import (
+from app.adapters.memory.plan_revision_store import (
     InMemoryInterviewPlanRevisionStore,
 )
-from app.services.session import InterviewSessionStore
+from app.adapters.memory.session_store import InterviewSessionStore
 from app.domain.interview.drafts import DraftWriteConflict
-from app.services.in_memory_draft_store import InMemoryDraftStore
-from app.services.in_memory_prep_plan_store import InMemoryPrepPlanStore
-from app.services.in_memory_principal_memory_control import (
+from app.adapters.memory.draft_store import InMemoryDraftStore
+from app.adapters.memory.prep_plan_store import InMemoryPrepPlanStore
+from app.adapters.memory.principal_memory_control import (
     InMemoryPrincipalMemoryControlStore,
 )
-from app.services.principal_identity import ExplicitPrincipalIdentityResolver
+from app.adapters.memory.principal_identity import ExplicitPrincipalIdentityResolver
 from tests.vector_store_fixtures import FakeEmbeddingProvider
 from tests.unit.test_interview_plan_revision import plan, source
 
@@ -278,7 +278,7 @@ def test_api_projects_stable_quality_detail_and_history_read_does_not_reassess(
     assert store.get_latest(initial.plan_family_id).revision == 1
 
     monkeypatch.setattr(
-        "app.services.interview_plan_editor.assess_interview_question_quality",
+        "app.application.interview.plan_editor.assess_interview_question_quality",
         lambda _questions: (_ for _ in ()).throw(
             AssertionError("frozen history read must not reassess quality")
         ),

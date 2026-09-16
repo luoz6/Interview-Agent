@@ -9,16 +9,16 @@ from app.graphs.interview_state import (
     build_initial_state,
     get_current_question,
 )
-from app.services.prep import (
+from app.runtime.interview_prep import (
     InterviewPlan,
     InterviewQuestion,
     PrepContext,
     PrepKnowledgeTopic,
     PrepQuestionHint,
 )
-from app.services.knowledge_binding import KnowledgeBindingResolver
-from app.services.agent_runtime import AgentExecutionRunner
-from app.services.report import InterviewReport
+from app.application.knowledge.binding import KnowledgeBindingResolver
+from app.runtime.agent_execution import AgentExecutionRunner
+from app.domain.report.models import InterviewReport
 from tests.unit.test_knowledge_binding_resolver import make_repository, make_v2_plan
 
 

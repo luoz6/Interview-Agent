@@ -2,8 +2,8 @@ from types import SimpleNamespace
 
 import pytest
 
-from app.services import provider_usage as provider_usage_module
-from app.services.provider_usage import (
+import app.runtime.provider_usage as provider_usage_module
+from app.runtime.provider_usage import (
     begin_provider_attempt,
     compression_provider_usage_scope,
     consume_provider_context_metadata,
@@ -23,7 +23,7 @@ def test_plan_context_selection_records_counts_without_payloads():
         "plan_knowledge_candidate_count": 3,
         "plan_knowledge_retained_count": 2,
     }
-from app.services.context_budget import RenderedPromptMeasurement
+from app.domain.context.budget import RenderedPromptMeasurement
 
 
 def test_provider_usage_metadata_is_normalized_without_payloads():

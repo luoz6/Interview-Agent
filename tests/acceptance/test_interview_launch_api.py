@@ -5,15 +5,15 @@ from fastapi.testclient import TestClient
 from app.api.prep import routes as prep_route_module
 import app.api.shared.dependencies as api_dependencies
 from app.main import app
-from app.services.in_memory_interview_launch_repository import (
+from app.adapters.memory.interview_launch_repository import (
     InMemoryInterviewLaunchRepository,
 )
-from app.services.in_memory_prep_plan_store import InMemoryPrepPlanStore
-from app.services.interview_launch import InterviewLaunchCoordinator
-from app.services.interview_plan_revision_store import (
+from app.adapters.memory.prep_plan_store import InMemoryPrepPlanStore
+from app.runtime.interview_launch import InterviewLaunchCoordinator
+from app.adapters.memory.plan_revision_store import (
     InMemoryInterviewPlanRevisionStore,
 )
-from app.services.session import InterviewSessionStore
+from app.adapters.memory.session_store import InterviewSessionStore
 from tests.interview_fixtures import sample_interview_plan
 
 

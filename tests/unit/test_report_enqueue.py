@@ -1,7 +1,7 @@
 """Unit tests for durable report enqueue decisions and failure mapping."""
 
-from app.services.report import ReportProgress, ReportRecord
-from app.services.report_enqueue import enqueue_report_if_needed
+from app.domain.report.models import ReportProgress, ReportRecord
+from app.application.report.enqueue import enqueue_report_if_needed
 
 
 class FakeStore:

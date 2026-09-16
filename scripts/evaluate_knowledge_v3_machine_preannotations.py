@@ -11,14 +11,14 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from app.adapters.pgvector.repository import PgVectorKnowledgeStore
-from app.services.knowledge_eval_artifacts_v3 import (
+from app.application.knowledge.eval_artifacts_v3 import (
     build_engine_identity_v3,
     compare_knowledge_eval_artifacts_v3,
     evaluate_knowledge_engine_v3,
     load_eval_artifact_v3,
     write_frozen_eval_artifact,
 )
-from app.services.knowledge_eval_dataset_v3 import load_knowledge_retrieval_dataset_v3
+from app.domain.knowledge.eval_dataset_v3 import load_knowledge_retrieval_dataset_v3
 from scripts.validate_knowledge_diagnostic_dataset import (
     DEFAULT_DIAGNOSTIC_DIR,
     DEFAULT_MANIFEST,

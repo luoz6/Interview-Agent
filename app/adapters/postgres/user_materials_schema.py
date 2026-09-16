@@ -3,14 +3,14 @@ from __future__ import annotations
 import hashlib
 import json
 
-from app.services.postgres_connections import ConnectionProvider
-from app.services.postgres_identifiers import (
+from app.adapters.postgres.connections import ConnectionProvider
+from app.adapters.postgres.identifiers import (
     runtime_schema_identifier,
     validate_postgres_identifier,
     validate_runtime_table_prefix,
 )
-from app.services.postgres_schema import validate_relations
-from app.services.postgres_schema_contract import (
+from app.adapters.postgres.schema import validate_relations
+from app.adapters.postgres.schema_contract import (
     required_user_materials_check_tokens_for_relation,
     required_user_materials_columns_for_relation,
     required_user_materials_foreign_key_tokens_for_relation,

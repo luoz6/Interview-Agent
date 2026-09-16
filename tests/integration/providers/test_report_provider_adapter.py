@@ -7,13 +7,13 @@ from pathlib import Path
 
 import pytest
 
-from app.services.report import InterviewReport
-from app.services.report_contract import CanonicalQuestionResult
-from app.services.report_provider_adapter import (
+from app.domain.report.models import InterviewReport
+from app.domain.report.assembly import CanonicalQuestionResult
+from app.adapters.providers.report_payload import (
     build_reference_lookup,
     normalize_provider_payload,
 )
-from app.services.report_replay import replay_fixture
+from app.evals.report_replay import replay_fixture
 
 
 FIXTURE_DIR = Path("tests/fixtures/report_payloads")

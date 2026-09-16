@@ -2,11 +2,11 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
-from app.services.decision_store import (
+from app.domain.interview.decision_store import (
     DecisionContract,
     DecisionStoreConflict,
-    InMemoryDecisionStore,
 )
+from app.adapters.memory.decision_store import InMemoryDecisionStore
 
 
 def decision(action="follow_up"):

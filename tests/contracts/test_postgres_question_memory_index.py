@@ -3,7 +3,7 @@ from __future__ import annotations
 from contextlib import contextmanager
 import re
 
-from app.services.postgres_question_memory_index import (
+from app.adapters.persistence.postgres.question_memory_index import (
     PostgresQuestionMemoryIndexStore,
 )
 

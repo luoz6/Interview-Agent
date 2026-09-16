@@ -17,15 +17,17 @@ from urllib.parse import urlsplit
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from app.services.context_budget import (
+from app.domain.context.budget import (
     MAIN_QUESTION_CONTEXT_POLICY,
     REPORT_CONTEXT_POLICY,
 )
-from app.services.llm import LLMConfig
-from app.services.main_question_generation import (
+from app.adapters.providers.llm import LLMConfig
+from app.domain.interview.main_question_generation import (
     MAIN_QUESTION_ATTEMPT_TIMEOUT_SECONDS,
     MAIN_QUESTION_MAX_PROVIDER_INVOCATIONS,
     MAIN_QUESTION_TOTAL_TIMEOUT_SECONDS,
+)
+from app.runtime.config.main_question_generation import (
     load_main_question_generation_settings,
 )
 

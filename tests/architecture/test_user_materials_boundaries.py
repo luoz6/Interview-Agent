@@ -54,7 +54,7 @@ def _material_paths() -> tuple[Path, ...]:
         APP / "domain" / "knowledge" / "source_scope.py",
         APP / "domain" / "knowledge" / "user_document.py",
         APP / "adapters" / "knowledge" / "source_aware_retriever.py",
-        APP / "services" / "interview_knowledge_scope.py",
+        APP / "application" / "knowledge" / "scope.py",
     }
     for pattern in (
         "app/application/materials/**/*.py",
@@ -71,7 +71,7 @@ def test_user_materials_and_global_corpus_lifecycles_are_bilaterally_separate():
     assert material_paths
     forbidden_corpus_modules = {
         "app.application.knowledge.corpus_write_service",
-        "app.services.knowledge_corpus_schema",
+        "app.domain.knowledge.corpus_schema",
         "app.api.rag.routes",
     }
     forbidden_corpus_symbols = {
@@ -88,7 +88,7 @@ def test_user_materials_and_global_corpus_lifecycles_are_bilaterally_separate():
 
     corpus_paths = (
         APP / "application" / "knowledge" / "corpus_write_service.py",
-        APP / "services" / "knowledge_corpus_schema.py",
+        APP / "domain" / "knowledge" / "corpus_schema.py",
         APP / "api" / "rag" / "routes.py",
     )
     for path in corpus_paths:
@@ -188,7 +188,7 @@ def test_materials_contract_has_one_scope_resolver_and_four_services():
         if isinstance(node, ast.ClassDef)
         and node.name == "InterviewKnowledgeScopeResolver"
     ]
-    assert scope_resolvers == ["app/services/interview_knowledge_scope.py"]
+    assert scope_resolvers == ["app/application/knowledge/scope.py"]
 
 
 def test_user_materials_do_not_create_a_fusion_or_rrf_implementation():
@@ -251,9 +251,9 @@ def test_citation_model_write_projector_and_read_sanitizer_are_unique():
 
     assert definitions == {
         "SafeKnowledgeCitation": ["app/domain/knowledge/evidence.py"],
-        "project_safe_knowledge_citations": ["app/services/knowledge_citations.py"],
+        "project_safe_knowledge_citations": ["app/domain/knowledge/citations.py"],
         "sanitize_report_knowledge_citations_for_read": [
-            "app/services/knowledge_citations.py"
+            "app/application/report/knowledge_citations.py"
         ],
     }
 

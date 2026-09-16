@@ -18,15 +18,15 @@ from app.domain.knowledge.user_document import (
     UserDocumentRevision,
     embedding_identity_for,
 )
+from app.domain.knowledge.embedding_validation import (
+    EmbeddingConfigurationError,
+    EmbeddingProviderError,
+    validate_embedding_batch,
+)
 from app.ports.runtime import EmbeddingPort
 from app.ports.user_documents import (
     UserDocumentChunkRepositoryPort,
     UserDocumentStorePort,
-)
-from app.services.embedding_providers import (
-    EmbeddingConfigurationError,
-    EmbeddingProviderError,
-    validate_embedding_batch,
 )
 
 

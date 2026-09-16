@@ -7,24 +7,24 @@ from threading import Event
 import pytest
 
 from app.adapters.memory.principal_memory import InMemoryPrincipalMemoryFactStore
-from app.services.in_memory_principal_memory_consent import (
+from app.adapters.memory.principal_memory_consent import (
     InMemoryPrincipalMemoryConsentStore,
 )
-from app.services.in_memory_principal_memory_control import (
+from app.adapters.memory.principal_memory_control import (
     InMemoryPrincipalMemoryControlStore,
 )
-from app.services.principal_identity import ExplicitPrincipalIdentityResolver
-from app.services.principal_memory_consent import PrincipalMemoryConsent
-from app.services.principal_memory_control import PrincipalMemoryControlService
-from app.services.principal_memory_deletion import (
+from app.adapters.memory.principal_identity import ExplicitPrincipalIdentityResolver
+from app.application.memory.consent import PrincipalMemoryConsent
+from app.application.memory.control import PrincipalMemoryControlService
+from app.application.memory.deletion import (
     PrincipalMemoryDeletionIncomplete,
     PrincipalMemoryDeletionService,
 )
-from app.services.principal_memory_rights import (
+from app.adapters.memory.principal_memory_rights import (
     InMemoryPrincipalMemoryDeletionTombstoneStore,
     InMemoryPrincipalMemoryExportStore,
-    PrincipalMemoryExportService,
 )
+from app.application.memory.rights import PrincipalMemoryExportService
 from tests.principal_memory_fixtures import RIGHTS_NOW as NOW, make_fact
 
 

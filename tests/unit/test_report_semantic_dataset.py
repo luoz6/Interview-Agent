@@ -4,7 +4,7 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
-from app.services.report_semantic_dataset import (
+from app.evals.report_semantic_dataset import (
     SemanticReviewEvidenceLedger,
     T49_REQUIRED_SCENARIOS,
     T49SemanticCaseManifest,
@@ -13,7 +13,7 @@ from app.services.report_semantic_dataset import (
     load_t49_semantic_dataset_manifest,
     validate_t49_semantic_dataset,
 )
-from app.services.report_semantic_review import (
+from app.evals.report_semantic_review import (
     BlindedReviewPacket,
     HumanReviewSheet,
     ReviewAssignmentKey,
@@ -346,8 +346,8 @@ def test_semantic_review_evidence_ledger_rejects_tampering_on_load_and_append():
 
 def test_t49_offline_review_code_is_not_imported_by_runtime_modules():
     allowed = {
-        Path("app/services/report_semantic_review.py"),
-        Path("app/services/report_semantic_dataset.py"),
+        Path("app/evals/report_semantic_review.py"),
+        Path("app/evals/report_semantic_dataset.py"),
     }
     offenders = []
     for path in Path("app").rglob("*.py"):

@@ -1,7 +1,7 @@
 import hashlib
 import json
 
-from app.services.interview_quality_dataset import InterviewQualityDataset
+from app.evals.interview_quality_dataset import InterviewQualityDataset
 from scripts.build_followup_decision_dataset import build_dataset
 
 

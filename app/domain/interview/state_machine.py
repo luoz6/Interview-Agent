@@ -1,6 +1,6 @@
 from app.domain.interview.errors import SessionVersionConflict
 from app.domain.interview.models import InterviewTurn
-from app.graphs.interview_state import (
+from app.domain.interview.state import (
     InterviewState,
     get_current_question,
     utc_now_iso,

@@ -1,0 +1,2117 @@
+{
+  "metadata": {
+    "generated_by": "tools/architecture/scan_duplicate_implementations.py",
+    "files_scanned": 470,
+    "definitions_scanned": 2754,
+    "parse_error_count": 0,
+    "classification_rule": "Only normalized AST body matches are confirmed_exact; all family, shape, name, wiring, and version matches are review candidates."
+  },
+  "parse_errors": [],
+  "reviewed_findings": [
+    {
+      "priority": "high",
+      "disposition": "overlapping_port_contracts",
+      "finding": "InterviewLaunchRepository and InterviewSessionRepository each have multiple Protocol definitions under app.ports. Their method surfaces differ, so consolidation needs a contract migration rather than deletion.",
+      "next_task": "P9-T02 reachability proof, then a dedicated port consolidation"
+    },
+    {
+      "priority": "high",
+      "disposition": "canonical_owner_candidate",
+      "finding": "interview_plan_from_intent_draft and enforce_generated_interview_question_quality have exact copies in Domain and Runtime; Domain is the likely canonical owner.",
+      "next_task": "replace Runtime copies with canonical imports after compatibility tests"
+    },
+    {
+      "priority": "high",
+      "disposition": "shared_dto_candidate",
+      "finding": "InterviewArtifactContext and EvidenceArtifactContext are exact dataclass copies and are candidates for one stable shared contract.",
+      "next_task": "prove ownership and import direction before consolidation"
+    },
+    {
+      "priority": "medium",
+      "disposition": "shared_utility_candidates",
+      "finding": "UUID, owner, canonical JSON/hash, file hash, safe-ref, and UTC helpers have exact repeated bodies across modules.",
+      "next_task": "consolidate only where dependency direction remains valid"
+    },
+    {
+      "priority": "low",
+      "disposition": "expected_polymorphism",
+      "finding": "Most repository/store families are one port with in-memory and durable adapter implementations; family-name similarity is expected, not duplication.",
+      "next_task": "exclude from deletion unless reachability proves an adapter unused"
+    },
+    {
+      "priority": "low",
+      "disposition": "composition_wrapper",
+      "finding": "consume_round_review_event and consume_round_review_event_payload in app.runtime.composition inject dependencies and delegate to the consumer; their same-name matches are not duplicate evaluator implementations.",
+      "next_task": "retain as composition-root wiring"
+    },
+    {
+      "priority": "high",
+      "disposition": "migration_dependency_present",
+      "finding": "The v2 knowledge evaluation modules are imported by v3 and scripts, while durable_interview_state_v2 remains in production Runtime wiring.",
+      "next_task": "P9-T03 must reach zero migration and runtime dependency before removal"
+    }
+  ],
+  "categories": {
+    "exact_implementations": [
+      {
+        "key": "13956140e03dc61b4f55e1bcb99827b066a3bd54a7c3c9e6f1e8d0cbea21b605",
+        "status": "confirmed_exact",
+        "disposition": "consolidation_candidate",
+        "review_priority": "medium",
+        "review_note": "Exact body match; verify ownership and dependency direction.",
+        "members": [
+          {
+            "module": "app.evals.report_calibration_dataset",
+            "name": "calibration_dataset_sha256",
+            "kind": "function",
+            "file": "app/evals/report_calibration_dataset.py",
+            "line": 133
+          },
+          {
+            "module": "app.evals.report_semantic_review",
+            "name": "semantic_review_dataset_sha256",
+            "kind": "function",
+            "file": "app/evals/report_semantic_review.py",
+            "line": 210
+          }
+        ]
+      },
+      {
+        "key": "1a49aa6dc4cbc3e2e39c466cbc1e6e501a327eb1537962fdeb7399a08ba425a3",
+        "status": "confirmed_exact",
+        "disposition": "consolidation_candidate",
+        "review_priority": "medium",
+        "review_note": "Exact body match; verify ownership and dependency direction.",
+        "members": [
+          {
+            "module": "app.application.interview.context_artifacts",
+            "name": "InterviewArtifactContext",
+            "kind": "class",
+            "file": "app/application/interview/context_artifacts.py",
+            "line": 82
+          },
+          {
+            "module": "app.runtime.evidence_context_artifacts",
+            "name": "EvidenceArtifactContext",
+            "kind": "class",
+            "file": "app/runtime/evidence_context_artifacts.py",
+            "line": 64
+          }
+        ]
+      },
+      {
+        "key": "1da934895a2add05cd84ecce2d3a5a15a80c088a2a6f1662cda9535ff13f49f0",
+        "status": "confirmed_exact",
+        "disposition": "consolidation_candidate",
+        "review_priority": "medium",
+        "review_note": "Exact body match; verify ownership and dependency direction.",
+        "members": [
+          {
+            "module": "app.application.knowledge.grounding",
+            "name": "_dedupe",
+            "kind": "function",
+            "file": "app/application/knowledge/grounding.py",
+            "line": 751
+          },
+          {
+            "module": "app.domain.knowledge.profile",
+            "name": "_dedupe",
+            "kind": "function",
+            "file": "app/domain/knowledge/profile.py",
+            "line": 213
+          }
+        ]
+      },
+      {
+        "key": "28876dbf666d0f78e4a287f69a2cec0c68cfc3f6da20673adc6bd8c00668d6ce",
+        "status": "confirmed_exact",
+        "disposition": "consolidation_candidate",
+        "review_priority": "medium",
+        "review_note": "Exact body match; verify ownership and dependency direction.",
+        "members": [
+          {
+            "module": "app.domain.interview.main_question_generation",
+            "name": "MainQuestionValidationError",
+            "kind": "class",
+            "file": "app/domain/interview/main_question_generation.py",
+            "line": 41
+          },
+          {
+            "module": "app.domain.interview.question_intent",
+            "name": "QuestionTextShapeError",
+            "kind": "class",
+            "file": "app/domain/interview/question_intent.py",
+            "line": 80
+          }
+        ]
+      },
+      {
+        "key": "2d780a31cf4a9ad65c65c8a3a645888d1a5a86e5eb3ab6e97ca1226f68fd8361",
+        "status": "confirmed_exact",
+        "disposition": "consolidation_candidate",
+        "review_priority": "medium",
+        "review_note": "Exact body match; verify ownership and dependency direction.",
+        "members": [
+          {
+            "module": "app.adapters.pgvector.user_document_repository",
+            "name": "_require_uuid",
+            "kind": "function",
+            "file": "app/adapters/pgvector/user_document_repository.py",
+            "line": 381
+          },
+          {
+            "module": "app.adapters.postgres.user_documents",
+            "name": "_require_uuid",
+            "kind": "function",
+            "file": "app/adapters/postgres/user_documents.py",
+            "line": 565
+          },
+          {
+            "module": "app.domain.knowledge.user_document",
+            "name": "_uuid_text",
+            "kind": "function",
+            "file": "app/domain/knowledge/user_document.py",
+            "line": 211
+          }
+        ]
+      },
+      {
+        "key": "36f37fb9ce5f8cdbf30106ca01c4456a841da78702d7da0db9e5a97d932ee44a",
+        "status": "confirmed_exact",
+        "disposition": "consolidation_candidate",
+        "review_priority": "medium",
+        "review_note": "Exact body match; verify ownership and dependency direction.",
+        "members": [
+          {
+            "module": "app.adapters.memory.plan_revision_store",
+            "name": "_default_revision_audit",
+            "kind": "function",
+            "file": "app/adapters/memory/plan_revision_store.py",
+            "line": 386
+          },
+          {
+            "module": "app.ports.plan_revision_store",
+            "name": "_default_revision_audit",
+            "kind": "function",
+            "file": "app/ports/plan_revision_store.py",
+            "line": 121
+          }
+        ]
+      },
+      {
+        "key": "4282e592adc07f7cb6518cc6259e3cbb6046c068df151905e0751e99a0e74399",
+        "status": "confirmed_exact",
+        "disposition": "consolidation_candidate",
+        "review_priority": "medium",
+        "review_note": "Exact body match; verify ownership and dependency direction.",
+        "members": [
+          {
+            "module": "app.domain.interview.plan_generation",
+            "name": "interview_plan_from_intent_draft",
+            "kind": "function",
+            "file": "app/domain/interview/plan_generation.py",
+            "line": 27
+          },
+          {
+            "module": "app.runtime.interview_prep",
+            "name": "interview_plan_from_intent_draft",
+            "kind": "function",
+            "file": "app/runtime/interview_prep.py",
+            "line": 44
+          }
+        ]
+      },
+      {
+        "key": "43836edfa5fbe00e606565d8a1293fd265215e27059842eaf6cffaa58d364d0d",
+        "status": "confirmed_exact",
+        "disposition": "consolidation_candidate",
+        "review_priority": "medium",
+        "review_note": "Exact body match; verify ownership and dependency direction.",
+        "members": [
+          {
+            "module": "app.adapters.memory.interview_entry",
+            "name": "MemoryClock",
+            "kind": "class",
+            "file": "app/adapters/memory/interview_entry.py",
+            "line": 14
+          },
+          {
+            "module": "app.adapters.persistence.postgres.interview_entry",
+            "name": "PostgresClock",
+            "kind": "class",
+            "file": "app/adapters/persistence/postgres/interview_entry.py",
+            "line": 20
+          }
+        ]
+      },
+      {
+        "key": "4b4a0fb387f954afd14734f9e8ddd28a70b91bc69ef838cc6f66196049a398cb",
+        "status": "confirmed_exact",
+        "disposition": "consolidation_candidate",
+        "review_priority": "medium",
+        "review_note": "Exact body match; verify ownership and dependency direction.",
+        "members": [
+          {
+            "module": "app.adapters.memory.plan_revision_store",
+            "name": "_validate_request_identity",
+            "kind": "function",
+            "file": "app/adapters/memory/plan_revision_store.py",
+            "line": 447
+          },
+          {
+            "module": "app.ports.plan_revision_store",
+            "name": "_validate_request_identity",
+            "kind": "function",
+            "file": "app/ports/plan_revision_store.py",
+            "line": 177
+          }
+        ]
+      },
+      {
+        "key": "5351193f98239ac4d0e694a6b8451e183c31618b4efa98ad53a123d447dc5b68",
+        "status": "confirmed_exact",
+        "disposition": "consolidation_candidate",
+        "review_priority": "medium",
+        "review_note": "Exact body match; verify ownership and dependency direction.",
+        "members": [
+          {
+            "module": "app.domain.interview.plan_revision",
+            "name": "canonical_sha256",
+            "kind": "function",
+            "file": "app/domain/interview/plan_revision.py",
+            "line": 489
+          },
+          {
+            "module": "app.evals.interview_quality_dataset",
+            "name": "sha256_canonical_json",
+            "kind": "function",
+            "file": "app/evals/interview_quality_dataset.py",
+            "line": 373
+          }
+        ]
+      },
+      {
+        "key": "5743ff83e2e09837830263d0c2bc00cc0e55d682a295b2f3c9f8e7e470859d27",
+        "status": "confirmed_exact",
+        "disposition": "consolidation_candidate",
+        "review_priority": "medium",
+        "review_note": "Exact body match; verify ownership and dependency direction.",
+        "members": [
+          {
+            "module": "app.evals.cross_question_report_diagnostics",
+            "name": "canonical_sha256",
+            "kind": "function",
+            "file": "app/evals/cross_question_report_diagnostics.py",
+            "line": 316
+          },
+          {
+            "module": "app.evals.synthetic_session_diagnostics",
+            "name": "canonical_sha256",
+            "kind": "function",
+            "file": "app/evals/synthetic_session_diagnostics.py",
+            "line": 84
+          }
+        ]
+      },
+      {
+        "key": "5c4f7031599b541071a871c4b717802a8da050644208b0da9c750cbd31062581",
+        "status": "confirmed_exact",
+        "disposition": "consolidation_candidate",
+        "review_priority": "medium",
+        "review_note": "Exact body match; verify ownership and dependency direction.",
+        "members": [
+          {
+            "module": "app.application.report.knowledge_citations",
+            "name": "_document_safe_ref",
+            "kind": "function",
+            "file": "app/application/report/knowledge_citations.py",
+            "line": 202
+          },
+          {
+            "module": "app.domain.knowledge.citations",
+            "name": "_document_safe_ref",
+            "kind": "function",
+            "file": "app/domain/knowledge/citations.py",
+            "line": 151
+          }
+        ]
+      },
+      {
+        "key": "6311a5c38367d0d73568600006359534eff4ad1a8eed824ef35356c5e8083dde",
+        "status": "confirmed_exact",
+        "disposition": "consolidation_candidate",
+        "review_priority": "medium",
+        "review_note": "Exact body match; verify ownership and dependency direction.",
+        "members": [
+          {
+            "module": "app.evals.t65_production_capture",
+            "name": "_path_has_reparse_component",
+            "kind": "function",
+            "file": "app/evals/t65_production_capture.py",
+            "line": 269
+          },
+          {
+            "module": "app.evals.t65_provider_evidence",
+            "name": "_path_has_reparse_component",
+            "kind": "function",
+            "file": "app/evals/t65_provider_evidence.py",
+            "line": 1769
+          }
+        ]
+      },
+      {
+        "key": "70df523dc9ba0e175e2f3e2937235abee759a9cf087b3def3da52f87f5ac8de5",
+        "status": "confirmed_exact",
+        "disposition": "consolidation_candidate",
+        "review_priority": "medium",
+        "review_note": "Exact body match; verify ownership and dependency direction.",
+        "members": [
+          {
+            "module": "app.application.knowledge.scope",
+            "name": "InterviewKnowledgeScopeError",
+            "kind": "class",
+            "file": "app/application/knowledge/scope.py",
+            "line": 17
+          },
+          {
+            "module": "app.application.materials.service",
+            "name": "UserMaterialsError",
+            "kind": "class",
+            "file": "app/application/materials/service.py",
+            "line": 13
+          }
+        ]
+      },
+      {
+        "key": "7ad0c6fe5949d4034b9f27f21504dcd5123e0a232a4bc127ab1dc2e14fd701ef",
+        "status": "confirmed_exact",
+        "disposition": "consolidation_candidate",
+        "review_priority": "medium",
+        "review_note": "Exact body match; verify ownership and dependency direction.",
+        "members": [
+          {
+            "module": "app.domain.interview.followup_prompts",
+            "name": "_sha256",
+            "kind": "function",
+            "file": "app/domain/interview/followup_prompts.py",
+            "line": 107
+          },
+          {
+            "module": "app.domain.report.runtime_quality",
+            "name": "_sha256_text",
+            "kind": "function",
+            "file": "app/domain/report/runtime_quality.py",
+            "line": 672
+          },
+          {
+            "module": "app.evals.report_semantic_review",
+            "name": "text_sha256",
+            "kind": "function",
+            "file": "app/evals/report_semantic_review.py",
+            "line": 47
+          },
+          {
+            "module": "app.graphs.durable_review_state",
+            "name": "_text_sha256",
+            "kind": "function",
+            "file": "app/graphs/durable_review_state.py",
+            "line": 29
+          }
+        ]
+      },
+      {
+        "key": "7dbcae191cf96bbccbb74132ec4c18a6883e8d713b5fb5b034a36080cc5c9387",
+        "status": "confirmed_exact",
+        "disposition": "consolidation_candidate",
+        "review_priority": "medium",
+        "review_note": "Exact body match; verify ownership and dependency direction.",
+        "members": [
+          {
+            "module": "app.a2a.contracts.common",
+            "name": "_utc_now_iso",
+            "kind": "function",
+            "file": "app/a2a/contracts/common.py",
+            "line": 9
+          },
+          {
+            "module": "app.a2a.observability",
+            "name": "_utc_now_iso",
+            "kind": "function",
+            "file": "app/a2a/observability.py",
+            "line": 11
+          },
+          {
+            "module": "app.a2a.protocol",
+            "name": "_utc_now_iso",
+            "kind": "function",
+            "file": "app/a2a/protocol.py",
+            "line": 12
+          },
+          {
+            "module": "app.domain.interview.state",
+            "name": "utc_now_iso",
+            "kind": "function",
+            "file": "app/domain/interview/state.py",
+            "line": 133
+          },
+          {
+            "module": "app.domain.report.models",
+            "name": "utc_now_iso",
+            "kind": "function",
+            "file": "app/domain/report/models.py",
+            "line": 302
+          },
+          {
+            "module": "app.domain.report.question_evaluations",
+            "name": "_utc_now_iso",
+            "kind": "function",
+            "file": "app/domain/report/question_evaluations.py",
+            "line": 18
+          },
+          {
+            "module": "app.domain.runtime_events",
+            "name": "utc_now_iso",
+            "kind": "function",
+            "file": "app/domain/runtime_events.py",
+            "line": 12
+          }
+        ]
+      },
+      {
+        "key": "7fe7d8f433ca02589c80e65a471ea04a3bd943e53ed36c096d9a95fa42192390",
+        "status": "confirmed_exact",
+        "disposition": "consolidation_candidate",
+        "review_priority": "medium",
+        "review_note": "Exact body match; verify ownership and dependency direction.",
+        "members": [
+          {
+            "module": "app.evals.followup_provider_preflight",
+            "name": "_sha256_file",
+            "kind": "function",
+            "file": "app/evals/followup_provider_preflight.py",
+            "line": 339
+          },
+          {
+            "module": "app.evals.independent_review_handoff",
+            "name": "file_sha256",
+            "kind": "function",
+            "file": "app/evals/independent_review_handoff.py",
+            "line": 167
+          },
+          {
+            "module": "app.evals.initial_question_provider_preflight",
+            "name": "_sha256_file",
+            "kind": "function",
+            "file": "app/evals/initial_question_provider_preflight.py",
+            "line": 160
+          },
+          {
+            "module": "app.evals.t65_provider_evidence",
+            "name": "_sha256_file",
+            "kind": "function",
+            "file": "app/evals/t65_provider_evidence.py",
+            "line": 1786
+          }
+        ]
+      },
+      {
+        "key": "a6f28f2664bab2573524875b2fd176c9c4654848e16e39bb1db0e92514cace78",
+        "status": "confirmed_exact",
+        "disposition": "consolidation_candidate",
+        "review_priority": "medium",
+        "review_note": "Exact body match; verify ownership and dependency direction.",
+        "members": [
+          {
+            "module": "app.evals.t65_formal_execution_receipt",
+            "name": "_canonical_bytes",
+            "kind": "function",
+            "file": "app/evals/t65_formal_execution_receipt.py",
+            "line": 60
+          },
+          {
+            "module": "app.evals.t65_production_capture",
+            "name": "_canonical_json_bytes",
+            "kind": "function",
+            "file": "app/evals/t65_production_capture.py",
+            "line": 73
+          }
+        ]
+      },
+      {
+        "key": "ac064ee23f1b1fae193808ff107073448f5dc2c8820904c293c8b372b0217f64",
+        "status": "confirmed_exact",
+        "disposition": "consolidation_candidate",
+        "review_priority": "medium",
+        "review_note": "Exact body match; verify ownership and dependency direction.",
+        "members": [
+          {
+            "module": "app.domain.interview.plan_generation",
+            "name": "enforce_generated_interview_question_quality",
+            "kind": "function",
+            "file": "app/domain/interview/plan_generation.py",
+            "line": 103
+          },
+          {
+            "module": "app.runtime.interview_prep",
+            "name": "enforce_generated_interview_question_quality",
+            "kind": "function",
+            "file": "app/runtime/interview_prep.py",
+            "line": 120
+          }
+        ]
+      },
+      {
+        "key": "ae6a855a82a2a7e0ddf178521483f256a22fa6c59c781887a7a525cfbca4871b",
+        "status": "confirmed_exact",
+        "disposition": "consolidation_candidate",
+        "review_priority": "medium",
+        "review_note": "Exact body match; verify ownership and dependency direction.",
+        "members": [
+          {
+            "module": "app.adapters.pgvector.user_document_repository",
+            "name": "_require_owner",
+            "kind": "function",
+            "file": "app/adapters/pgvector/user_document_repository.py",
+            "line": 365
+          },
+          {
+            "module": "app.adapters.postgres.user_documents",
+            "name": "_require_owner",
+            "kind": "function",
+            "file": "app/adapters/postgres/user_documents.py",
+            "line": 556
+          }
+        ]
+      },
+      {
+        "key": "b8b9c6cb488cf7aa6cac8fb1cea9587f8a816e186aaa97143c07e4cbe12dade5",
+        "status": "confirmed_exact",
+        "disposition": "consolidation_candidate",
+        "review_priority": "medium",
+        "review_note": "Exact body match; verify ownership and dependency direction.",
+        "members": [
+          {
+            "module": "app.adapters.knowledge.metadata_unit_resolver",
+            "name": "_value",
+            "kind": "function",
+            "file": "app/adapters/knowledge/metadata_unit_resolver.py",
+            "line": 30
+          },
+          {
+            "module": "app.adapters.knowledge.pilot_unit_resolver",
+            "name": "_value",
+            "kind": "function",
+            "file": "app/adapters/knowledge/pilot_unit_resolver.py",
+            "line": 167
+          }
+        ]
+      },
+      {
+        "key": "d3bc9492e4b86617cae37f57aac70e883607b728dd7788bec1a01a8d08e43964",
+        "status": "confirmed_exact",
+        "disposition": "consolidation_candidate",
+        "review_priority": "medium",
+        "review_note": "Exact body match; verify ownership and dependency direction.",
+        "members": [
+          {
+            "module": "app.evals.t65_builtin_production_executor",
+            "name": "_text_sha256",
+            "kind": "function",
+            "file": "app/evals/t65_builtin_production_executor.py",
+            "line": 1339
+          },
+          {
+            "module": "app.evals.t65_formal_execution_receipt",
+            "name": "_text_sha256",
+            "kind": "function",
+            "file": "app/evals/t65_formal_execution_receipt.py",
+            "line": 70
+          }
+        ]
+      },
+      {
+        "key": "ee1c4f84a06aaa539c55b04f517018c7e1df51ffd91f9e3581a5d53d5f435765",
+        "status": "confirmed_exact",
+        "disposition": "consolidation_candidate",
+        "review_priority": "medium",
+        "review_note": "Exact body match; verify ownership and dependency direction.",
+        "members": [
+          {
+            "module": "app.domain.knowledge.evidence",
+            "name": "EvidenceAvailability",
+            "kind": "class",
+            "file": "app/domain/knowledge/evidence.py",
+            "line": 23
+          },
+          {
+            "module": "app.domain.knowledge.retrieval",
+            "name": "RetrievalAvailability",
+            "kind": "class",
+            "file": "app/domain/knowledge/retrieval.py",
+            "line": 24
+          }
+        ]
+      },
+      {
+        "key": "f2cf2de34b45e090f78584dafa8fd4bc64bc42e27af9aa44d2587c4ace317073",
+        "status": "confirmed_exact",
+        "disposition": "consolidation_candidate",
+        "review_priority": "medium",
+        "review_note": "Exact body match; verify ownership and dependency direction.",
+        "members": [
+          {
+            "module": "app.domain.interview.plan_revision",
+            "name": "_uuid_text",
+            "kind": "function",
+            "file": "app/domain/interview/plan_revision.py",
+            "line": 563
+          },
+          {
+            "module": "app.domain.report.artifact",
+            "name": "_uuid_text",
+            "kind": "function",
+            "file": "app/domain/report/artifact.py",
+            "line": 180
+          }
+        ]
+      },
+      {
+        "key": "fb6ece3f09cd48ef77e7d9e426458168eaf35ca474d176d766dbbd0d9149aabb",
+        "status": "confirmed_exact",
+        "disposition": "consolidation_candidate",
+        "review_priority": "medium",
+        "review_note": "Exact body match; verify ownership and dependency direction.",
+        "members": [
+          {
+            "module": "app.evals.cross_question_report_diagnostics",
+            "name": "_atomic_write_json",
+            "kind": "function",
+            "file": "app/evals/cross_question_report_diagnostics.py",
+            "line": 444
+          },
+          {
+            "module": "app.evals.synthetic_session_diagnostics",
+            "name": "_write_json",
+            "kind": "function",
+            "file": "app/evals/synthetic_session_diagnostics.py",
+            "line": 460
+          }
+        ]
+      }
+    ],
+    "repository_families": [
+      {
+        "key": "contextcompressionfailurestore",
+        "status": "candidate",
+        "disposition": "expected_polymorphic_family",
+        "review_priority": "low",
+        "review_note": "Port and adapter variants are expected unless reachability says otherwise.",
+        "members": [
+          {
+            "module": "app.adapters.memory.context_compression_failure_store",
+            "name": "InMemoryContextCompressionFailureStore",
+            "kind": "class",
+            "file": "app/adapters/memory/context_compression_failure_store.py",
+            "line": 34
+          },
+          {
+            "module": "app.adapters.persistence.postgres.context_compression_failure_store",
+            "name": "PostgresContextCompressionFailureStore",
+            "kind": "class",
+            "file": "app/adapters/persistence/postgres/context_compression_failure_store.py",
+            "line": 45
+          }
+        ]
+      },
+      {
+        "key": "decisionstore",
+        "status": "candidate",
+        "disposition": "expected_polymorphic_family",
+        "review_priority": "low",
+        "review_note": "Port and adapter variants are expected unless reachability says otherwise.",
+        "members": [
+          {
+            "module": "app.adapters.memory.decision_store",
+            "name": "InMemoryDecisionStore",
+            "kind": "class",
+            "file": "app/adapters/memory/decision_store.py",
+            "line": 19
+          },
+          {
+            "module": "app.adapters.persistence.postgres.decision_store",
+            "name": "PostgresDecisionStore",
+            "kind": "class",
+            "file": "app/adapters/persistence/postgres/decision_store.py",
+            "line": 24
+          }
+        ]
+      },
+      {
+        "key": "draftstore",
+        "status": "candidate",
+        "disposition": "expected_polymorphic_family",
+        "review_priority": "low",
+        "review_note": "Port and adapter variants are expected unless reachability says otherwise.",
+        "members": [
+          {
+            "module": "app.adapters.memory.draft_store",
+            "name": "InMemoryDraftStore",
+            "kind": "class",
+            "file": "app/adapters/memory/draft_store.py",
+            "line": 20
+          },
+          {
+            "module": "app.adapters.persistence.postgres.draft_store",
+            "name": "PostgresDraftStore",
+            "kind": "class",
+            "file": "app/adapters/persistence/postgres/draft_store.py",
+            "line": 136
+          }
+        ]
+      },
+      {
+        "key": "interviewlaunchrepository",
+        "status": "candidate",
+        "disposition": "overlapping_port_contracts",
+        "review_priority": "high",
+        "review_note": "Multiple port Protocols share this family name.",
+        "members": [
+          {
+            "module": "app.adapters.memory.interview_launch_repository",
+            "name": "InMemoryInterviewLaunchRepository",
+            "kind": "class",
+            "file": "app/adapters/memory/interview_launch_repository.py",
+            "line": 9
+          },
+          {
+            "module": "app.adapters.persistence.postgres.interview_launch_repository",
+            "name": "PostgresInterviewLaunchRepository",
+            "kind": "class",
+            "file": "app/adapters/persistence/postgres/interview_launch_repository.py",
+            "line": 13
+          },
+          {
+            "module": "app.ports.interview_entry",
+            "name": "InterviewLaunchRepository",
+            "kind": "class",
+            "file": "app/ports/interview_entry.py",
+            "line": 51
+          },
+          {
+            "module": "app.ports.interview_launch",
+            "name": "InterviewLaunchRepository",
+            "kind": "class",
+            "file": "app/ports/interview_launch.py",
+            "line": 8
+          }
+        ]
+      },
+      {
+        "key": "interviewplanrevisionstore",
+        "status": "candidate",
+        "disposition": "expected_polymorphic_family",
+        "review_priority": "low",
+        "review_note": "Port and adapter variants are expected unless reachability says otherwise.",
+        "members": [
+          {
+            "module": "app.adapters.memory.plan_revision_store",
+            "name": "InMemoryInterviewPlanRevisionStore",
+            "kind": "class",
+            "file": "app/adapters/memory/plan_revision_store.py",
+            "line": 36
+          },
+          {
+            "module": "app.adapters.persistence.postgres.plan_revision_store",
+            "name": "PostgresInterviewPlanRevisionStore",
+            "kind": "class",
+            "file": "app/adapters/persistence/postgres/plan_revision_store.py",
+            "line": 40
+          },
+          {
+            "module": "app.ports.plan_revision_store",
+            "name": "InterviewPlanRevisionStore",
+            "kind": "class",
+            "file": "app/ports/plan_revision_store.py",
+            "line": 44
+          }
+        ]
+      },
+      {
+        "key": "interviewsessionrepository",
+        "status": "candidate",
+        "disposition": "overlapping_port_contracts",
+        "review_priority": "high",
+        "review_note": "Multiple port Protocols share this family name.",
+        "members": [
+          {
+            "module": "app.ports.interview_entry",
+            "name": "InterviewSessionRepository",
+            "kind": "class",
+            "file": "app/ports/interview_entry.py",
+            "line": 91
+          },
+          {
+            "module": "app.ports.runtime",
+            "name": "InterviewSessionRepository",
+            "kind": "class",
+            "file": "app/ports/runtime.py",
+            "line": 204
+          }
+        ]
+      },
+      {
+        "key": "interviewsessionstore",
+        "status": "candidate",
+        "disposition": "expected_polymorphic_family",
+        "review_priority": "low",
+        "review_note": "Port and adapter variants are expected unless reachability says otherwise.",
+        "members": [
+          {
+            "module": "app.adapters.memory.session_store",
+            "name": "InterviewSessionStore",
+            "kind": "class",
+            "file": "app/adapters/memory/session_store.py",
+            "line": 65
+          },
+          {
+            "module": "app.adapters.persistence.postgres.session_store",
+            "name": "PostgresInterviewSessionStore",
+            "kind": "class",
+            "file": "app/adapters/persistence/postgres/session_store.py",
+            "line": 48
+          }
+        ]
+      },
+      {
+        "key": "knowledgestore",
+        "status": "candidate",
+        "disposition": "expected_polymorphic_family",
+        "review_priority": "low",
+        "review_note": "Port and adapter variants are expected unless reachability says otherwise.",
+        "members": [
+          {
+            "module": "app.adapters.knowledge.static_store",
+            "name": "StaticKnowledgeStore",
+            "kind": "class",
+            "file": "app/adapters/knowledge/static_store.py",
+            "line": 6
+          },
+          {
+            "module": "app.adapters.pgvector.repository",
+            "name": "PgVectorKnowledgeStore",
+            "kind": "class",
+            "file": "app/adapters/pgvector/repository.py",
+            "line": 66
+          }
+        ]
+      },
+      {
+        "key": "memorymetricstore",
+        "status": "candidate",
+        "disposition": "expected_polymorphic_family",
+        "review_priority": "low",
+        "review_note": "Port and adapter variants are expected unless reachability says otherwise.",
+        "members": [
+          {
+            "module": "app.adapters.memory.memory_metrics",
+            "name": "InMemoryMemoryMetricStore",
+            "kind": "class",
+            "file": "app/adapters/memory/memory_metrics.py",
+            "line": 14
+          },
+          {
+            "module": "app.adapters.persistence.postgres.memory_metrics",
+            "name": "PostgresMemoryMetricStore",
+            "kind": "class",
+            "file": "app/adapters/persistence/postgres/memory_metrics.py",
+            "line": 46
+          }
+        ]
+      },
+      {
+        "key": "prepplanstore",
+        "status": "candidate",
+        "disposition": "expected_polymorphic_family",
+        "review_priority": "low",
+        "review_note": "Port and adapter variants are expected unless reachability says otherwise.",
+        "members": [
+          {
+            "module": "app.adapters.memory.prep_plan_store",
+            "name": "InMemoryPrepPlanStore",
+            "kind": "class",
+            "file": "app/adapters/memory/prep_plan_store.py",
+            "line": 23
+          },
+          {
+            "module": "app.adapters.persistence.postgres.prep_plan_store",
+            "name": "PostgresPrepPlanStore",
+            "kind": "class",
+            "file": "app/adapters/persistence/postgres/prep_plan_store.py",
+            "line": 30
+          }
+        ]
+      },
+      {
+        "key": "principalmemoryconsentstore",
+        "status": "candidate",
+        "disposition": "expected_polymorphic_family",
+        "review_priority": "low",
+        "review_note": "Port and adapter variants are expected unless reachability says otherwise.",
+        "members": [
+          {
+            "module": "app.adapters.memory.principal_memory_consent",
+            "name": "InMemoryPrincipalMemoryConsentStore",
+            "kind": "class",
+            "file": "app/adapters/memory/principal_memory_consent.py",
+            "line": 8
+          },
+          {
+            "module": "app.adapters.persistence.postgres.principal_memory_consent",
+            "name": "PostgresPrincipalMemoryConsentStore",
+            "kind": "class",
+            "file": "app/adapters/persistence/postgres/principal_memory_consent.py",
+            "line": 12
+          },
+          {
+            "module": "app.ports.principal_memory_consent",
+            "name": "PrincipalMemoryConsentStore",
+            "kind": "class",
+            "file": "app/ports/principal_memory_consent.py",
+            "line": 7
+          }
+        ]
+      },
+      {
+        "key": "principalmemorycontrolstore",
+        "status": "candidate",
+        "disposition": "expected_polymorphic_family",
+        "review_priority": "low",
+        "review_note": "Port and adapter variants are expected unless reachability says otherwise.",
+        "members": [
+          {
+            "module": "app.adapters.memory.principal_memory_control",
+            "name": "InMemoryPrincipalMemoryControlStore",
+            "kind": "class",
+            "file": "app/adapters/memory/principal_memory_control.py",
+            "line": 11
+          },
+          {
+            "module": "app.adapters.persistence.postgres.principal_memory_control",
+            "name": "PostgresPrincipalMemoryControlStore",
+            "kind": "class",
+            "file": "app/adapters/persistence/postgres/principal_memory_control.py",
+            "line": 15
+          },
+          {
+            "module": "app.ports.principal_memory_control",
+            "name": "PrincipalMemoryControlStore",
+            "kind": "class",
+            "file": "app/ports/principal_memory_control.py",
+            "line": 7
+          }
+        ]
+      },
+      {
+        "key": "principalmemorydeletiontombstonestore",
+        "status": "candidate",
+        "disposition": "expected_polymorphic_family",
+        "review_priority": "low",
+        "review_note": "Port and adapter variants are expected unless reachability says otherwise.",
+        "members": [
+          {
+            "module": "app.adapters.memory.principal_memory_rights",
+            "name": "InMemoryPrincipalMemoryDeletionTombstoneStore",
+            "kind": "class",
+            "file": "app/adapters/memory/principal_memory_rights.py",
+            "line": 67
+          },
+          {
+            "module": "app.adapters.persistence.postgres.principal_memory_rights",
+            "name": "PostgresPrincipalMemoryDeletionTombstoneStore",
+            "kind": "class",
+            "file": "app/adapters/persistence/postgres/principal_memory_rights.py",
+            "line": 216
+          }
+        ]
+      },
+      {
+        "key": "principalmemoryexportstore",
+        "status": "candidate",
+        "disposition": "expected_polymorphic_family",
+        "review_priority": "low",
+        "review_note": "Port and adapter variants are expected unless reachability says otherwise.",
+        "members": [
+          {
+            "module": "app.adapters.memory.principal_memory_rights",
+            "name": "InMemoryPrincipalMemoryExportStore",
+            "kind": "class",
+            "file": "app/adapters/memory/principal_memory_rights.py",
+            "line": 14
+          },
+          {
+            "module": "app.adapters.persistence.postgres.principal_memory_rights",
+            "name": "PostgresPrincipalMemoryExportStore",
+            "kind": "class",
+            "file": "app/adapters/persistence/postgres/principal_memory_rights.py",
+            "line": 52
+          }
+        ]
+      },
+      {
+        "key": "principalmemoryfactstore",
+        "status": "candidate",
+        "disposition": "expected_polymorphic_family",
+        "review_priority": "low",
+        "review_note": "Port and adapter variants are expected unless reachability says otherwise.",
+        "members": [
+          {
+            "module": "app.adapters.memory.principal_memory",
+            "name": "InMemoryPrincipalMemoryFactStore",
+            "kind": "class",
+            "file": "app/adapters/memory/principal_memory.py",
+            "line": 16
+          },
+          {
+            "module": "app.adapters.postgres.principal_memory",
+            "name": "PostgresPrincipalMemoryFactStore",
+            "kind": "class",
+            "file": "app/adapters/postgres/principal_memory.py",
+            "line": 19
+          },
+          {
+            "module": "app.ports.principal_memory",
+            "name": "PrincipalMemoryFactStore",
+            "kind": "class",
+            "file": "app/ports/principal_memory.py",
+            "line": 8
+          }
+        ]
+      },
+      {
+        "key": "principalmemorysaferefstore",
+        "status": "candidate",
+        "disposition": "expected_polymorphic_family",
+        "review_priority": "low",
+        "review_note": "Port and adapter variants are expected unless reachability says otherwise.",
+        "members": [
+          {
+            "module": "app.adapters.memory.principal_memory_safe_refs",
+            "name": "InMemoryPrincipalMemorySafeRefStore",
+            "kind": "class",
+            "file": "app/adapters/memory/principal_memory_safe_refs.py",
+            "line": 14
+          },
+          {
+            "module": "app.adapters.persistence.postgres.principal_memory_rights",
+            "name": "PostgresPrincipalMemorySafeRefStore",
+            "kind": "class",
+            "file": "app/adapters/persistence/postgres/principal_memory_rights.py",
+            "line": 562
+          }
+        ]
+      },
+      {
+        "key": "questionevaluationrepository",
+        "status": "candidate",
+        "disposition": "expected_polymorphic_family",
+        "review_priority": "low",
+        "review_note": "Port and adapter variants are expected unless reachability says otherwise.",
+        "members": [
+          {
+            "module": "app.adapters.postgres.question_evaluation_repository",
+            "name": "PostgresQuestionEvaluationRepository",
+            "kind": "class",
+            "file": "app/adapters/postgres/question_evaluation_repository.py",
+            "line": 21
+          },
+          {
+            "module": "app.ports.runtime",
+            "name": "QuestionEvaluationRepository",
+            "kind": "class",
+            "file": "app/ports/runtime.py",
+            "line": 192
+          }
+        ]
+      },
+      {
+        "key": "questionmemoryindexstore",
+        "status": "candidate",
+        "disposition": "expected_polymorphic_family",
+        "review_priority": "low",
+        "review_note": "Port and adapter variants are expected unless reachability says otherwise.",
+        "members": [
+          {
+            "module": "app.adapters.memory.question_memory_index",
+            "name": "InMemoryQuestionMemoryIndexStore",
+            "kind": "class",
+            "file": "app/adapters/memory/question_memory_index.py",
+            "line": 10
+          },
+          {
+            "module": "app.adapters.persistence.postgres.question_memory_index",
+            "name": "PostgresQuestionMemoryIndexStore",
+            "kind": "class",
+            "file": "app/adapters/persistence/postgres/question_memory_index.py",
+            "line": 17
+          },
+          {
+            "module": "app.ports.question_memory",
+            "name": "QuestionMemoryIndexStore",
+            "kind": "class",
+            "file": "app/ports/question_memory.py",
+            "line": 9
+          }
+        ]
+      },
+      {
+        "key": "reportartifactstore",
+        "status": "candidate",
+        "disposition": "expected_polymorphic_family",
+        "review_priority": "low",
+        "review_note": "Port and adapter variants are expected unless reachability says otherwise.",
+        "members": [
+          {
+            "module": "app.adapters.memory.report_artifact_store",
+            "name": "InMemoryReportArtifactStore",
+            "kind": "class",
+            "file": "app/adapters/memory/report_artifact_store.py",
+            "line": 23
+          },
+          {
+            "module": "app.adapters.persistence.postgres.report_artifact_store",
+            "name": "PostgresReportArtifactStore",
+            "kind": "class",
+            "file": "app/adapters/persistence/postgres/report_artifact_store.py",
+            "line": 32
+          },
+          {
+            "module": "app.ports.report_artifacts",
+            "name": "ReportArtifactStore",
+            "kind": "class",
+            "file": "app/ports/report_artifacts.py",
+            "line": 19
+          }
+        ]
+      },
+      {
+        "key": "reportjobstore",
+        "status": "candidate",
+        "disposition": "expected_polymorphic_family",
+        "review_priority": "low",
+        "review_note": "Port and adapter variants are expected unless reachability says otherwise.",
+        "members": [
+          {
+            "module": "app.adapters.memory.report_job_store",
+            "name": "InMemoryReportJobStore",
+            "kind": "class",
+            "file": "app/adapters/memory/report_job_store.py",
+            "line": 14
+          },
+          {
+            "module": "app.adapters.persistence.postgres.report_job_store",
+            "name": "PostgresReportJobStore",
+            "kind": "class",
+            "file": "app/adapters/persistence/postgres/report_job_store.py",
+            "line": 39
+          }
+        ]
+      },
+      {
+        "key": "reportrepository",
+        "status": "candidate",
+        "disposition": "expected_polymorphic_family",
+        "review_priority": "low",
+        "review_note": "Port and adapter variants are expected unless reachability says otherwise.",
+        "members": [
+          {
+            "module": "app.adapters.postgres.report_repository",
+            "name": "PostgresReportRepository",
+            "kind": "class",
+            "file": "app/adapters/postgres/report_repository.py",
+            "line": 19
+          },
+          {
+            "module": "app.ports.runtime",
+            "name": "ReportRepository",
+            "kind": "class",
+            "file": "app/ports/runtime.py",
+            "line": 143
+          }
+        ]
+      },
+      {
+        "key": "sessiondeletionjobstore",
+        "status": "candidate",
+        "disposition": "expected_polymorphic_family",
+        "review_priority": "low",
+        "review_note": "Port and adapter variants are expected unless reachability says otherwise.",
+        "members": [
+          {
+            "module": "app.adapters.memory.session_deletion",
+            "name": "InMemorySessionDeletionJobStore",
+            "kind": "class",
+            "file": "app/adapters/memory/session_deletion.py",
+            "line": 10
+          },
+          {
+            "module": "app.adapters.persistence.postgres.session_deletion",
+            "name": "PostgresSessionDeletionJobStore",
+            "kind": "class",
+            "file": "app/adapters/persistence/postgres/session_deletion.py",
+            "line": 17
+          }
+        ]
+      },
+      {
+        "key": "sessiondeletiontombstonestore",
+        "status": "candidate",
+        "disposition": "expected_polymorphic_family",
+        "review_priority": "low",
+        "review_note": "Port and adapter variants are expected unless reachability says otherwise.",
+        "members": [
+          {
+            "module": "app.adapters.memory.session_deletion_tombstones",
+            "name": "InMemorySessionDeletionTombstoneStore",
+            "kind": "class",
+            "file": "app/adapters/memory/session_deletion_tombstones.py",
+            "line": 13
+          },
+          {
+            "module": "app.adapters.persistence.postgres.session_deletion_tombstones",
+            "name": "PostgresSessionDeletionTombstoneStore",
+            "kind": "class",
+            "file": "app/adapters/persistence/postgres/session_deletion_tombstones.py",
+            "line": 19
+          }
+        ]
+      },
+      {
+        "key": "userdocumentchunkrepository",
+        "status": "candidate",
+        "disposition": "expected_polymorphic_family",
+        "review_priority": "low",
+        "review_note": "Port and adapter variants are expected unless reachability says otherwise.",
+        "members": [
+          {
+            "module": "app.adapters.memory.user_documents",
+            "name": "InMemoryUserDocumentChunkRepository",
+            "kind": "class",
+            "file": "app/adapters/memory/user_documents.py",
+            "line": 178
+          },
+          {
+            "module": "app.adapters.pgvector.user_document_repository",
+            "name": "PgVectorUserDocumentChunkRepository",
+            "kind": "class",
+            "file": "app/adapters/pgvector/user_document_repository.py",
+            "line": 22
+          }
+        ]
+      },
+      {
+        "key": "userdocumentstore",
+        "status": "candidate",
+        "disposition": "expected_polymorphic_family",
+        "review_priority": "low",
+        "review_note": "Port and adapter variants are expected unless reachability says otherwise.",
+        "members": [
+          {
+            "module": "app.adapters.memory.user_documents",
+            "name": "InMemoryUserDocumentStore",
+            "kind": "class",
+            "file": "app/adapters/memory/user_documents.py",
+            "line": 14
+          },
+          {
+            "module": "app.adapters.postgres.user_documents",
+            "name": "PostgresUserDocumentStore",
+            "kind": "class",
+            "file": "app/adapters/postgres/user_documents.py",
+            "line": 23
+          }
+        ]
+      }
+    ],
+    "dto_shapes": [
+      {
+        "key": "[[\"context_messages\",\"list[dict[str, str]]\"],[\"artifact_ref\",\"str | None\"],[\"artifact_sha256\",\"str | None\"],[\"artifact_type\",\"str | None\"],[\"policy_version\",\"str | None\"],[\"route\",\"str\"]]",
+        "status": "candidate",
+        "disposition": "shared_contract_candidate",
+        "review_priority": "high",
+        "review_note": "Exact context shape and body; establish a canonical contract owner.",
+        "members": [
+          {
+            "module": "app.application.interview.context_artifacts",
+            "name": "InterviewArtifactContext",
+            "kind": "class",
+            "file": "app/application/interview/context_artifacts.py",
+            "line": 82
+          },
+          {
+            "module": "app.runtime.evidence_context_artifacts",
+            "name": "EvidenceArtifactContext",
+            "kind": "class",
+            "file": "app/runtime/evidence_context_artifacts.py",
+            "line": 64
+          }
+        ]
+      },
+      {
+        "key": "[[\"id\",\"str\"],[\"kind\",\"Literal['project', 'technical', 'system-design', 'behavioral']\"],[\"prompt\",\"str\"],[\"focus\",\"str\"]]",
+        "status": "candidate",
+        "disposition": "compatible_shape_only",
+        "review_priority": "low",
+        "review_note": "Field-shape equality alone does not establish duplicate semantics.",
+        "members": [
+          {
+            "module": "app.domain.interview.prep",
+            "name": "InterviewQuestion",
+            "kind": "class",
+            "file": "app/domain/interview/prep.py",
+            "line": 110
+          },
+          {
+            "module": "app.domain.interview.session_plan_binding",
+            "name": "_LegacyQuestionSnapshot",
+            "kind": "class",
+            "file": "app/domain/interview/session_plan_binding.py",
+            "line": 24
+          },
+          {
+            "module": "app.evals.synthetic_session_diagnostics",
+            "name": "SyntheticQuestion",
+            "kind": "class",
+            "file": "app/evals/synthetic_session_diagnostics.py",
+            "line": 31
+          }
+        ]
+      }
+    ],
+    "evaluator_names": [
+      {
+        "key": "_assert_synthetic_safe",
+        "status": "candidate",
+        "disposition": "evaluation_related_name_review",
+        "review_priority": "medium",
+        "review_note": "Broad token/name heuristic; compare behavior before consolidation.",
+        "members": [
+          {
+            "module": "app.evals.cross_question_report_diagnostics",
+            "name": "_assert_synthetic_safe",
+            "kind": "function",
+            "file": "app/evals/cross_question_report_diagnostics.py",
+            "line": 432
+          },
+          {
+            "module": "app.evals.synthetic_session_diagnostics",
+            "name": "_assert_synthetic_safe",
+            "kind": "function",
+            "file": "app/evals/synthetic_session_diagnostics.py",
+            "line": 448
+          }
+        ]
+      },
+      {
+        "key": "_build_followup_diagnostic_input",
+        "status": "candidate",
+        "disposition": "evaluation_related_name_review",
+        "review_priority": "medium",
+        "review_note": "Broad token/name heuristic; compare behavior before consolidation.",
+        "members": [
+          {
+            "module": "app.graphs.durable_interview_graph",
+            "name": "_build_followup_diagnostic_input",
+            "kind": "function",
+            "file": "app/graphs/durable_interview_graph.py",
+            "line": 1262
+          },
+          {
+            "module": "app.graphs.interview_graph",
+            "name": "_build_followup_diagnostic_input",
+            "kind": "function",
+            "file": "app/graphs/interview_graph.py",
+            "line": 393
+          }
+        ]
+      },
+      {
+        "key": "_canonical_json",
+        "status": "candidate",
+        "disposition": "evaluation_related_name_review",
+        "review_priority": "medium",
+        "review_note": "Broad token/name heuristic; compare behavior before consolidation.",
+        "members": [
+          {
+            "module": "app.domain.interview.followup_diagnostics",
+            "name": "_canonical_json",
+            "kind": "function",
+            "file": "app/domain/interview/followup_diagnostics.py",
+            "line": 395
+          },
+          {
+            "module": "app.evals.report_semantic_review",
+            "name": "_canonical_json",
+            "kind": "function",
+            "file": "app/evals/report_semantic_review.py",
+            "line": 32
+          }
+        ]
+      },
+      {
+        "key": "_canonical_sha256",
+        "status": "candidate",
+        "disposition": "evaluation_related_name_review",
+        "review_priority": "medium",
+        "review_note": "Broad token/name heuristic; compare behavior before consolidation.",
+        "members": [
+          {
+            "module": "app.evals.t65_builtin_production_executor",
+            "name": "_canonical_sha256",
+            "kind": "function",
+            "file": "app/evals/t65_builtin_production_executor.py",
+            "line": 1329
+          },
+          {
+            "module": "app.evals.t65_formal_execution_receipt",
+            "name": "_canonical_sha256",
+            "kind": "function",
+            "file": "app/evals/t65_formal_execution_receipt.py",
+            "line": 66
+          }
+        ]
+      },
+      {
+        "key": "_first_value",
+        "status": "candidate",
+        "disposition": "evaluation_related_name_review",
+        "review_priority": "medium",
+        "review_note": "Broad token/name heuristic; compare behavior before consolidation.",
+        "members": [
+          {
+            "module": "app.evals.postgres_capacity",
+            "name": "_first_value",
+            "kind": "function",
+            "file": "app/evals/postgres_capacity.py",
+            "line": 359
+          },
+          {
+            "module": "app.evals.t65_provider_evidence",
+            "name": "_first_value",
+            "kind": "function",
+            "file": "app/evals/t65_provider_evidence.py",
+            "line": 1624
+          }
+        ]
+      },
+      {
+        "key": "_optional_int",
+        "status": "candidate",
+        "disposition": "evaluation_related_name_review",
+        "review_priority": "medium",
+        "review_note": "Broad token/name heuristic; compare behavior before consolidation.",
+        "members": [
+          {
+            "module": "app.evals.t65_provider_evidence",
+            "name": "_optional_int",
+            "kind": "function",
+            "file": "app/evals/t65_provider_evidence.py",
+            "line": 1636
+          },
+          {
+            "module": "app.evals.t65_runtime_performance",
+            "name": "_optional_int",
+            "kind": "function",
+            "file": "app/evals/t65_runtime_performance.py",
+            "line": 539
+          }
+        ]
+      },
+      {
+        "key": "_path_has_reparse_component",
+        "status": "candidate",
+        "disposition": "evaluation_related_name_review",
+        "review_priority": "medium",
+        "review_note": "Broad token/name heuristic; compare behavior before consolidation.",
+        "members": [
+          {
+            "module": "app.evals.t65_production_capture",
+            "name": "_path_has_reparse_component",
+            "kind": "function",
+            "file": "app/evals/t65_production_capture.py",
+            "line": 269
+          },
+          {
+            "module": "app.evals.t65_provider_evidence",
+            "name": "_path_has_reparse_component",
+            "kind": "function",
+            "file": "app/evals/t65_provider_evidence.py",
+            "line": 1769
+          }
+        ]
+      },
+      {
+        "key": "_ratio",
+        "status": "candidate",
+        "disposition": "evaluation_related_name_review",
+        "review_priority": "medium",
+        "review_note": "Broad token/name heuristic; compare behavior before consolidation.",
+        "members": [
+          {
+            "module": "app.domain.knowledge.eval_metrics_v3",
+            "name": "_ratio",
+            "kind": "function",
+            "file": "app/domain/knowledge/eval_metrics_v3.py",
+            "line": 312
+          },
+          {
+            "module": "app.evals.followup_eval",
+            "name": "_ratio",
+            "kind": "function",
+            "file": "app/evals/followup_eval.py",
+            "line": 1099
+          },
+          {
+            "module": "app.evals.initial_question_eval",
+            "name": "_ratio",
+            "kind": "function",
+            "file": "app/evals/initial_question_eval.py",
+            "line": 924
+          }
+        ]
+      },
+      {
+        "key": "_redaction_preflight",
+        "status": "candidate",
+        "disposition": "evaluation_related_name_review",
+        "review_priority": "medium",
+        "review_note": "Broad token/name heuristic; compare behavior before consolidation.",
+        "members": [
+          {
+            "module": "app.evals.followup_provider_preflight",
+            "name": "_redaction_preflight",
+            "kind": "function",
+            "file": "app/evals/followup_provider_preflight.py",
+            "line": 317
+          },
+          {
+            "module": "app.evals.initial_question_provider_preflight",
+            "name": "_redaction_preflight",
+            "kind": "function",
+            "file": "app/evals/initial_question_provider_preflight.py",
+            "line": 149
+          }
+        ]
+      },
+      {
+        "key": "_sha256",
+        "status": "candidate",
+        "disposition": "evaluation_related_name_review",
+        "review_priority": "medium",
+        "review_note": "Broad token/name heuristic; compare behavior before consolidation.",
+        "members": [
+          {
+            "module": "app.evals.evaluator_candidate_identity",
+            "name": "_sha256",
+            "kind": "function",
+            "file": "app/evals/evaluator_candidate_identity.py",
+            "line": 346
+          },
+          {
+            "module": "app.graphs.durable_review_state",
+            "name": "_sha256",
+            "kind": "function",
+            "file": "app/graphs/durable_review_state.py",
+            "line": 19
+          }
+        ]
+      },
+      {
+        "key": "_sha256_file",
+        "status": "candidate",
+        "disposition": "evaluation_related_name_review",
+        "review_priority": "medium",
+        "review_note": "Broad token/name heuristic; compare behavior before consolidation.",
+        "members": [
+          {
+            "module": "app.evals.followup_provider_preflight",
+            "name": "_sha256_file",
+            "kind": "function",
+            "file": "app/evals/followup_provider_preflight.py",
+            "line": 339
+          },
+          {
+            "module": "app.evals.initial_question_provider_preflight",
+            "name": "_sha256_file",
+            "kind": "function",
+            "file": "app/evals/initial_question_provider_preflight.py",
+            "line": 160
+          },
+          {
+            "module": "app.evals.t65_provider_evidence",
+            "name": "_sha256_file",
+            "kind": "function",
+            "file": "app/evals/t65_provider_evidence.py",
+            "line": 1786
+          }
+        ]
+      },
+      {
+        "key": "_sha256_text",
+        "status": "candidate",
+        "disposition": "evaluation_related_name_review",
+        "review_priority": "medium",
+        "review_note": "Broad token/name heuristic; compare behavior before consolidation.",
+        "members": [
+          {
+            "module": "app.domain.report.runtime_quality",
+            "name": "_sha256_text",
+            "kind": "function",
+            "file": "app/domain/report/runtime_quality.py",
+            "line": 672
+          },
+          {
+            "module": "app.evals.t65_provider_evidence",
+            "name": "_sha256_text",
+            "kind": "function",
+            "file": "app/evals/t65_provider_evidence.py",
+            "line": 1790
+          }
+        ]
+      },
+      {
+        "key": "_text_sha256",
+        "status": "candidate",
+        "disposition": "evaluation_related_name_review",
+        "review_priority": "medium",
+        "review_note": "Broad token/name heuristic; compare behavior before consolidation.",
+        "members": [
+          {
+            "module": "app.evals.t65_builtin_production_executor",
+            "name": "_text_sha256",
+            "kind": "function",
+            "file": "app/evals/t65_builtin_production_executor.py",
+            "line": 1339
+          },
+          {
+            "module": "app.evals.t65_formal_execution_receipt",
+            "name": "_text_sha256",
+            "kind": "function",
+            "file": "app/evals/t65_formal_execution_receipt.py",
+            "line": 70
+          },
+          {
+            "module": "app.graphs.durable_review_state",
+            "name": "_text_sha256",
+            "kind": "function",
+            "file": "app/graphs/durable_review_state.py",
+            "line": 29
+          }
+        ]
+      },
+      {
+        "key": "_validate_attempt_coverage",
+        "status": "candidate",
+        "disposition": "evaluation_related_name_review",
+        "review_priority": "medium",
+        "review_note": "Broad token/name heuristic; compare behavior before consolidation.",
+        "members": [
+          {
+            "module": "app.evals.followup_eval",
+            "name": "_validate_attempt_coverage",
+            "kind": "function",
+            "file": "app/evals/followup_eval.py",
+            "line": 905
+          },
+          {
+            "module": "app.evals.initial_question_eval",
+            "name": "_validate_attempt_coverage",
+            "kind": "function",
+            "file": "app/evals/initial_question_eval.py",
+            "line": 841
+          }
+        ]
+      },
+      {
+        "key": "_validate_replacement_question_quality",
+        "status": "candidate",
+        "disposition": "evaluation_related_name_review",
+        "review_priority": "medium",
+        "review_note": "Broad token/name heuristic; compare behavior before consolidation.",
+        "members": [
+          {
+            "module": "app.domain.interview.prep_plans",
+            "name": "_validate_replacement_question_quality",
+            "kind": "function",
+            "file": "app/domain/interview/prep_plans.py",
+            "line": 546
+          },
+          {
+            "module": "app.runtime.interview_plan_regenerator",
+            "name": "_validate_replacement_question_quality",
+            "kind": "function",
+            "file": "app/runtime/interview_plan_regenerator.py",
+            "line": 156
+          }
+        ]
+      },
+      {
+        "key": "canonical_json_bytes",
+        "status": "candidate",
+        "disposition": "evaluation_related_name_review",
+        "review_priority": "medium",
+        "review_note": "Broad token/name heuristic; compare behavior before consolidation.",
+        "members": [
+          {
+            "module": "app.evals.independent_review_handoff",
+            "name": "canonical_json_bytes",
+            "kind": "function",
+            "file": "app/evals/independent_review_handoff.py",
+            "line": 150
+          },
+          {
+            "module": "app.evals.interview_quality_dataset",
+            "name": "canonical_json_bytes",
+            "kind": "function",
+            "file": "app/evals/interview_quality_dataset.py",
+            "line": 363
+          }
+        ]
+      },
+      {
+        "key": "canonical_sha256",
+        "status": "candidate",
+        "disposition": "evaluation_related_name_review",
+        "review_priority": "medium",
+        "review_note": "Broad token/name heuristic; compare behavior before consolidation.",
+        "members": [
+          {
+            "module": "app.application.knowledge.eval_artifacts_v3",
+            "name": "canonical_sha256",
+            "kind": "function",
+            "file": "app/application/knowledge/eval_artifacts_v3.py",
+            "line": 36
+          },
+          {
+            "module": "app.evals.cross_question_report_diagnostics",
+            "name": "canonical_sha256",
+            "kind": "function",
+            "file": "app/evals/cross_question_report_diagnostics.py",
+            "line": 316
+          },
+          {
+            "module": "app.evals.independent_review_handoff",
+            "name": "canonical_sha256",
+            "kind": "function",
+            "file": "app/evals/independent_review_handoff.py",
+            "line": 163
+          },
+          {
+            "module": "app.evals.report_semantic_review",
+            "name": "canonical_sha256",
+            "kind": "function",
+            "file": "app/evals/report_semantic_review.py",
+            "line": 43
+          },
+          {
+            "module": "app.evals.synthetic_session_diagnostics",
+            "name": "canonical_sha256",
+            "kind": "function",
+            "file": "app/evals/synthetic_session_diagnostics.py",
+            "line": 84
+          }
+        ]
+      },
+      {
+        "key": "consume_round_review_event",
+        "status": "candidate",
+        "disposition": "composition_wrapper",
+        "review_priority": "low",
+        "review_note": "Composition injects dependencies and delegates; not an evaluator clone.",
+        "members": [
+          {
+            "module": "app.runtime.composition",
+            "name": "consume_round_review_event",
+            "kind": "function",
+            "file": "app/runtime/composition.py",
+            "line": 2415
+          },
+          {
+            "module": "app.runtime.runtime_event_consumer",
+            "name": "consume_round_review_event",
+            "kind": "function",
+            "file": "app/runtime/runtime_event_consumer.py",
+            "line": 73
+          }
+        ]
+      },
+      {
+        "key": "consume_round_review_event_payload",
+        "status": "candidate",
+        "disposition": "composition_wrapper",
+        "review_priority": "low",
+        "review_note": "Composition injects dependencies and delegates; not an evaluator clone.",
+        "members": [
+          {
+            "module": "app.runtime.composition",
+            "name": "consume_round_review_event_payload",
+            "kind": "function",
+            "file": "app/runtime/composition.py",
+            "line": 2388
+          },
+          {
+            "module": "app.runtime.runtime_event_consumer",
+            "name": "consume_round_review_event_payload",
+            "kind": "function",
+            "file": "app/runtime/runtime_event_consumer.py",
+            "line": 36
+          }
+        ]
+      },
+      {
+        "key": "enforce_generated_interview_question_quality",
+        "status": "candidate",
+        "disposition": "evaluation_related_name_review",
+        "review_priority": "medium",
+        "review_note": "Broad token/name heuristic; compare behavior before consolidation.",
+        "members": [
+          {
+            "module": "app.domain.interview.plan_generation",
+            "name": "enforce_generated_interview_question_quality",
+            "kind": "function",
+            "file": "app/domain/interview/plan_generation.py",
+            "line": 103
+          },
+          {
+            "module": "app.runtime.interview_prep",
+            "name": "enforce_generated_interview_question_quality",
+            "kind": "function",
+            "file": "app/runtime/interview_prep.py",
+            "line": 120
+          }
+        ]
+      }
+    ],
+    "runtime_wiring_fingerprints": [],
+    "version_modules": [
+      {
+        "key": "app.domain.knowledge.eval_dataset<version>",
+        "status": "candidate",
+        "disposition": "migration_dependency_review",
+        "review_priority": "high",
+        "review_note": "Version removal requires zero production, wiring, integration, and migration dependency.",
+        "members": [
+          "app.domain.knowledge.eval_dataset_v2",
+          "app.domain.knowledge.eval_dataset_v3"
+        ]
+      },
+      {
+        "key": "app.domain.knowledge.eval_metrics<version>",
+        "status": "candidate",
+        "disposition": "migration_dependency_review",
+        "review_priority": "high",
+        "review_note": "Version removal requires zero production, wiring, integration, and migration dependency.",
+        "members": [
+          "app.domain.knowledge.eval_metrics_v2",
+          "app.domain.knowledge.eval_metrics_v3"
+        ]
+      },
+      {
+        "key": "app.graphs.durable_interview_state<version>",
+        "status": "candidate",
+        "disposition": "migration_dependency_review",
+        "review_priority": "high",
+        "review_note": "Version removal requires zero production, wiring, integration, and migration dependency.",
+        "members": [
+          "app.graphs.durable_interview_state_v2",
+          "app.graphs.durable_interview_state_v3"
+        ]
+      }
+    ],
+    "version_symbols": [
+      {
+        "key": "app.domain.knowledge.eval_dataset<version>.knowledgeretrievalcase<version>",
+        "status": "candidate",
+        "disposition": "migration_dependency_review",
+        "review_priority": "high",
+        "review_note": "Version removal requires zero production, wiring, integration, and migration dependency.",
+        "members": [
+          {
+            "module": "app.domain.knowledge.eval_dataset_v2",
+            "name": "KnowledgeRetrievalCaseV2",
+            "kind": "class",
+            "file": "app/domain/knowledge/eval_dataset_v2.py",
+            "line": 37
+          },
+          {
+            "module": "app.domain.knowledge.eval_dataset_v3",
+            "name": "KnowledgeRetrievalCaseV3",
+            "kind": "class",
+            "file": "app/domain/knowledge/eval_dataset_v3.py",
+            "line": 39
+          }
+        ]
+      },
+      {
+        "key": "app.domain.knowledge.eval_dataset<version>.knowledgeretrievaldataset<version>",
+        "status": "candidate",
+        "disposition": "migration_dependency_review",
+        "review_priority": "high",
+        "review_note": "Version removal requires zero production, wiring, integration, and migration dependency.",
+        "members": [
+          {
+            "module": "app.domain.knowledge.eval_dataset_v2",
+            "name": "KnowledgeRetrievalDatasetV2",
+            "kind": "class",
+            "file": "app/domain/knowledge/eval_dataset_v2.py",
+            "line": 86
+          },
+          {
+            "module": "app.domain.knowledge.eval_dataset_v3",
+            "name": "KnowledgeRetrievalDatasetV3",
+            "kind": "class",
+            "file": "app/domain/knowledge/eval_dataset_v3.py",
+            "line": 118
+          }
+        ]
+      },
+      {
+        "key": "app.domain.knowledge.eval_dataset<version>.load_knowledge_retrieval_dataset<version>",
+        "status": "candidate",
+        "disposition": "migration_dependency_review",
+        "review_priority": "high",
+        "review_note": "Version removal requires zero production, wiring, integration, and migration dependency.",
+        "members": [
+          {
+            "module": "app.domain.knowledge.eval_dataset_v2",
+            "name": "load_knowledge_retrieval_dataset_v2",
+            "kind": "function",
+            "file": "app/domain/knowledge/eval_dataset_v2.py",
+            "line": 108
+          },
+          {
+            "module": "app.domain.knowledge.eval_dataset_v3",
+            "name": "load_knowledge_retrieval_dataset_v3",
+            "kind": "function",
+            "file": "app/domain/knowledge/eval_dataset_v3.py",
+            "line": 222
+          }
+        ]
+      },
+      {
+        "key": "app.domain.knowledge.eval_metrics<version>.calculate_knowledge_retrieval_metrics<version>",
+        "status": "candidate",
+        "disposition": "migration_dependency_review",
+        "review_priority": "high",
+        "review_note": "Version removal requires zero production, wiring, integration, and migration dependency.",
+        "members": [
+          {
+            "module": "app.domain.knowledge.eval_metrics_v2",
+            "name": "calculate_knowledge_retrieval_metrics_v2",
+            "kind": "function",
+            "file": "app/domain/knowledge/eval_metrics_v2.py",
+            "line": 60
+          },
+          {
+            "module": "app.domain.knowledge.eval_metrics_v3",
+            "name": "calculate_knowledge_retrieval_metrics_v3",
+            "kind": "function",
+            "file": "app/domain/knowledge/eval_metrics_v3.py",
+            "line": 108
+          }
+        ]
+      },
+      {
+        "key": "app.domain.knowledge.eval_metrics<version>.knowledgeretrievalmetrics<version>",
+        "status": "candidate",
+        "disposition": "migration_dependency_review",
+        "review_priority": "high",
+        "review_note": "Version removal requires zero production, wiring, integration, and migration dependency.",
+        "members": [
+          {
+            "module": "app.domain.knowledge.eval_metrics_v2",
+            "name": "KnowledgeRetrievalMetricsV2",
+            "kind": "class",
+            "file": "app/domain/knowledge/eval_metrics_v2.py",
+            "line": 44
+          },
+          {
+            "module": "app.domain.knowledge.eval_metrics_v3",
+            "name": "KnowledgeRetrievalMetricsV3",
+            "kind": "class",
+            "file": "app/domain/knowledge/eval_metrics_v3.py",
+            "line": 58
+          }
+        ]
+      },
+      {
+        "key": "app.domain.knowledge.eval_metrics<version>.knowledgeretrievalobservation<version>",
+        "status": "candidate",
+        "disposition": "migration_dependency_review",
+        "review_priority": "high",
+        "review_note": "Version removal requires zero production, wiring, integration, and migration dependency.",
+        "members": [
+          {
+            "module": "app.domain.knowledge.eval_metrics_v2",
+            "name": "KnowledgeRetrievalObservationV2",
+            "kind": "class",
+            "file": "app/domain/knowledge/eval_metrics_v2.py",
+            "line": 22
+          },
+          {
+            "module": "app.domain.knowledge.eval_metrics_v3",
+            "name": "KnowledgeRetrievalObservationV3",
+            "kind": "class",
+            "file": "app/domain/knowledge/eval_metrics_v3.py",
+            "line": 20
+          }
+        ]
+      },
+      {
+        "key": "app.graphs.durable_interview_state<version>.durableinterviewstate<version>",
+        "status": "candidate",
+        "disposition": "migration_dependency_review",
+        "review_priority": "high",
+        "review_note": "Version removal requires zero production, wiring, integration, and migration dependency.",
+        "members": [
+          {
+            "module": "app.graphs.durable_interview_state_v2",
+            "name": "DurableInterviewStateV2",
+            "kind": "class",
+            "file": "app/graphs/durable_interview_state_v2.py",
+            "line": 14
+          },
+          {
+            "module": "app.graphs.durable_interview_state_v3",
+            "name": "DurableInterviewStateV3",
+            "kind": "class",
+            "file": "app/graphs/durable_interview_state_v3.py",
+            "line": 8
+          }
+        ]
+      },
+      {
+        "key": "app.graphs.durable_interview_state<version>.make_durable_initial_state<version>",
+        "status": "candidate",
+        "disposition": "migration_dependency_review",
+        "review_priority": "high",
+        "review_note": "Version removal requires zero production, wiring, integration, and migration dependency.",
+        "members": [
+          {
+            "module": "app.graphs.durable_interview_state_v2",
+            "name": "make_durable_initial_state_v2",
+            "kind": "function",
+            "file": "app/graphs/durable_interview_state_v2.py",
+            "line": 92
+          },
+          {
+            "module": "app.graphs.durable_interview_state_v3",
+            "name": "make_durable_initial_state_v3",
+            "kind": "function",
+            "file": "app/graphs/durable_interview_state_v3.py",
+            "line": 79
+          }
+        ]
+      }
+    ]
+  }
+}

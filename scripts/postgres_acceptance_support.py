@@ -13,7 +13,7 @@ from app.adapters.postgres.owned_scope import (
     Psycopg2OwnedScopeBackend,
 )
 from app.ports.postgres_scope import OwnedPostgresLease, PostgresCleanupResidue
-from app.services.postgres_connections import DirectPsycopg2ConnectionProvider
+from app.adapters.postgres.connections import DirectPsycopg2ConnectionProvider
 from app.ports.postgres_scope import PostgresScopeApproval
 from contracts.evidence.receipt import HmacReceiptSigner
 

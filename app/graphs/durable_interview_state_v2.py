@@ -4,8 +4,8 @@ from typing import Any, Literal, TypedDict
 
 from app.graphs.durable_interview_state import DurablePlanSnapshot
 from app.graphs.interview_state import InterviewMessage, MemoryPolicyVersion
-from app.services.prep import InterviewPlan
-from app.services.session_plan_binding import (
+from app.domain.interview.prep import InterviewPlan
+from app.domain.interview.session_plan_binding import (
     SessionPlanBinding,
     legacy_session_plan_binding,
 )

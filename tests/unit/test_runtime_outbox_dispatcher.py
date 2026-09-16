@@ -4,18 +4,16 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from threading import Event
 
-from app.services.workflow_thread_lock import (
+from app.domain.workflow_thread_lock import (
     GenerationLeaseLost,
     ProjectionConflict,
 )
 
-from app.services.runtime_outbox_dispatcher import (
+from app.runtime.outbox import (
     CeleryRuntimeEventSink,
     LocalRuntimeEventSink,
     RuntimeOutboxDispatcher,
 )
-
-
 def make_claim(
     event_id: str,
     *,
@@ -300,3 +298,38 @@ def test_local_sink_routes_principal_memory_event_without_round_review():
     sink.publish(payload)
 
     assert consumer.payloads == [payload]
+
+
+def test_local_sink_routes_round_review_through_injected_consumer():
+    calls = []
+
+    class Outcome:
+        status = "completed"
+        error_code = None
+
+    def consume(payload, **kwargs):
+        calls.append((payload, kwargs))
+        return Outcome()
+
+    control_store = object()
+    session_store = object()
+    sink = LocalRuntimeEventSink(
+        control_store=control_store,
+        worker_id="worker",
+        store=session_store,
+        round_review_consumer=consume,
+    )
+    payload = {"event_type": "round_closed", "event_id": "event-round"}
+
+    sink.publish(payload)
+
+    assert calls == [
+        (
+            payload,
+            {
+                "control_store": control_store,
+                "worker_id": "worker",
+                "store": session_store,
+            },
+        )
+    ]

@@ -3,7 +3,7 @@ from concurrent.futures import ThreadPoolExecutor
 import pytest
 
 from app.graphs.interview_graph import INTERVIEW_FINISHED_MESSAGE
-from app.services.session import InterviewSessionStore
+from app.adapters.memory.session_store import InterviewSessionStore
 from app.domain.interview.errors import SessionVersionConflict
 from tests.session_fixtures import FakeInterviewLLM, make_interview_plan
 

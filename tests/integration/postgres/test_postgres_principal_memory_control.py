@@ -6,10 +6,10 @@ from datetime import datetime, timezone
 
 import pytest
 
-from app.services.postgres_principal_memory_control import (
+from app.adapters.persistence.postgres.principal_memory_control import (
     PostgresPrincipalMemoryControlStore,
 )
-from app.services.principal_memory_control import PrincipalMemoryControlConflict
+from app.application.memory.control import PrincipalMemoryControlConflict
 
 
 @pytest.mark.pg_runtime

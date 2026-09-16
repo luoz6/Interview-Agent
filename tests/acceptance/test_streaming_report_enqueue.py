@@ -5,10 +5,10 @@ from fastapi.testclient import TestClient
 import app.api.shared.dependencies as api_dependencies
 from app.api.shared.dependencies import get_session_store
 from app.main import app
-from app.services.event_publisher import NoopRuntimeEventPublisher
-from app.services.prep import InterviewPlan, InterviewQuestion
-from app.services.runtime_events import InterviewStreamDoneEvent
-from app.services.session import InterviewSessionStore
+from app.runtime.event_publisher import NoopRuntimeEventPublisher
+from app.runtime.interview_prep import InterviewPlan, InterviewQuestion
+from app.application.interview.events import InterviewStreamDoneEvent
+from app.adapters.memory.session_store import InterviewSessionStore
 
 
 _ORIGINAL_GET_REPORT_JOB_STORE = api_dependencies.get_report_job_store

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Protocol, runtime_checkable
 
-from app.services.question_memory_index import QuestionMemoryIndexEntry
+from app.domain.memory.question_index import QuestionMemoryIndexEntry
 
 
 @runtime_checkable

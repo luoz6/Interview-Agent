@@ -7,7 +7,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from app.services.question_memory_index import QUESTION_MEMORY_TAXONOMY
+from app.domain.memory.question_index import QUESTION_MEMORY_TAXONOMY
 
 
 EXPECTED_FIELDS = {
@@ -22,7 +22,7 @@ EXPECTED_FIELDS = {
 
 
 def _subject():
-    module = import_module("app.services.interview_status_projection")
+    module = import_module("app.domain.interview.status_projection")
     return (
         module.build_interview_status_projection,
         module.render_interview_status_message,
@@ -30,7 +30,7 @@ def _subject():
 
 
 def _subject_module():
-    return import_module("app.services.interview_status_projection")
+    return import_module("app.domain.interview.status_projection")
 
 
 def _projection_payload(value):

@@ -3,19 +3,19 @@ import json
 import pytest
 from pydantic import ValidationError
 
-from app.services.report import (
+from app.domain.report.models import (
     DimensionScores,
     FeedbackReference,
     InterviewFeedback,
     ReportObservationV2,
 )
-from app.services.report_contract import build_report_evidence_refs
-from app.services.report_coverage import (
+from app.domain.report.assembly import build_report_evidence_refs
+from app.domain.report.coverage import (
     aggregate_report_coverage,
     dimension_evaluations,
     populate_feedback_dimension_evaluations,
 )
-from app.services.report_observations import aggregate_report_observations
+from app.domain.report.observations import aggregate_report_observations
 
 
 def _feedback(

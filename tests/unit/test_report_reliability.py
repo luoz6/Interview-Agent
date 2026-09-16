@@ -1,13 +1,13 @@
 from app.graphs.interview_state import build_initial_state
-from app.services.prep import InterviewPlan, InterviewQuestion
-from app.services.question_evaluations import QuestionEvaluationRecord
-from app.services.report import (
+from app.runtime.interview_prep import InterviewPlan, InterviewQuestion
+from app.domain.report.question_evaluations import QuestionEvaluationRecord
+from app.domain.report.models import (
     DimensionScores,
     FeedbackReference,
     InterviewFeedback,
     InterviewReport,
 )
-from app.services.report_reliability import ReportReliabilityProjector
+from app.domain.report.reliability import ReportReliabilityProjector
 
 
 def _scores(value: int = 72) -> DimensionScores:

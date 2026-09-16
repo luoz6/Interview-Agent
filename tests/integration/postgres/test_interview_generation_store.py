@@ -7,22 +7,22 @@ from uuid import uuid4
 
 import pytest
 
-from app.services.interview_generation_store import (
+from app.adapters.persistence.postgres.interview_generation_store import (
     ChunkCoalescer,
     GenerationAlreadyCompleted,
     GenerationInputConflict,
     GenerationLeaseConflict,
     PostgresInterviewGenerationStore,
 )
-from app.services.followup_prompts import (
+from app.domain.interview.followup_prompts import (
     FOLLOWUP_DECISION_PROMPT_SHA256,
     FOLLOWUP_DECISION_PROMPT_VERSION,
     FOLLOWUP_GENERATION_PROMPT_SHA256,
     FOLLOWUP_GENERATION_PROMPT_VERSION,
 )
-from app.services.postgres_connections import DirectPsycopg2ConnectionProvider
-from app.services.postgres_session import PostgresInterviewSessionStore
-from app.services.workflow_thread_lock import GenerationLeaseLost
+from app.adapters.postgres.connections import DirectPsycopg2ConnectionProvider
+from app.adapters.persistence.postgres.session_store import PostgresInterviewSessionStore
+from app.domain.workflow_thread_lock import GenerationLeaseLost
 from tests.integration.postgres.test_postgres_session_store import make_plan
 
 

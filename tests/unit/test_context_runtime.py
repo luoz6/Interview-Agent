@@ -6,31 +6,32 @@ from typing import get_type_hints
 
 import pytest
 
-import app.services.context_runtime as context_runtime_module
+import app.runtime.context_runtime as context_runtime_module
 from app.graphs.durable_interview_graph import _recent_conversation_messages
 from app.graphs.interview_graph import _build_followup_context
 from app.graphs.interview_state import build_initial_state
-from app.services.context_budget import (
+from app.domain.context.budget import (
     ContextBudgetResolver,
     DynamicCompressionTargetPolicy,
 )
-from app.services.context_runtime import (
+from app.runtime.context_runtime import (
     ContextRuntime,
     ContextRuntimeConfig,
     build_context_runtime,
     get_context_runtime,
     reset_context_runtime_for_tests,
 )
-from app.services.context_source_identity import ContextSourceIdentityConfig
-from app.services.model_capabilities import (
+from app.domain.context.runtime import ContextRuntime as DomainContextRuntime
+from app.domain.context.source_identity import ContextSourceIdentityConfig
+from app.domain.context.model_capabilities import (
     ContextConfigurationError,
     ModelRuntimeProfile,
 )
-from app.services.evaluator_ext import _budget_question_review_input
-from app.services.llm import LLMConfig, OpenAIInterviewLLM
+from app.runtime.expert_evaluator import _budget_question_review_input
+from app.adapters.providers.llm import LLMConfig, OpenAIInterviewLLM
 from app.runtime.config.memory import load_effective_memory_config
-from app.services.prep import InterviewPlan, InterviewQuestion
-from app.services.token_estimation import TokenEstimatorResolution
+from app.runtime.interview_prep import InterviewPlan, InterviewQuestion
+from app.domain.context.token_estimation import TokenEstimatorResolution
 
 
 @dataclass
@@ -61,6 +62,10 @@ def make_runtime(model: str = "gpt-4o"):
         ),
         budget_resolver=ContextBudgetResolver(),
     ), estimator
+
+
+def test_runtime_context_contract_is_domain_canonical():
+    assert ContextRuntime is DomainContextRuntime
 
 
 def test_context_runtime_does_not_require_api_key(monkeypatch):

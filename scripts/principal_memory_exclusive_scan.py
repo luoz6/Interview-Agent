@@ -4,7 +4,7 @@ import argparse
 import json
 import os
 
-from app.services.principal_memory_exclusive_scan import (
+from app.adapters.persistence.postgres.principal_memory_exclusive_scan import (
     scan_postgres_exclusive_facts,
 )
 

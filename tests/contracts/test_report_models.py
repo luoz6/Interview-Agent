@@ -3,7 +3,7 @@ from datetime import datetime
 import pytest
 from pydantic import ValidationError
 
-from app.services.report import (
+from app.domain.report.models import (
     DimensionScores,
     FeedbackReference,
     InterviewFeedback,

@@ -1,6 +1,7 @@
 from datetime import datetime, timezone
 from hashlib import sha256
 import json
+from types import SimpleNamespace
 
 import pytest
 
@@ -31,14 +32,15 @@ from app.domain.knowledge.knowledge_unit import KnowledgeReviewStatus, Knowledge
 
 from app.graphs.interview_state import build_initial_state
 from app.ports.runtime import KnowledgeLookupResult
-from app.services.agent_runtime import AgentExecutionRunner
-from app.services.evaluator_ext import ExpertShadowEvaluator
-from app.services.interview_plan_revision import (
+from app.runtime.agent_execution import AgentExecutionRunner
+from app.runtime.expert_evaluator import ExpertShadowEvaluator
+from app.runtime.expert_evaluator import _citation_documents
+from app.domain.interview.plan_revision import (
     build_interview_knowledge_scope_snapshot,
     legacy_plan_to_v2,
     plan_payload_sha256,
 )
-from app.services.prep import (
+from app.runtime.interview_prep import (
     InterviewPlan,
     InterviewQuestion,
     KnowledgeBindingSnapshot,
@@ -47,7 +49,7 @@ from app.services.prep import (
     PrepKnowledgeTopic,
     PrepQuestionHint,
 )
-from app.services.report import (
+from app.domain.report.models import (
     DimensionScores,
     FeedbackReference,
     InterviewFeedback,
@@ -56,7 +58,7 @@ from app.services.report import (
     ReportOutputFormatError,
     ReportProgress,
 )
-from app.services.session_plan_binding import SessionPlanBinding
+from app.domain.interview.session_plan_binding import SessionPlanBinding
 
 
 def make_plan() -> InterviewPlan:
@@ -1448,3 +1450,27 @@ def test_legacy_reviewer_keeps_existing_unscoped_search_compatibility():
     assert [
         reference.chunk_id for reference in report.feedbacks[0].references
     ] == ["redis-1"]
+
+
+def test_citation_documents_resolves_injected_store_lazily():
+    document = object()
+    getter_calls = []
+
+    class Store:
+        def get_document(self, *, owner_principal_id, document_id):
+            assert owner_principal_id == "owner-1"
+            assert document_id == "document-1"
+            return document
+
+    source_scope = SimpleNamespace(
+        owner_principal_id="owner-1",
+        selected_documents=[SimpleNamespace(document_id="document-1")],
+    )
+
+    resolved = _citation_documents(
+        source_scope,
+        user_document_store_getter=lambda: getter_calls.append(True) or Store(),
+    )
+
+    assert getter_calls == [True]
+    assert resolved == {"document-1": document}

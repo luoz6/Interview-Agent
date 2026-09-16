@@ -1,14 +1,14 @@
 from app.agents.orchestrator import OrchestratorAgent
 from app.graphs.interview_state import build_initial_state
-from app.services.agent_runtime import AgentExecutionRunner
-from app.services.prep import (
+from app.runtime.agent_execution import AgentExecutionRunner
+from app.runtime.interview_prep import (
     InterviewPlan,
     InterviewQuestion,
     KnowledgeBindingSnapshot,
     PrepContext,
     PrepQuestionHint,
 )
-from app.services.report import InterviewReport
+from app.domain.report.models import InterviewReport
 
 
 def make_plan():

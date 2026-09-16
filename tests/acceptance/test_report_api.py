@@ -10,24 +10,24 @@ import app.api.prep.routes as prep_route_module
 import app.api.shared.dependencies as api_dependencies
 from app.api.shared.dependencies import get_session_store
 from app.main import app
-from app.services.prep import (
+from app.runtime.interview_prep import (
     InterviewPlan,
     InterviewQuestion,
     prepare_interview as prepare_interview_service,
 )
-from app.services.in_memory_interview_launch_repository import InMemoryInterviewLaunchRepository
-from app.services.in_memory_prep_plan_store import InMemoryPrepPlanStore
-from app.services.interview_plan_revision_store import (
+from app.adapters.memory.interview_launch_repository import InMemoryInterviewLaunchRepository
+from app.adapters.memory.prep_plan_store import InMemoryPrepPlanStore
+from app.adapters.memory.plan_revision_store import (
     InMemoryInterviewPlanRevisionStore,
 )
-from app.services.question_evaluations import question_evaluation_from_feedback
-from app.services.report import (
+from app.domain.report.question_evaluations import question_evaluation_from_feedback
+from app.domain.report.models import (
     DimensionScores,
     InterviewFeedback,
     InterviewReport,
     ReportProgress,
 )
-from app.services.session import InterviewSessionStore
+from app.adapters.memory.session_store import InterviewSessionStore
 from app.domain.knowledge.models import KnowledgeChunk
 
 
@@ -235,7 +235,7 @@ def make_client():
                 )
             ]
 
-    import app.services.report_tasks as report_tasks
+    import app.runtime.report_tasks as report_tasks
 
     report_tasks.get_knowledge_store = lambda: FakeVectorStore()
     llm = ReportApiLLM()
@@ -375,7 +375,7 @@ def test_report_endpoint_returns_404_for_unknown_session():
 
 
 def test_get_question_evaluations_returns_saved_records():
-    from app.services.question_evaluations import question_evaluation_from_feedback
+    from app.domain.report.question_evaluations import question_evaluation_from_feedback
 
     client, store, _, _ = make_client()
     session_id = start_interview(client)

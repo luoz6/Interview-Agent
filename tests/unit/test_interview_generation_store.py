@@ -3,7 +3,7 @@ from contextlib import contextmanager
 
 import pytest
 
-from app.services.interview_generation_store import (
+from app.adapters.persistence.postgres.interview_generation_store import (
     ChunkCoalescer,
     GenerationLeaseConflict,
     PostgresInterviewGenerationStore,

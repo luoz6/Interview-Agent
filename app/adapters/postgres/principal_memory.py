@@ -1,15 +1,15 @@
 from __future__ import annotations
 
 from app.domain.memory.facts import PrincipalMemoryConflict, transition_fact
-from app.services.postgres_connections import (
+from app.adapters.postgres.connections import (
     ConnectionProvider,
     DirectPsycopg2ConnectionProvider,
 )
-from app.services.postgres_identifiers import (
+from app.adapters.postgres.identifiers import (
     runtime_schema_identifier,
     validate_runtime_table_prefix,
 )
-from app.services.postgres_schema import resolve_schema_mode, validate_relations
+from app.adapters.postgres.schema import resolve_schema_mode, validate_relations
 from app.domain.memory.contracts import (
     PrincipalMemoryFact,
     derive_principal_fact_taxonomy_keys,

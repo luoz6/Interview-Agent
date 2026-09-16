@@ -17,15 +17,15 @@ from app.ports.runtime import (
     KnowledgeRepository,
     KnowledgeRepositoryPort,
 )
-from app.services.principal_memory_consent import PrincipalMemoryConsentPolicy
-from app.services.principal_memory_context import PrincipalMemoryContextRenderer
-from app.services.principal_memory_control import PrincipalMemoryControlPolicy
-from app.services.principal_memory_ledger import PrincipalMemoryLedger
-from app.services.principal_memory_lifecycle import PrincipalMemoryLifecycle
-from app.services.principal_memory_retrieval import PrincipalMemorySelector
-from app.services.principal_memory_rights import PrincipalMemoryRightsService
-from app.services.principal_memory_shadow import PrincipalMemoryShadowObserver
-from app.services.knowledge_ingestion import KnowledgeReleaseService
+from app.application.memory.consent import PrincipalMemoryConsentPolicy
+from app.domain.memory.context import PrincipalMemoryContextRenderer
+from app.application.memory.control import PrincipalMemoryControlPolicy
+from app.adapters.memory.principal_memory_ledger import PrincipalMemoryLedger
+from app.application.memory.lifecycle import PrincipalMemoryLifecycle
+from app.application.memory.retrieval import PrincipalMemorySelector
+from app.application.memory.rights import PrincipalMemoryRightsService
+from app.runtime.principal_memory_shadow import PrincipalMemoryShadowObserver
+from app.application.knowledge.ingestion import KnowledgeReleaseService
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -118,7 +118,7 @@ def test_runtime_composition_uses_canonical_principal_memory_names():
     sources = "\n".join(
         path.read_text(encoding="utf-8")
         for path in (
-            ROOT / "app" / "services" / "runtime.py",
+            ROOT / "app" / "runtime" / "composition.py",
             ROOT / "app" / "api" / "memory" / "routes.py",
         )
     )

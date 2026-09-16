@@ -11,7 +11,7 @@ from app.runtime.config.compatibility import (
     get_report_langgraph_rollout_percent,
     get_runtime_table_prefix,
 )
-from app.services.langgraph_canary_status import (
+from app.evals.langgraph_canary_status import (
     CanaryThresholds,
     PostgresLangGraphCanaryStatusService,
     WorkflowCanarySnapshot,

@@ -1,4 +1,4 @@
-from app.services.postgres_capacity import (
+from app.evals.postgres_capacity import (
     PostgresServerCapacity,
     build_blocked_config_artifact,
     build_capacity_artifact,

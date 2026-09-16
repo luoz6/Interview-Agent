@@ -4,7 +4,7 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from app.services.agent_runtime import AgentExecutionContext
+from app.domain.agent_execution import AgentExecutionContext
 
 
 class InvocationContext(BaseModel):

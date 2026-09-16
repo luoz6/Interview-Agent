@@ -1,7 +1,7 @@
 import pytest
 from pydantic import ValidationError
 
-from app.services.report import (
+from app.domain.report.models import (
     DimensionScores,
     InterviewReport,
     REPORT_DIMENSIONS,
@@ -10,11 +10,11 @@ from app.services.report import (
     REPORT_SCHEMA_VERSION_V1,
     REPORT_SCHEMA_VERSION_V2,
 )
-from app.services.report_contract import (
+from app.domain.report.assembly import (
     CanonicalQuestionResult,
     assemble_interview_report,
 )
-from app.services.report_view import (
+from app.domain.report.view import (
     DEFAULT_REPORT_PAYLOAD_PARSERS,
     EvaluationView,
 )

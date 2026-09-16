@@ -10,7 +10,7 @@ from app.runtime.config.compatibility import (
     get_interview_langgraph_runtime_enabled,
     get_interview_langgraph_version,
 )
-from app.services.langgraph_runtime import (
+from app.runtime.langgraph_runtime import (
     PostgresCheckpointerRuntime,
     VersionedInterviewGraphRegistry,
 )

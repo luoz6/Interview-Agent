@@ -1,6 +1,6 @@
 """Unit tests for privacy-safe trace metadata sanitization."""
 
-from app.services.trace_sanitization import sanitize_agent_safe_metadata
+from app.domain.trace_sanitization import sanitize_agent_safe_metadata
 
 
 def test_memory_private_fields_are_rejected_without_stringifying_values():

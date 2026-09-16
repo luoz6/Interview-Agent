@@ -3,14 +3,14 @@ from copy import deepcopy
 import pytest
 
 from app.graphs.interview_state import build_initial_state
-from app.services.in_memory_interview_launch_repository import (
+from app.adapters.memory.interview_launch_repository import (
     InMemoryInterviewLaunchRepository,
 )
-from app.services.in_memory_prep_plan_store import InMemoryPrepPlanStore
-from app.services.practice_plans import PracticePlanError, PracticePlanService
-from app.services.prep import InterviewPlan, InterviewQuestion
-from app.services.report import DimensionScores, InterviewFeedback, InterviewReport
-from app.services.report_reliability import ReportReliability
+from app.adapters.memory.prep_plan_store import InMemoryPrepPlanStore
+from app.application.interview.practice_plans import PracticePlanError, PracticePlanService
+from app.runtime.interview_prep import InterviewPlan, InterviewQuestion
+from app.domain.report.models import DimensionScores, InterviewFeedback, InterviewReport
+from app.domain.report.reliability import ReportReliability
 
 
 def _scores(**overrides) -> DimensionScores:

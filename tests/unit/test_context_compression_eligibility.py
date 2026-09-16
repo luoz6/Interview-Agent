@@ -1,12 +1,12 @@
 import pytest
 
-from app.services import context_compression_eligibility as eligibility_module
-from app.services.context_compression_eligibility import (
+import app.domain.context.compression_eligibility as eligibility_module
+from app.domain.context.compression_eligibility import (
     CompressionEligibilityReason,
     ContextCompressionEligibilityPolicy,
 )
-from app.services.context_budget import ContextSelectionBudget
-from app.services.context_selection import ContextSelectionStats
+from app.domain.context.budget import ContextSelectionBudget
+from app.domain.context.selection import ContextSelectionStats
 from app.runtime.config.memory import load_effective_memory_config
 
 
@@ -318,6 +318,24 @@ def test_metric_store_failure_cannot_change_eligibility_result(monkeypatch):
     assert result.reason is (
         CompressionEligibilityReason.APPROACHING_OPERATION_BUDGET
     )
+
+
+def test_runtime_metric_publishers_can_be_injected():
+    events = []
+    observations = []
+    policy = ContextCompressionEligibilityPolicy(
+        metric_event_publisher=events.append,
+        observation_publisher=observations.append,
+    )
+
+    result = evaluate(
+        demand_stats(required_tokens=8_000, selectable_tokens=10_000),
+        policy=policy,
+    )
+
+    assert result.eligible is True
+    assert events[0].metric_code == "compression_eligibility"
+    assert [item.measurement_path for item in observations] == ["business"]
 
 
 def test_bypassed_observation_has_stable_below_threshold_reason(monkeypatch):

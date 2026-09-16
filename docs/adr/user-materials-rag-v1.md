@@ -343,9 +343,9 @@ M  .env.example
 M  app/runtime/config/memory.py
 M  frontend/src/pages/RagConsolePage.test.jsx
 M  frontend/src/pages/RagOverviewPage.jsx
-M  tests/acceptance/test_memory_operational_shadow_acceptance.py
+M  retired memory operational shadow acceptance coverage
 M  tests/acceptance/test_principal_memory_api.py
-M  tests/contracts/test_memory_production_shadow_approval_packet.py
+M  retired memory production shadow approval coverage
 M  tests/unit/test_local_principal_runtime.py
 M  tests/unit/test_memory_config.py
 M  tests/unit/test_principal_memory_operations.py

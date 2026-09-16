@@ -5,7 +5,7 @@ import uuid
 
 import pytest
 
-from app.services.knowledge_ingestion import PreparedKnowledgeChunk
+from app.application.knowledge.ingestion import PreparedKnowledgeChunk
 from app.adapters.pgvector.repository import KnowledgeChunk, PgVectorKnowledgeStore
 from tests.vector_store_fixtures import FakeEmbeddingProvider
 

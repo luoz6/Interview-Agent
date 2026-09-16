@@ -17,16 +17,14 @@ from app.domain.knowledge.source_scope import (
     build_knowledge_source_scope,
 )
 from app.runtime.config import load_knowledge_runtime_settings
-from app.services.interview_plan_revision import (
-    build_interview_knowledge_scope_snapshot,
-)
-from app.services.interview_plan_revision_store import (
+from app.domain.interview.plan_revision import build_interview_knowledge_scope_snapshot
+from app.adapters.memory.plan_revision_store import (
     InMemoryInterviewPlanRevisionStore,
 )
-from app.services.knowledge_grounding import retrieve_grounding
-from app.services.prep import prepare_interview
-from app.services.principal_identity import ExplicitPrincipalIdentityResolver
-from app.services.session_plan_binding import session_plan_binding_from_revision
+from app.application.knowledge.grounding import retrieve_grounding
+from app.runtime.interview_prep import prepare_interview
+from app.adapters.memory.principal_identity import ExplicitPrincipalIdentityResolver
+from app.domain.interview.session_plan_binding import session_plan_binding_from_revision
 from tests.unit.test_grounded_knowledge_agent import GroundedPlanLLM
 from tests.unit.test_interview_plan_revision import plan, source
 

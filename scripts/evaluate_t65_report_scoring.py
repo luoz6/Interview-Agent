@@ -17,55 +17,55 @@ if not __package__:
     if str(root) not in sys.path:
         sys.path.insert(0, str(root))
 
-from app.services.followup_provider_preflight import (
+from app.evals.followup_provider_preflight import (
     discover_deepseek_provider,
     estimate_provider_cost,
 )
-from app.services.interview_quality_gate import load_gate_config
-from app.services.interview_quality_provider_authorization import (
+from app.evals.interview_quality_gate import load_gate_config
+from app.evals.interview_quality_provider_authorization import (
     load_provider_authorization,
 )
-from app.services.independent_review_handoff import (
+from app.evals.independent_review_handoff import (
     DetachedSignatureEvidence,
     verify_detached_signature,
 )
-from app.services.llm import (
+from app.adapters.providers.llm import (
     LLMConfig,
     OpenAIInterviewLLM,
     REPORT_EVIDENCE_PROMPT_VERSION,
 )
-from app.services.prep import InterviewPlan, InterviewQuestion
-from app.services.provider_usage import (
+from app.runtime.interview_prep import InterviewPlan, InterviewQuestion
+from app.runtime.provider_usage import (
     consume_provider_context_metadata,
     reset_provider_context_metadata,
 )
-from app.services.report_eval_artifacts import (
+from app.evals.report_eval_artifacts import (
     EvaluationArtifactStore,
     resolve_evaluation_run_dir,
 )
-from app.services.report_eval_metrics import (
+from app.evals.report_eval_metrics import (
     AttemptResult,
     calculate_metrics,
     ngram_coverage,
     normalize_text,
 )
-from app.services.report_rule_score import (
+from app.domain.report.scoring import (
     REPORT_SCORING_RUBRIC_SHA256,
     REPORT_SCORING_RUBRIC_VERSION,
     applicable_dimensions_for_item,
 )
-from app.services.report_calibration_dataset import (
+from app.evals.report_calibration_dataset import (
     CalibrationCase,
     CalibrationDataset,
     load_calibration_dataset,
 )
-from app.services.t65_provider_evidence import (
+from app.evals.t65_provider_evidence import (
     SafeReportCaptureRecorder,
     SafeReportProviderAttempt,
     SafeReportProviderCapture,
     evaluate_t65_report_preflight,
 )
-from app.services.t65_formal_execution_receipt import validate_t65_formal_route
+from app.evals.t65_formal_execution_receipt import validate_t65_formal_route
 
 
 ROOT = Path(__file__).resolve().parents[1]

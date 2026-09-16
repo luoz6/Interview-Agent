@@ -1,10 +1,8 @@
 import pytest
 
-from app.services.report_artifact import PublishReportArtifact
-from app.services.report_artifact_store import (
-    InMemoryReportArtifactStore,
-    ReportArtifactConflict,
-)
+from app.domain.report.artifact import PublishReportArtifact
+from app.adapters.memory.report_artifact_store import InMemoryReportArtifactStore
+from app.ports.report_artifacts import ReportArtifactConflict
 
 
 def publish_payload(score_status="scored"):

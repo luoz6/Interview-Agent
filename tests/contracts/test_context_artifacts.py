@@ -15,7 +15,7 @@ from app.domain.context.artifacts import (
     canonical_json,
     parse_artifact_payload,
 )
-from app.services.context_source_identity import ConversationSourceIdentity
+from app.domain.context.source_identity import ConversationSourceIdentity
 
 
 def test_source_segment_requires_its_authoritative_content_digest():

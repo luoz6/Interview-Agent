@@ -1,5 +1,5 @@
-from app.services.report import DimensionScores, InterviewFeedback, InterviewReport
-from app.services.report_quality import collect_report_quality_issues
+from app.domain.report.models import DimensionScores, InterviewFeedback, InterviewReport
+from app.domain.report.quality import collect_report_quality_issues
 
 
 def make_feedback(

@@ -123,7 +123,7 @@ def should_check_langgraph_postgres(
 def validate_registered_graph_versions(
     interview_version: str, review_version: str
 ) -> list[str]:
-    from app.services.langgraph_runtime import VersionedGraphRegistry
+    from app.runtime.langgraph_runtime import VersionedGraphRegistry
 
     registry = VersionedGraphRegistry()
     interview_graph = object()
@@ -144,18 +144,18 @@ def validate_registered_graph_versions(
 
 
 def check_langgraph_runtime() -> dict[str, object]:
-    from app.services.interview_generation_store import (
+    from app.adapters.persistence.postgres.interview_generation_store import (
         PostgresInterviewGenerationStore,
     )
-    from app.services.interview_workflow_store import (
+    from app.adapters.persistence.postgres.interview_workflow_store import (
         PostgresInterviewWorkflowStore,
     )
-    from app.services.langgraph_runtime import PostgresCheckpointerRuntime
-    from app.services.postgres_session import PostgresInterviewSessionStore
-    from app.services.postgres_connections import DirectPsycopg2ConnectionProvider
-    from app.services.report_jobs import PostgresReportJobStore
-    from app.services.review_workflow_store import PostgresReviewWorkflowStore
-    from app.services.runtime_signal_metrics import PostgresRuntimeSignalStore
+    from app.runtime.langgraph_runtime import PostgresCheckpointerRuntime
+    from app.adapters.persistence.postgres.session_store import PostgresInterviewSessionStore
+    from app.adapters.postgres.connections import DirectPsycopg2ConnectionProvider
+    from app.adapters.persistence.postgres.report_job_store import PostgresReportJobStore
+    from app.adapters.persistence.postgres.review_workflow_store import PostgresReviewWorkflowStore
+    from app.adapters.persistence.postgres.runtime_signal_metrics import PostgresRuntimeSignalStore
     from scripts.audit_agent_runtime import audit_runtime_control_payloads
 
     dsn = get_postgres_dsn()
@@ -295,7 +295,7 @@ def check_langgraph_runtime() -> dict[str, object]:
             validate_runtime_signal_schema(
                 [row[0] for row in cursor.fetchall()]
             )
-            from app.services.workflow_thread_lock import advisory_lock_key
+            from app.domain.workflow_thread_lock import advisory_lock_key
 
             probe_key = advisory_lock_key("preflight:workflow-thread-lock")
             cursor.execute("SELECT pg_try_advisory_lock(%s)", (probe_key,))
@@ -475,8 +475,8 @@ def validate_runtime_control_snapshot(
 
 
 def check_postgres_runtime() -> dict:
-    from app.services.agent_runtime import AgentRunRecord
-    from app.services.postgres_session import (
+    from app.runtime.agent_execution import AgentRunRecord
+    from app.adapters.persistence.postgres.session_store import (
         PostgresInterviewSessionStore,
     )
 

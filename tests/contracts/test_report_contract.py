@@ -3,8 +3,8 @@ from __future__ import annotations
 import json
 
 from app.domain.knowledge.evidence import SafeKnowledgeCitation
-from app.services.report import DimensionScores
-from app.services.report_contract import (
+from app.domain.report.models import DimensionScores
+from app.domain.report.assembly import (
     CanonicalQuestionResult,
     assemble_interview_report,
 )

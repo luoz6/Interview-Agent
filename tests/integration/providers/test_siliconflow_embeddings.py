@@ -8,8 +8,8 @@ import json
 import httpx
 import pytest
 
-from app.services.embedding_providers import EmbeddingProviderError
-from app.services.siliconflow_embeddings import SiliconFlowEmbeddingProvider
+from app.adapters.providers.embedding_providers import EmbeddingProviderError
+from app.adapters.providers.siliconflow_embeddings import SiliconFlowEmbeddingProvider
 
 
 def make_provider(handler, *, sleeps=None, batch_size=2, jitter=None):

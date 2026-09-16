@@ -1,21 +1,20 @@
 from collections.abc import Iterator
 from uuid import uuid4
 
-from app.services.agent_runtime import (
+from app.domain.agent_execution import (
     AgentExecutionContext,
-    AgentExecutionRunner,
     AgentFallback,
 )
-from app.services.llm import InterviewLLM
-from app.services.followup_prompts import validate_followup_output
-from app.services.principal_memory_sink_policy import (
+from app.runtime.agent_execution import AgentExecutionRunner
+from app.ports.llm import InterviewLLM
+from app.domain.interview.followup_prompts import (
+    fallback_followup,
+    validate_followup_output,
+)
+from app.domain.memory.sink_policy import (
     FOLLOWUP_GENERATION_SINK,
     assert_principal_memory_sink,
 )
-
-
-def fallback_followup(focus: str) -> str:
-    return f"请继续深挖 {focus}：你当时做了什么取舍，为什么这样选？"
 
 
 class ExaminerAgent:
@@ -146,7 +145,7 @@ class ExaminerAgent:
 
     @staticmethod
     def _default_llm() -> InterviewLLM:
-        from app.services.llm import OpenAIInterviewLLM
+        from app.adapters.providers.llm import OpenAIInterviewLLM
 
         return OpenAIInterviewLLM()
 

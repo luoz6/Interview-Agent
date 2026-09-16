@@ -4,13 +4,13 @@ from app.agents.examiner import ExaminerAgent, fallback_followup
 from app.agents.knowledge import KnowledgeAgent
 from app.agents.report_coach import ReportCoachAgent
 from app.agents.shadow_reviewer import ShadowReviewerAgent
-from app.services.prep import (
+from app.runtime.interview_prep import (
     InterviewPlan,
     InterviewQuestion,
     PlanGenerationValidationError,
 )
-from app.services.report import DimensionScores, InterviewFeedback, InterviewReport
-from app.services.agent_runtime import AgentExecutionContext, AgentExecutionRunner
+from app.domain.report.models import DimensionScores, InterviewFeedback, InterviewReport
+from app.runtime.agent_execution import AgentExecutionContext, AgentExecutionRunner
 import pytest
 
 

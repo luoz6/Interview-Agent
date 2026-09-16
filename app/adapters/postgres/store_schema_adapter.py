@@ -9,8 +9,8 @@ from app.adapters.postgres.row_mappers.session import (
     SessionRowMapper,
 )
 from app.adapters.postgres.session_repository_support import postgres_sql
-from app.services.postgres_connections import ConnectionProvider
-from app.services.postgres_identifiers import runtime_schema_identifier
+from app.adapters.postgres.connections import ConnectionProvider
+from app.adapters.postgres.identifiers import runtime_schema_identifier
 
 
 class PostgresSessionSchemaAdapter:

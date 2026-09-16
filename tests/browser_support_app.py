@@ -13,13 +13,13 @@ import app.api.shared.dependencies as api_dependencies
 import app.application.interview.interview_start as interview_start_module
 from app.main import app
 from app.ports.runtime import KnowledgeLookupResult
-from app.services.agent_runtime import AgentExecutionContext, AgentExecutionRunner
-from app.services.event_publisher import NoopRuntimeEventPublisher
-from app.services.interview_plan_regenerator import ProviderPlanRegenerator
-from app.services.runtime_events import _format_sse
-from app.services.runtime_events import AcceptedInterviewCommand
-from app.services.question_evaluations import question_evaluation_from_feedback
-from app.services.prep import (
+from app.runtime.agent_execution import AgentExecutionContext, AgentExecutionRunner
+from app.runtime.event_publisher import NoopRuntimeEventPublisher
+from app.runtime.interview_plan_regenerator import ProviderPlanRegenerator
+from app.application.interview.events import _format_sse
+from app.application.interview.events import AcceptedInterviewCommand
+from app.domain.report.question_evaluations import question_evaluation_from_feedback
+from app.runtime.interview_prep import (
     InterviewPlan,
     InterviewQuestion,
     KnowledgeBindingSnapshot,
@@ -30,16 +30,16 @@ from app.services.prep import (
     bind_prepared_plan_revision,
     validate_generation_configuration,
 )
-from app.services.prep_question_regeneration import PrepQuestionRegenerator
-from app.services.report import (
+from app.application.interview.prep_question_regeneration import PrepQuestionRegenerator
+from app.domain.report.models import (
     DimensionScores,
     FeedbackReference,
     InterviewFeedback,
     InterviewReport,
     ReportProgress,
 )
-from app.services.report_microbatch import generate_microbatch_report
-from app.services.session import InterviewSessionStore
+from app.runtime.report_microbatch import generate_microbatch_report
+from app.adapters.memory.session_store import InterviewSessionStore
 from app.agents.examiner import fallback_followup
 from app.domain.interview.errors import SessionVersionConflict
 from tests.browser_v3_runtime import BrowserV3Harness, BrowserWorkflowRouter

@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from app.services.cross_question_report_diagnostics import (
+from app.evals.cross_question_report_diagnostics import (
     RM4B_COMPLETION_STATUS,
     build_rm4b_artifact,
     default_rm4b_fixture_path,

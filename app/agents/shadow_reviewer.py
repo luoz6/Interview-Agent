@@ -1,12 +1,13 @@
 from collections.abc import Callable
 
 from app.graphs.interview_state import InterviewState
-from app.services.evaluator_ext import ExpertShadowEvaluator
-from app.services.llm import InterviewLLM
-from app.services.agent_runtime import AgentExecutionContext, AgentExecutionRunner
-from app.services.report import InterviewReport, ReportProgress
+from app.runtime.expert_evaluator import ExpertShadowEvaluator
+from app.ports.llm import InterviewLLM
+from app.domain.agent_execution import AgentExecutionContext
+from app.runtime.agent_execution import AgentExecutionRunner
+from app.domain.report.models import InterviewReport, ReportProgress
 from app.adapters.pgvector.repository import KnowledgeSearchStore
-from app.services.context_runtime import ContextRuntime
+from app.runtime.context_runtime import ContextRuntime
 
 
 class ShadowReviewerAgent:
@@ -20,6 +21,7 @@ class ShadowReviewerAgent:
         reference_transform: Callable | None = None,
         knowledge_unit_resolver=None,
         user_document_store=None,
+        user_document_store_getter: Callable[[], object] | None = None,
     ) -> None:
         self.llm = llm
         self.vector_store = vector_store
@@ -30,6 +32,7 @@ class ShadowReviewerAgent:
             reference_transform=reference_transform,
             knowledge_unit_resolver=knowledge_unit_resolver,
             user_document_store=user_document_store,
+            user_document_store_getter=user_document_store_getter,
         )
         self._execution_runner = execution_runner or AgentExecutionRunner()
 

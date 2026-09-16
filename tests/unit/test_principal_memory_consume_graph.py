@@ -3,8 +3,8 @@ from app.graphs.durable_interview_graph import (
     generate_followup,
 )
 from app.graphs.durable_interview_state import make_durable_initial_state
-from app.services.principal_memory_consume import ASSISTANCE_CONTEXT_KIND
-from app.services.memory_metrics import (
+from app.application.memory.consume import ASSISTANCE_CONTEXT_KIND
+from app.runtime.memory_metrics import (
     InMemoryMemoryMetricStore,
     configure_memory_metric_store,
     reset_memory_metric_store,

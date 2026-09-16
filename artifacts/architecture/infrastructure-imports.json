@@ -1,0 +1,3221 @@
+{
+  "metadata": {
+    "repo_root": "F:\\agent\\Interview-Agent",
+    "files_scanned": 470,
+    "external_edge_count": 2419,
+    "infrastructure_match_count": 229,
+    "mandated_targets": [
+      "anthropic",
+      "celery",
+      "fastapi",
+      "langgraph",
+      "openai",
+      "psycopg",
+      "psycopg2",
+      "redis"
+    ]
+  },
+  "matches": [
+    {
+      "source_file": "app/adapters/memory/principal_memory_ledger_replay.py",
+      "source_module": "app.adapters.memory.principal_memory_ledger_replay",
+      "source_layer": "adapters",
+      "target_module": "psycopg2",
+      "import_type": "from",
+      "line": 37,
+      "package": "psycopg2",
+      "category": "database",
+      "classification": "合法技术依赖",
+      "reason": "adapters 层负责具体技术适配，直接依赖 psycopg2 属于 adapter 职责。"
+    },
+    {
+      "source_file": "app/adapters/persistence/postgres/context_compression_failure_store.py",
+      "source_module": "app.adapters.persistence.postgres.context_compression_failure_store",
+      "source_layer": "adapters",
+      "target_module": "psycopg2",
+      "import_type": "from",
+      "line": 887,
+      "package": "psycopg2",
+      "category": "database",
+      "classification": "合法技术依赖",
+      "reason": "adapters 层负责具体技术适配，直接依赖 psycopg2 属于 adapter 职责。"
+    },
+    {
+      "source_file": "app/adapters/persistence/postgres/context_compression_failure_store.py",
+      "source_module": "app.adapters.persistence.postgres.context_compression_failure_store",
+      "source_layer": "adapters",
+      "target_module": "psycopg2",
+      "import_type": "from",
+      "line": 972,
+      "package": "psycopg2",
+      "category": "database",
+      "classification": "合法技术依赖",
+      "reason": "adapters 层负责具体技术适配，直接依赖 psycopg2 属于 adapter 职责。"
+    },
+    {
+      "source_file": "app/adapters/persistence/postgres/decision_store.py",
+      "source_module": "app.adapters.persistence.postgres.decision_store",
+      "source_layer": "adapters",
+      "target_module": "psycopg2",
+      "import_type": "import",
+      "line": 483,
+      "package": "psycopg2",
+      "category": "database",
+      "classification": "合法技术依赖",
+      "reason": "adapters 层负责具体技术适配，直接依赖 psycopg2 属于 adapter 职责。"
+    },
+    {
+      "source_file": "app/adapters/persistence/postgres/decision_store.py",
+      "source_module": "app.adapters.persistence.postgres.decision_store",
+      "source_layer": "adapters",
+      "target_module": "psycopg2",
+      "import_type": "from",
+      "line": 484,
+      "package": "psycopg2",
+      "category": "database",
+      "classification": "合法技术依赖",
+      "reason": "adapters 层负责具体技术适配，直接依赖 psycopg2 属于 adapter 职责。"
+    },
+    {
+      "source_file": "app/adapters/persistence/postgres/draft_store.py",
+      "source_module": "app.adapters.persistence.postgres.draft_store",
+      "source_layer": "adapters",
+      "target_module": "psycopg2",
+      "import_type": "from",
+      "line": 34,
+      "package": "psycopg2",
+      "category": "database",
+      "classification": "合法技术依赖",
+      "reason": "adapters 层负责具体技术适配，直接依赖 psycopg2 属于 adapter 职责。"
+    },
+    {
+      "source_file": "app/adapters/persistence/postgres/draft_store.py",
+      "source_module": "app.adapters.persistence.postgres.draft_store",
+      "source_layer": "adapters",
+      "target_module": "psycopg2",
+      "import_type": "from",
+      "line": 168,
+      "package": "psycopg2",
+      "category": "database",
+      "classification": "合法技术依赖",
+      "reason": "adapters 层负责具体技术适配，直接依赖 psycopg2 属于 adapter 职责。"
+    },
+    {
+      "source_file": "app/adapters/persistence/postgres/draft_store.py",
+      "source_module": "app.adapters.persistence.postgres.draft_store",
+      "source_layer": "adapters",
+      "target_module": "psycopg2",
+      "import_type": "from",
+      "line": 250,
+      "package": "psycopg2",
+      "category": "database",
+      "classification": "合法技术依赖",
+      "reason": "adapters 层负责具体技术适配，直接依赖 psycopg2 属于 adapter 职责。"
+    },
+    {
+      "source_file": "app/adapters/persistence/postgres/draft_store.py",
+      "source_module": "app.adapters.persistence.postgres.draft_store",
+      "source_layer": "adapters",
+      "target_module": "psycopg2",
+      "import_type": "from",
+      "line": 327,
+      "package": "psycopg2",
+      "category": "database",
+      "classification": "合法技术依赖",
+      "reason": "adapters 层负责具体技术适配，直接依赖 psycopg2 属于 adapter 职责。"
+    },
+    {
+      "source_file": "app/adapters/persistence/postgres/draft_store.py",
+      "source_module": "app.adapters.persistence.postgres.draft_store",
+      "source_layer": "adapters",
+      "target_module": "psycopg2",
+      "import_type": "from",
+      "line": 459,
+      "package": "psycopg2",
+      "category": "database",
+      "classification": "合法技术依赖",
+      "reason": "adapters 层负责具体技术适配，直接依赖 psycopg2 属于 adapter 职责。"
+    },
+    {
+      "source_file": "app/adapters/persistence/postgres/draft_store.py",
+      "source_module": "app.adapters.persistence.postgres.draft_store",
+      "source_layer": "adapters",
+      "target_module": "psycopg2",
+      "import_type": "from",
+      "line": 485,
+      "package": "psycopg2",
+      "category": "database",
+      "classification": "合法技术依赖",
+      "reason": "adapters 层负责具体技术适配，直接依赖 psycopg2 属于 adapter 职责。"
+    },
+    {
+      "source_file": "app/adapters/persistence/postgres/draft_store.py",
+      "source_module": "app.adapters.persistence.postgres.draft_store",
+      "source_layer": "adapters",
+      "target_module": "psycopg2",
+      "import_type": "from",
+      "line": 519,
+      "package": "psycopg2",
+      "category": "database",
+      "classification": "合法技术依赖",
+      "reason": "adapters 层负责具体技术适配，直接依赖 psycopg2 属于 adapter 职责。"
+    },
+    {
+      "source_file": "app/adapters/persistence/postgres/interview_generation_store.py",
+      "source_module": "app.adapters.persistence.postgres.interview_generation_store",
+      "source_layer": "adapters",
+      "target_module": "psycopg2",
+      "import_type": "from",
+      "line": 1102,
+      "package": "psycopg2",
+      "category": "database",
+      "classification": "合法技术依赖",
+      "reason": "adapters 层负责具体技术适配，直接依赖 psycopg2 属于 adapter 职责。"
+    },
+    {
+      "source_file": "app/adapters/persistence/postgres/interview_generation_store.py",
+      "source_module": "app.adapters.persistence.postgres.interview_generation_store",
+      "source_layer": "adapters",
+      "target_module": "psycopg2",
+      "import_type": "from",
+      "line": 1438,
+      "package": "psycopg2",
+      "category": "database",
+      "classification": "合法技术依赖",
+      "reason": "adapters 层负责具体技术适配，直接依赖 psycopg2 属于 adapter 职责。"
+    },
+    {
+      "source_file": "app/adapters/persistence/postgres/interview_launch_repository.py",
+      "source_module": "app.adapters.persistence.postgres.interview_launch_repository",
+      "source_layer": "adapters",
+      "target_module": "psycopg2",
+      "import_type": "from",
+      "line": 44,
+      "package": "psycopg2",
+      "category": "database",
+      "classification": "合法技术依赖",
+      "reason": "adapters 层负责具体技术适配，直接依赖 psycopg2 属于 adapter 职责。"
+    },
+    {
+      "source_file": "app/adapters/persistence/postgres/interview_launch_repository.py",
+      "source_module": "app.adapters.persistence.postgres.interview_launch_repository",
+      "source_layer": "adapters",
+      "target_module": "psycopg2",
+      "import_type": "from",
+      "line": 110,
+      "package": "psycopg2",
+      "category": "database",
+      "classification": "合法技术依赖",
+      "reason": "adapters 层负责具体技术适配，直接依赖 psycopg2 属于 adapter 职责。"
+    },
+    {
+      "source_file": "app/adapters/persistence/postgres/interview_launch_repository.py",
+      "source_module": "app.adapters.persistence.postgres.interview_launch_repository",
+      "source_layer": "adapters",
+      "target_module": "psycopg2",
+      "import_type": "from",
+      "line": 133,
+      "package": "psycopg2",
+      "category": "database",
+      "classification": "合法技术依赖",
+      "reason": "adapters 层负责具体技术适配，直接依赖 psycopg2 属于 adapter 职责。"
+    },
+    {
+      "source_file": "app/adapters/persistence/postgres/interview_launch_repository.py",
+      "source_module": "app.adapters.persistence.postgres.interview_launch_repository",
+      "source_layer": "adapters",
+      "target_module": "psycopg2",
+      "import_type": "from",
+      "line": 147,
+      "package": "psycopg2",
+      "category": "database",
+      "classification": "合法技术依赖",
+      "reason": "adapters 层负责具体技术适配，直接依赖 psycopg2 属于 adapter 职责。"
+    },
+    {
+      "source_file": "app/adapters/persistence/postgres/interview_launch_repository.py",
+      "source_module": "app.adapters.persistence.postgres.interview_launch_repository",
+      "source_layer": "adapters",
+      "target_module": "psycopg2",
+      "import_type": "from",
+      "line": 170,
+      "package": "psycopg2",
+      "category": "database",
+      "classification": "合法技术依赖",
+      "reason": "adapters 层负责具体技术适配，直接依赖 psycopg2 属于 adapter 职责。"
+    },
+    {
+      "source_file": "app/adapters/persistence/postgres/interview_launch_repository.py",
+      "source_module": "app.adapters.persistence.postgres.interview_launch_repository",
+      "source_layer": "adapters",
+      "target_module": "psycopg2",
+      "import_type": "from",
+      "line": 230,
+      "package": "psycopg2",
+      "category": "database",
+      "classification": "合法技术依赖",
+      "reason": "adapters 层负责具体技术适配，直接依赖 psycopg2 属于 adapter 职责。"
+    },
+    {
+      "source_file": "app/adapters/persistence/postgres/memory_metrics.py",
+      "source_module": "app.adapters.persistence.postgres.memory_metrics",
+      "source_layer": "adapters",
+      "target_module": "psycopg2",
+      "import_type": "from",
+      "line": 89,
+      "package": "psycopg2",
+      "category": "database",
+      "classification": "合法技术依赖",
+      "reason": "adapters 层负责具体技术适配，直接依赖 psycopg2 属于 adapter 职责。"
+    },
+    {
+      "source_file": "app/adapters/persistence/postgres/memory_metrics.py",
+      "source_module": "app.adapters.persistence.postgres.memory_metrics",
+      "source_layer": "adapters",
+      "target_module": "psycopg2",
+      "import_type": "from",
+      "line": 136,
+      "package": "psycopg2",
+      "category": "database",
+      "classification": "合法技术依赖",
+      "reason": "adapters 层负责具体技术适配，直接依赖 psycopg2 属于 adapter 职责。"
+    },
+    {
+      "source_file": "app/adapters/persistence/postgres/memory_metrics.py",
+      "source_module": "app.adapters.persistence.postgres.memory_metrics",
+      "source_layer": "adapters",
+      "target_module": "psycopg2",
+      "import_type": "from",
+      "line": 189,
+      "package": "psycopg2",
+      "category": "database",
+      "classification": "合法技术依赖",
+      "reason": "adapters 层负责具体技术适配，直接依赖 psycopg2 属于 adapter 职责。"
+    },
+    {
+      "source_file": "app/adapters/persistence/postgres/memory_metrics.py",
+      "source_module": "app.adapters.persistence.postgres.memory_metrics",
+      "source_layer": "adapters",
+      "target_module": "psycopg2",
+      "import_type": "from",
+      "line": 209,
+      "package": "psycopg2",
+      "category": "database",
+      "classification": "合法技术依赖",
+      "reason": "adapters 层负责具体技术适配，直接依赖 psycopg2 属于 adapter 职责。"
+    },
+    {
+      "source_file": "app/adapters/persistence/postgres/memory_metrics.py",
+      "source_module": "app.adapters.persistence.postgres.memory_metrics",
+      "source_layer": "adapters",
+      "target_module": "psycopg2",
+      "import_type": "from",
+      "line": 265,
+      "package": "psycopg2",
+      "category": "database",
+      "classification": "合法技术依赖",
+      "reason": "adapters 层负责具体技术适配，直接依赖 psycopg2 属于 adapter 职责。"
+    },
+    {
+      "source_file": "app/adapters/persistence/postgres/memory_metrics.py",
+      "source_module": "app.adapters.persistence.postgres.memory_metrics",
+      "source_layer": "adapters",
+      "target_module": "psycopg2",
+      "import_type": "from",
+      "line": 291,
+      "package": "psycopg2",
+      "category": "database",
+      "classification": "合法技术依赖",
+      "reason": "adapters 层负责具体技术适配，直接依赖 psycopg2 属于 adapter 职责。"
+    },
+    {
+      "source_file": "app/adapters/persistence/postgres/plan_revision_store.py",
+      "source_module": "app.adapters.persistence.postgres.plan_revision_store",
+      "source_layer": "adapters",
+      "target_module": "psycopg2",
+      "import_type": "import",
+      "line": 979,
+      "package": "psycopg2",
+      "category": "database",
+      "classification": "合法技术依赖",
+      "reason": "adapters 层负责具体技术适配，直接依赖 psycopg2 属于 adapter 职责。"
+    },
+    {
+      "source_file": "app/adapters/persistence/postgres/plan_revision_store.py",
+      "source_module": "app.adapters.persistence.postgres.plan_revision_store",
+      "source_layer": "adapters",
+      "target_module": "psycopg2",
+      "import_type": "from",
+      "line": 980,
+      "package": "psycopg2",
+      "category": "database",
+      "classification": "合法技术依赖",
+      "reason": "adapters 层负责具体技术适配，直接依赖 psycopg2 属于 adapter 职责。"
+    },
+    {
+      "source_file": "app/adapters/persistence/postgres/plan_revision_store.py",
+      "source_module": "app.adapters.persistence.postgres.plan_revision_store",
+      "source_layer": "adapters",
+      "target_module": "psycopg2",
+      "import_type": "from",
+      "line": 980,
+      "package": "psycopg2",
+      "category": "database",
+      "classification": "合法技术依赖",
+      "reason": "adapters 层负责具体技术适配，直接依赖 psycopg2 属于 adapter 职责。"
+    },
+    {
+      "source_file": "app/adapters/persistence/postgres/prep_plan_store.py",
+      "source_module": "app.adapters.persistence.postgres.prep_plan_store",
+      "source_layer": "adapters",
+      "target_module": "psycopg2",
+      "import_type": "from",
+      "line": 80,
+      "package": "psycopg2",
+      "category": "database",
+      "classification": "合法技术依赖",
+      "reason": "adapters 层负责具体技术适配，直接依赖 psycopg2 属于 adapter 职责。"
+    },
+    {
+      "source_file": "app/adapters/persistence/postgres/prep_plan_store.py",
+      "source_module": "app.adapters.persistence.postgres.prep_plan_store",
+      "source_layer": "adapters",
+      "target_module": "psycopg2",
+      "import_type": "from",
+      "line": 216,
+      "package": "psycopg2",
+      "category": "database",
+      "classification": "合法技术依赖",
+      "reason": "adapters 层负责具体技术适配，直接依赖 psycopg2 属于 adapter 职责。"
+    },
+    {
+      "source_file": "app/adapters/persistence/postgres/prep_plan_store.py",
+      "source_module": "app.adapters.persistence.postgres.prep_plan_store",
+      "source_layer": "adapters",
+      "target_module": "psycopg2",
+      "import_type": "from",
+      "line": 286,
+      "package": "psycopg2",
+      "category": "database",
+      "classification": "合法技术依赖",
+      "reason": "adapters 层负责具体技术适配，直接依赖 psycopg2 属于 adapter 职责。"
+    },
+    {
+      "source_file": "app/adapters/persistence/postgres/prep_plan_store.py",
+      "source_module": "app.adapters.persistence.postgres.prep_plan_store",
+      "source_layer": "adapters",
+      "target_module": "psycopg2",
+      "import_type": "from",
+      "line": 349,
+      "package": "psycopg2",
+      "category": "database",
+      "classification": "合法技术依赖",
+      "reason": "adapters 层负责具体技术适配，直接依赖 psycopg2 属于 adapter 职责。"
+    },
+    {
+      "source_file": "app/adapters/persistence/postgres/prep_plan_store.py",
+      "source_module": "app.adapters.persistence.postgres.prep_plan_store",
+      "source_layer": "adapters",
+      "target_module": "psycopg2",
+      "import_type": "from",
+      "line": 364,
+      "package": "psycopg2",
+      "category": "database",
+      "classification": "合法技术依赖",
+      "reason": "adapters 层负责具体技术适配，直接依赖 psycopg2 属于 adapter 职责。"
+    },
+    {
+      "source_file": "app/adapters/persistence/postgres/prep_plan_store.py",
+      "source_module": "app.adapters.persistence.postgres.prep_plan_store",
+      "source_layer": "adapters",
+      "target_module": "psycopg2",
+      "import_type": "from",
+      "line": 394,
+      "package": "psycopg2",
+      "category": "database",
+      "classification": "合法技术依赖",
+      "reason": "adapters 层负责具体技术适配，直接依赖 psycopg2 属于 adapter 职责。"
+    },
+    {
+      "source_file": "app/adapters/persistence/postgres/prep_plan_store.py",
+      "source_module": "app.adapters.persistence.postgres.prep_plan_store",
+      "source_layer": "adapters",
+      "target_module": "psycopg2",
+      "import_type": "from",
+      "line": 421,
+      "package": "psycopg2",
+      "category": "database",
+      "classification": "合法技术依赖",
+      "reason": "adapters 层负责具体技术适配，直接依赖 psycopg2 属于 adapter 职责。"
+    },
+    {
+      "source_file": "app/adapters/persistence/postgres/prep_plan_store.py",
+      "source_module": "app.adapters.persistence.postgres.prep_plan_store",
+      "source_layer": "adapters",
+      "target_module": "psycopg2",
+      "import_type": "from",
+      "line": 439,
+      "package": "psycopg2",
+      "category": "database",
+      "classification": "合法技术依赖",
+      "reason": "adapters 层负责具体技术适配，直接依赖 psycopg2 属于 adapter 职责。"
+    },
+    {
+      "source_file": "app/adapters/persistence/postgres/prep_plan_store.py",
+      "source_module": "app.adapters.persistence.postgres.prep_plan_store",
+      "source_layer": "adapters",
+      "target_module": "psycopg2",
+      "import_type": "from",
+      "line": 471,
+      "package": "psycopg2",
+      "category": "database",
+      "classification": "合法技术依赖",
+      "reason": "adapters 层负责具体技术适配，直接依赖 psycopg2 属于 adapter 职责。"
+    },
+    {
+      "source_file": "app/adapters/persistence/postgres/principal_memory_consent.py",
+      "source_module": "app.adapters.persistence.postgres.principal_memory_consent",
+      "source_layer": "adapters",
+      "target_module": "psycopg2",
+      "import_type": "from",
+      "line": 40,
+      "package": "psycopg2",
+      "category": "database",
+      "classification": "合法技术依赖",
+      "reason": "adapters 层负责具体技术适配，直接依赖 psycopg2 属于 adapter 职责。"
+    },
+    {
+      "source_file": "app/adapters/persistence/postgres/principal_memory_consent.py",
+      "source_module": "app.adapters.persistence.postgres.principal_memory_consent",
+      "source_layer": "adapters",
+      "target_module": "psycopg2",
+      "import_type": "from",
+      "line": 55,
+      "package": "psycopg2",
+      "category": "database",
+      "classification": "合法技术依赖",
+      "reason": "adapters 层负责具体技术适配，直接依赖 psycopg2 属于 adapter 职责。"
+    },
+    {
+      "source_file": "app/adapters/persistence/postgres/principal_memory_consent.py",
+      "source_module": "app.adapters.persistence.postgres.principal_memory_consent",
+      "source_layer": "adapters",
+      "target_module": "psycopg2",
+      "import_type": "from",
+      "line": 89,
+      "package": "psycopg2",
+      "category": "database",
+      "classification": "合法技术依赖",
+      "reason": "adapters 层负责具体技术适配，直接依赖 psycopg2 属于 adapter 职责。"
+    },
+    {
+      "source_file": "app/adapters/persistence/postgres/principal_memory_consent.py",
+      "source_module": "app.adapters.persistence.postgres.principal_memory_consent",
+      "source_layer": "adapters",
+      "target_module": "psycopg2",
+      "import_type": "from",
+      "line": 106,
+      "package": "psycopg2",
+      "category": "database",
+      "classification": "合法技术依赖",
+      "reason": "adapters 层负责具体技术适配，直接依赖 psycopg2 属于 adapter 职责。"
+    },
+    {
+      "source_file": "app/adapters/persistence/postgres/principal_memory_consent.py",
+      "source_module": "app.adapters.persistence.postgres.principal_memory_consent",
+      "source_layer": "adapters",
+      "target_module": "psycopg2",
+      "import_type": "from",
+      "line": 126,
+      "package": "psycopg2",
+      "category": "database",
+      "classification": "合法技术依赖",
+      "reason": "adapters 层负责具体技术适配，直接依赖 psycopg2 属于 adapter 职责。"
+    },
+    {
+      "source_file": "app/adapters/persistence/postgres/principal_memory_control.py",
+      "source_module": "app.adapters.persistence.postgres.principal_memory_control",
+      "source_layer": "adapters",
+      "target_module": "psycopg2",
+      "import_type": "from",
+      "line": 101,
+      "package": "psycopg2",
+      "category": "database",
+      "classification": "合法技术依赖",
+      "reason": "adapters 层负责具体技术适配，直接依赖 psycopg2 属于 adapter 职责。"
+    },
+    {
+      "source_file": "app/adapters/persistence/postgres/principal_memory_control.py",
+      "source_module": "app.adapters.persistence.postgres.principal_memory_control",
+      "source_layer": "adapters",
+      "target_module": "psycopg2",
+      "import_type": "from",
+      "line": 114,
+      "package": "psycopg2",
+      "category": "database",
+      "classification": "合法技术依赖",
+      "reason": "adapters 层负责具体技术适配，直接依赖 psycopg2 属于 adapter 职责。"
+    },
+    {
+      "source_file": "app/adapters/persistence/postgres/principal_memory_control.py",
+      "source_module": "app.adapters.persistence.postgres.principal_memory_control",
+      "source_layer": "adapters",
+      "target_module": "psycopg2",
+      "import_type": "from",
+      "line": 128,
+      "package": "psycopg2",
+      "category": "database",
+      "classification": "合法技术依赖",
+      "reason": "adapters 层负责具体技术适配，直接依赖 psycopg2 属于 adapter 职责。"
+    },
+    {
+      "source_file": "app/adapters/persistence/postgres/principal_memory_control.py",
+      "source_module": "app.adapters.persistence.postgres.principal_memory_control",
+      "source_layer": "adapters",
+      "target_module": "psycopg2",
+      "import_type": "from",
+      "line": 141,
+      "package": "psycopg2",
+      "category": "database",
+      "classification": "合法技术依赖",
+      "reason": "adapters 层负责具体技术适配，直接依赖 psycopg2 属于 adapter 职责。"
+    },
+    {
+      "source_file": "app/adapters/persistence/postgres/principal_memory_control.py",
+      "source_module": "app.adapters.persistence.postgres.principal_memory_control",
+      "source_layer": "adapters",
+      "target_module": "psycopg2",
+      "import_type": "from",
+      "line": 166,
+      "package": "psycopg2",
+      "category": "database",
+      "classification": "合法技术依赖",
+      "reason": "adapters 层负责具体技术适配，直接依赖 psycopg2 属于 adapter 职责。"
+    },
+    {
+      "source_file": "app/adapters/persistence/postgres/principal_memory_control.py",
+      "source_module": "app.adapters.persistence.postgres.principal_memory_control",
+      "source_layer": "adapters",
+      "target_module": "psycopg2",
+      "import_type": "from",
+      "line": 239,
+      "package": "psycopg2",
+      "category": "database",
+      "classification": "合法技术依赖",
+      "reason": "adapters 层负责具体技术适配，直接依赖 psycopg2 属于 adapter 职责。"
+    },
+    {
+      "source_file": "app/adapters/persistence/postgres/principal_memory_exclusive_scan.py",
+      "source_module": "app.adapters.persistence.postgres.principal_memory_exclusive_scan",
+      "source_layer": "adapters",
+      "target_module": "psycopg2",
+      "import_type": "from",
+      "line": 344,
+      "package": "psycopg2",
+      "category": "database",
+      "classification": "合法技术依赖",
+      "reason": "adapters 层负责具体技术适配，直接依赖 psycopg2 属于 adapter 职责。"
+    },
+    {
+      "source_file": "app/adapters/persistence/postgres/principal_memory_ledger.py",
+      "source_module": "app.adapters.persistence.postgres.principal_memory_ledger",
+      "source_layer": "adapters",
+      "target_module": "psycopg2",
+      "import_type": "from",
+      "line": 56,
+      "package": "psycopg2",
+      "category": "database",
+      "classification": "合法技术依赖",
+      "reason": "adapters 层负责具体技术适配，直接依赖 psycopg2 属于 adapter 职责。"
+    },
+    {
+      "source_file": "app/adapters/persistence/postgres/principal_memory_ledger.py",
+      "source_module": "app.adapters.persistence.postgres.principal_memory_ledger",
+      "source_layer": "adapters",
+      "target_module": "psycopg2",
+      "import_type": "from",
+      "line": 94,
+      "package": "psycopg2",
+      "category": "database",
+      "classification": "合法技术依赖",
+      "reason": "adapters 层负责具体技术适配，直接依赖 psycopg2 属于 adapter 职责。"
+    },
+    {
+      "source_file": "app/adapters/persistence/postgres/principal_memory_ledger.py",
+      "source_module": "app.adapters.persistence.postgres.principal_memory_ledger",
+      "source_layer": "adapters",
+      "target_module": "psycopg2",
+      "import_type": "from",
+      "line": 124,
+      "package": "psycopg2",
+      "category": "database",
+      "classification": "合法技术依赖",
+      "reason": "adapters 层负责具体技术适配，直接依赖 psycopg2 属于 adapter 职责。"
+    },
+    {
+      "source_file": "app/adapters/persistence/postgres/principal_memory_rights.py",
+      "source_module": "app.adapters.persistence.postgres.principal_memory_rights",
+      "source_layer": "adapters",
+      "target_module": "psycopg2",
+      "import_type": "from",
+      "line": 74,
+      "package": "psycopg2",
+      "category": "database",
+      "classification": "合法技术依赖",
+      "reason": "adapters 层负责具体技术适配，直接依赖 psycopg2 属于 adapter 职责。"
+    },
+    {
+      "source_file": "app/adapters/persistence/postgres/principal_memory_rights.py",
+      "source_module": "app.adapters.persistence.postgres.principal_memory_rights",
+      "source_layer": "adapters",
+      "target_module": "psycopg2",
+      "import_type": "from",
+      "line": 119,
+      "package": "psycopg2",
+      "category": "database",
+      "classification": "合法技术依赖",
+      "reason": "adapters 层负责具体技术适配，直接依赖 psycopg2 属于 adapter 职责。"
+    },
+    {
+      "source_file": "app/adapters/persistence/postgres/principal_memory_rights.py",
+      "source_module": "app.adapters.persistence.postgres.principal_memory_rights",
+      "source_layer": "adapters",
+      "target_module": "psycopg2",
+      "import_type": "from",
+      "line": 153,
+      "package": "psycopg2",
+      "category": "database",
+      "classification": "合法技术依赖",
+      "reason": "adapters 层负责具体技术适配，直接依赖 psycopg2 属于 adapter 职责。"
+    },
+    {
+      "source_file": "app/adapters/persistence/postgres/principal_memory_rights.py",
+      "source_module": "app.adapters.persistence.postgres.principal_memory_rights",
+      "source_layer": "adapters",
+      "target_module": "psycopg2",
+      "import_type": "from",
+      "line": 168,
+      "package": "psycopg2",
+      "category": "database",
+      "classification": "合法技术依赖",
+      "reason": "adapters 层负责具体技术适配，直接依赖 psycopg2 属于 adapter 职责。"
+    },
+    {
+      "source_file": "app/adapters/persistence/postgres/principal_memory_rights.py",
+      "source_module": "app.adapters.persistence.postgres.principal_memory_rights",
+      "source_layer": "adapters",
+      "target_module": "psycopg2",
+      "import_type": "from",
+      "line": 194,
+      "package": "psycopg2",
+      "category": "database",
+      "classification": "合法技术依赖",
+      "reason": "adapters 层负责具体技术适配，直接依赖 psycopg2 属于 adapter 职责。"
+    },
+    {
+      "source_file": "app/adapters/persistence/postgres/principal_memory_rights.py",
+      "source_module": "app.adapters.persistence.postgres.principal_memory_rights",
+      "source_layer": "adapters",
+      "target_module": "psycopg2",
+      "import_type": "from",
+      "line": 242,
+      "package": "psycopg2",
+      "category": "database",
+      "classification": "合法技术依赖",
+      "reason": "adapters 层负责具体技术适配，直接依赖 psycopg2 属于 adapter 职责。"
+    },
+    {
+      "source_file": "app/adapters/persistence/postgres/principal_memory_rights.py",
+      "source_module": "app.adapters.persistence.postgres.principal_memory_rights",
+      "source_layer": "adapters",
+      "target_module": "psycopg2",
+      "import_type": "from",
+      "line": 295,
+      "package": "psycopg2",
+      "category": "database",
+      "classification": "合法技术依赖",
+      "reason": "adapters 层负责具体技术适配，直接依赖 psycopg2 属于 adapter 职责。"
+    },
+    {
+      "source_file": "app/adapters/persistence/postgres/principal_memory_rights.py",
+      "source_module": "app.adapters.persistence.postgres.principal_memory_rights",
+      "source_layer": "adapters",
+      "target_module": "psycopg2",
+      "import_type": "from",
+      "line": 345,
+      "package": "psycopg2",
+      "category": "database",
+      "classification": "合法技术依赖",
+      "reason": "adapters 层负责具体技术适配，直接依赖 psycopg2 属于 adapter 职责。"
+    },
+    {
+      "source_file": "app/adapters/persistence/postgres/principal_memory_rights.py",
+      "source_module": "app.adapters.persistence.postgres.principal_memory_rights",
+      "source_layer": "adapters",
+      "target_module": "psycopg2",
+      "import_type": "from",
+      "line": 392,
+      "package": "psycopg2",
+      "category": "database",
+      "classification": "合法技术依赖",
+      "reason": "adapters 层负责具体技术适配，直接依赖 psycopg2 属于 adapter 职责。"
+    },
+    {
+      "source_file": "app/adapters/persistence/postgres/principal_memory_rights.py",
+      "source_module": "app.adapters.persistence.postgres.principal_memory_rights",
+      "source_layer": "adapters",
+      "target_module": "psycopg2",
+      "import_type": "from",
+      "line": 403,
+      "package": "psycopg2",
+      "category": "database",
+      "classification": "合法技术依赖",
+      "reason": "adapters 层负责具体技术适配，直接依赖 psycopg2 属于 adapter 职责。"
+    },
+    {
+      "source_file": "app/adapters/persistence/postgres/principal_memory_rights.py",
+      "source_module": "app.adapters.persistence.postgres.principal_memory_rights",
+      "source_layer": "adapters",
+      "target_module": "psycopg2",
+      "import_type": "from",
+      "line": 420,
+      "package": "psycopg2",
+      "category": "database",
+      "classification": "合法技术依赖",
+      "reason": "adapters 层负责具体技术适配，直接依赖 psycopg2 属于 adapter 职责。"
+    },
+    {
+      "source_file": "app/adapters/persistence/postgres/principal_memory_rights.py",
+      "source_module": "app.adapters.persistence.postgres.principal_memory_rights",
+      "source_layer": "adapters",
+      "target_module": "psycopg2",
+      "import_type": "from",
+      "line": 501,
+      "package": "psycopg2",
+      "category": "database",
+      "classification": "合法技术依赖",
+      "reason": "adapters 层负责具体技术适配，直接依赖 psycopg2 属于 adapter 职责。"
+    },
+    {
+      "source_file": "app/adapters/persistence/postgres/principal_memory_rights.py",
+      "source_module": "app.adapters.persistence.postgres.principal_memory_rights",
+      "source_layer": "adapters",
+      "target_module": "psycopg2",
+      "import_type": "from",
+      "line": 590,
+      "package": "psycopg2",
+      "category": "database",
+      "classification": "合法技术依赖",
+      "reason": "adapters 层负责具体技术适配，直接依赖 psycopg2 属于 adapter 职责。"
+    },
+    {
+      "source_file": "app/adapters/persistence/postgres/principal_memory_rights.py",
+      "source_module": "app.adapters.persistence.postgres.principal_memory_rights",
+      "source_layer": "adapters",
+      "target_module": "psycopg2",
+      "import_type": "from",
+      "line": 639,
+      "package": "psycopg2",
+      "category": "database",
+      "classification": "合法技术依赖",
+      "reason": "adapters 层负责具体技术适配，直接依赖 psycopg2 属于 adapter 职责。"
+    },
+    {
+      "source_file": "app/adapters/persistence/postgres/principal_memory_rights.py",
+      "source_module": "app.adapters.persistence.postgres.principal_memory_rights",
+      "source_layer": "adapters",
+      "target_module": "psycopg2",
+      "import_type": "from",
+      "line": 677,
+      "package": "psycopg2",
+      "category": "database",
+      "classification": "合法技术依赖",
+      "reason": "adapters 层负责具体技术适配，直接依赖 psycopg2 属于 adapter 职责。"
+    },
+    {
+      "source_file": "app/adapters/persistence/postgres/principal_memory_rights.py",
+      "source_module": "app.adapters.persistence.postgres.principal_memory_rights",
+      "source_layer": "adapters",
+      "target_module": "psycopg2",
+      "import_type": "from",
+      "line": 690,
+      "package": "psycopg2",
+      "category": "database",
+      "classification": "合法技术依赖",
+      "reason": "adapters 层负责具体技术适配，直接依赖 psycopg2 属于 adapter 职责。"
+    },
+    {
+      "source_file": "app/adapters/persistence/postgres/principal_memory_rights.py",
+      "source_module": "app.adapters.persistence.postgres.principal_memory_rights",
+      "source_layer": "adapters",
+      "target_module": "psycopg2",
+      "import_type": "from",
+      "line": 709,
+      "package": "psycopg2",
+      "category": "database",
+      "classification": "合法技术依赖",
+      "reason": "adapters 层负责具体技术适配，直接依赖 psycopg2 属于 adapter 职责。"
+    },
+    {
+      "source_file": "app/adapters/persistence/postgres/principal_memory_rights.py",
+      "source_module": "app.adapters.persistence.postgres.principal_memory_rights",
+      "source_layer": "adapters",
+      "target_module": "psycopg2",
+      "import_type": "from",
+      "line": 724,
+      "package": "psycopg2",
+      "category": "database",
+      "classification": "合法技术依赖",
+      "reason": "adapters 层负责具体技术适配，直接依赖 psycopg2 属于 adapter 职责。"
+    },
+    {
+      "source_file": "app/adapters/persistence/postgres/question_memory_index.py",
+      "source_module": "app.adapters.persistence.postgres.question_memory_index",
+      "source_layer": "adapters",
+      "target_module": "psycopg2",
+      "import_type": "from",
+      "line": 50,
+      "package": "psycopg2",
+      "category": "database",
+      "classification": "合法技术依赖",
+      "reason": "adapters 层负责具体技术适配，直接依赖 psycopg2 属于 adapter 职责。"
+    },
+    {
+      "source_file": "app/adapters/persistence/postgres/question_memory_index.py",
+      "source_module": "app.adapters.persistence.postgres.question_memory_index",
+      "source_layer": "adapters",
+      "target_module": "psycopg2",
+      "import_type": "from",
+      "line": 129,
+      "package": "psycopg2",
+      "category": "database",
+      "classification": "合法技术依赖",
+      "reason": "adapters 层负责具体技术适配，直接依赖 psycopg2 属于 adapter 职责。"
+    },
+    {
+      "source_file": "app/adapters/persistence/postgres/question_memory_index.py",
+      "source_module": "app.adapters.persistence.postgres.question_memory_index",
+      "source_layer": "adapters",
+      "target_module": "psycopg2",
+      "import_type": "from",
+      "line": 149,
+      "package": "psycopg2",
+      "category": "database",
+      "classification": "合法技术依赖",
+      "reason": "adapters 层负责具体技术适配，直接依赖 psycopg2 属于 adapter 职责。"
+    },
+    {
+      "source_file": "app/adapters/persistence/postgres/question_memory_index.py",
+      "source_module": "app.adapters.persistence.postgres.question_memory_index",
+      "source_layer": "adapters",
+      "target_module": "psycopg2",
+      "import_type": "from",
+      "line": 165,
+      "package": "psycopg2",
+      "category": "database",
+      "classification": "合法技术依赖",
+      "reason": "adapters 层负责具体技术适配，直接依赖 psycopg2 属于 adapter 职责。"
+    },
+    {
+      "source_file": "app/adapters/persistence/postgres/question_memory_index.py",
+      "source_module": "app.adapters.persistence.postgres.question_memory_index",
+      "source_layer": "adapters",
+      "target_module": "psycopg2",
+      "import_type": "from",
+      "line": 180,
+      "package": "psycopg2",
+      "category": "database",
+      "classification": "合法技术依赖",
+      "reason": "adapters 层负责具体技术适配，直接依赖 psycopg2 属于 adapter 职责。"
+    },
+    {
+      "source_file": "app/adapters/persistence/postgres/question_memory_index.py",
+      "source_module": "app.adapters.persistence.postgres.question_memory_index",
+      "source_layer": "adapters",
+      "target_module": "psycopg2",
+      "import_type": "from",
+      "line": 234,
+      "package": "psycopg2",
+      "category": "database",
+      "classification": "合法技术依赖",
+      "reason": "adapters 层负责具体技术适配，直接依赖 psycopg2 属于 adapter 职责。"
+    },
+    {
+      "source_file": "app/adapters/persistence/postgres/report_artifact_store.py",
+      "source_module": "app.adapters.persistence.postgres.report_artifact_store",
+      "source_layer": "adapters",
+      "target_module": "psycopg2",
+      "import_type": "import",
+      "line": 1001,
+      "package": "psycopg2",
+      "category": "database",
+      "classification": "合法技术依赖",
+      "reason": "adapters 层负责具体技术适配，直接依赖 psycopg2 属于 adapter 职责。"
+    },
+    {
+      "source_file": "app/adapters/persistence/postgres/report_artifact_store.py",
+      "source_module": "app.adapters.persistence.postgres.report_artifact_store",
+      "source_layer": "adapters",
+      "target_module": "psycopg2",
+      "import_type": "from",
+      "line": 1002,
+      "package": "psycopg2",
+      "category": "database",
+      "classification": "合法技术依赖",
+      "reason": "adapters 层负责具体技术适配，直接依赖 psycopg2 属于 adapter 职责。"
+    },
+    {
+      "source_file": "app/adapters/persistence/postgres/report_job_store.py",
+      "source_module": "app.adapters.persistence.postgres.report_job_store",
+      "source_layer": "adapters",
+      "target_module": "psycopg2",
+      "import_type": "import",
+      "line": 1106,
+      "package": "psycopg2",
+      "category": "database",
+      "classification": "合法技术依赖",
+      "reason": "adapters 层负责具体技术适配，直接依赖 psycopg2 属于 adapter 职责。"
+    },
+    {
+      "source_file": "app/adapters/persistence/postgres/report_job_store.py",
+      "source_module": "app.adapters.persistence.postgres.report_job_store",
+      "source_layer": "adapters",
+      "target_module": "psycopg2",
+      "import_type": "from",
+      "line": 1107,
+      "package": "psycopg2",
+      "category": "database",
+      "classification": "合法技术依赖",
+      "reason": "adapters 层负责具体技术适配，直接依赖 psycopg2 属于 adapter 职责。"
+    },
+    {
+      "source_file": "app/adapters/persistence/postgres/runtime_control.py",
+      "source_module": "app.adapters.persistence.postgres.runtime_control",
+      "source_layer": "adapters",
+      "target_module": "psycopg2",
+      "import_type": "import",
+      "line": 699,
+      "package": "psycopg2",
+      "category": "database",
+      "classification": "合法技术依赖",
+      "reason": "adapters 层负责具体技术适配，直接依赖 psycopg2 属于 adapter 职责。"
+    },
+    {
+      "source_file": "app/adapters/persistence/postgres/runtime_control.py",
+      "source_module": "app.adapters.persistence.postgres.runtime_control",
+      "source_layer": "adapters",
+      "target_module": "psycopg2",
+      "import_type": "from",
+      "line": 700,
+      "package": "psycopg2",
+      "category": "database",
+      "classification": "合法技术依赖",
+      "reason": "adapters 层负责具体技术适配，直接依赖 psycopg2 属于 adapter 职责。"
+    },
+    {
+      "source_file": "app/adapters/persistence/postgres/runtime_migrations.py",
+      "source_module": "app.adapters.persistence.postgres.runtime_migrations",
+      "source_layer": "adapters",
+      "target_module": "langgraph.checkpoint.postgres",
+      "import_type": "from",
+      "line": 452,
+      "package": "langgraph",
+      "category": "workflow",
+      "classification": "合法技术依赖",
+      "reason": "adapters 层负责具体技术适配，直接依赖 langgraph 属于 adapter 职责。"
+    },
+    {
+      "source_file": "app/adapters/persistence/postgres/runtime_migrations.py",
+      "source_module": "app.adapters.persistence.postgres.runtime_migrations",
+      "source_layer": "adapters",
+      "target_module": "psycopg2",
+      "import_type": "from",
+      "line": 465,
+      "package": "psycopg2",
+      "category": "database",
+      "classification": "合法技术依赖",
+      "reason": "adapters 层负责具体技术适配，直接依赖 psycopg2 属于 adapter 职责。"
+    },
+    {
+      "source_file": "app/adapters/persistence/postgres/runtime_migrations.py",
+      "source_module": "app.adapters.persistence.postgres.runtime_migrations",
+      "source_layer": "adapters",
+      "target_module": "psycopg2",
+      "import_type": "from",
+      "line": 524,
+      "package": "psycopg2",
+      "category": "database",
+      "classification": "合法技术依赖",
+      "reason": "adapters 层负责具体技术适配，直接依赖 psycopg2 属于 adapter 职责。"
+    },
+    {
+      "source_file": "app/adapters/persistence/postgres/runtime_migrations.py",
+      "source_module": "app.adapters.persistence.postgres.runtime_migrations",
+      "source_layer": "adapters",
+      "target_module": "psycopg2",
+      "import_type": "from",
+      "line": 571,
+      "package": "psycopg2",
+      "category": "database",
+      "classification": "合法技术依赖",
+      "reason": "adapters 层负责具体技术适配，直接依赖 psycopg2 属于 adapter 职责。"
+    },
+    {
+      "source_file": "app/adapters/persistence/postgres/runtime_migrations.py",
+      "source_module": "app.adapters.persistence.postgres.runtime_migrations",
+      "source_layer": "adapters",
+      "target_module": "psycopg2",
+      "import_type": "from",
+      "line": 700,
+      "package": "psycopg2",
+      "category": "database",
+      "classification": "合法技术依赖",
+      "reason": "adapters 层负责具体技术适配，直接依赖 psycopg2 属于 adapter 职责。"
+    },
+    {
+      "source_file": "app/adapters/persistence/postgres/runtime_migrations.py",
+      "source_module": "app.adapters.persistence.postgres.runtime_migrations",
+      "source_layer": "adapters",
+      "target_module": "psycopg2",
+      "import_type": "from",
+      "line": 743,
+      "package": "psycopg2",
+      "category": "database",
+      "classification": "合法技术依赖",
+      "reason": "adapters 层负责具体技术适配，直接依赖 psycopg2 属于 adapter 职责。"
+    },
+    {
+      "source_file": "app/adapters/persistence/postgres/runtime_migrations.py",
+      "source_module": "app.adapters.persistence.postgres.runtime_migrations",
+      "source_layer": "adapters",
+      "target_module": "psycopg2",
+      "import_type": "from",
+      "line": 814,
+      "package": "psycopg2",
+      "category": "database",
+      "classification": "合法技术依赖",
+      "reason": "adapters 层负责具体技术适配，直接依赖 psycopg2 属于 adapter 职责。"
+    },
+    {
+      "source_file": "app/adapters/persistence/postgres/runtime_migrations.py",
+      "source_module": "app.adapters.persistence.postgres.runtime_migrations",
+      "source_layer": "adapters",
+      "target_module": "psycopg2",
+      "import_type": "from",
+      "line": 863,
+      "package": "psycopg2",
+      "category": "database",
+      "classification": "合法技术依赖",
+      "reason": "adapters 层负责具体技术适配，直接依赖 psycopg2 属于 adapter 职责。"
+    },
+    {
+      "source_file": "app/adapters/persistence/postgres/runtime_migrations.py",
+      "source_module": "app.adapters.persistence.postgres.runtime_migrations",
+      "source_layer": "adapters",
+      "target_module": "psycopg2",
+      "import_type": "import",
+      "line": 100,
+      "package": "psycopg2",
+      "category": "database",
+      "classification": "合法技术依赖",
+      "reason": "adapters 层负责具体技术适配，直接依赖 psycopg2 属于 adapter 职责。"
+    },
+    {
+      "source_file": "app/adapters/persistence/postgres/runtime_migrations.py",
+      "source_module": "app.adapters.persistence.postgres.runtime_migrations",
+      "source_layer": "adapters",
+      "target_module": "psycopg2",
+      "import_type": "from",
+      "line": 119,
+      "package": "psycopg2",
+      "category": "database",
+      "classification": "合法技术依赖",
+      "reason": "adapters 层负责具体技术适配，直接依赖 psycopg2 属于 adapter 职责。"
+    },
+    {
+      "source_file": "app/adapters/persistence/postgres/runtime_migrations.py",
+      "source_module": "app.adapters.persistence.postgres.runtime_migrations",
+      "source_layer": "adapters",
+      "target_module": "psycopg2",
+      "import_type": "from",
+      "line": 394,
+      "package": "psycopg2",
+      "category": "database",
+      "classification": "合法技术依赖",
+      "reason": "adapters 层负责具体技术适配，直接依赖 psycopg2 属于 adapter 职责。"
+    },
+    {
+      "source_file": "app/adapters/persistence/postgres/runtime_signal_metrics.py",
+      "source_module": "app.adapters.persistence.postgres.runtime_signal_metrics",
+      "source_layer": "adapters",
+      "target_module": "psycopg2",
+      "import_type": "import",
+      "line": 216,
+      "package": "psycopg2",
+      "category": "database",
+      "classification": "合法技术依赖",
+      "reason": "adapters 层负责具体技术适配，直接依赖 psycopg2 属于 adapter 职责。"
+    },
+    {
+      "source_file": "app/adapters/persistence/postgres/runtime_signal_metrics.py",
+      "source_module": "app.adapters.persistence.postgres.runtime_signal_metrics",
+      "source_layer": "adapters",
+      "target_module": "psycopg2",
+      "import_type": "from",
+      "line": 217,
+      "package": "psycopg2",
+      "category": "database",
+      "classification": "合法技术依赖",
+      "reason": "adapters 层负责具体技术适配，直接依赖 psycopg2 属于 adapter 职责。"
+    },
+    {
+      "source_file": "app/adapters/persistence/postgres/session_deletion.py",
+      "source_module": "app.adapters.persistence.postgres.session_deletion",
+      "source_layer": "adapters",
+      "target_module": "psycopg2",
+      "import_type": "from",
+      "line": 50,
+      "package": "psycopg2",
+      "category": "database",
+      "classification": "合法技术依赖",
+      "reason": "adapters 层负责具体技术适配，直接依赖 psycopg2 属于 adapter 职责。"
+    },
+    {
+      "source_file": "app/adapters/persistence/postgres/session_deletion.py",
+      "source_module": "app.adapters.persistence.postgres.session_deletion",
+      "source_layer": "adapters",
+      "target_module": "psycopg2",
+      "import_type": "from",
+      "line": 50,
+      "package": "psycopg2",
+      "category": "database",
+      "classification": "合法技术依赖",
+      "reason": "adapters 层负责具体技术适配，直接依赖 psycopg2 属于 adapter 职责。"
+    },
+    {
+      "source_file": "app/adapters/persistence/postgres/session_deletion.py",
+      "source_module": "app.adapters.persistence.postgres.session_deletion",
+      "source_layer": "adapters",
+      "target_module": "psycopg2",
+      "import_type": "from",
+      "line": 75,
+      "package": "psycopg2",
+      "category": "database",
+      "classification": "合法技术依赖",
+      "reason": "adapters 层负责具体技术适配，直接依赖 psycopg2 属于 adapter 职责。"
+    },
+    {
+      "source_file": "app/adapters/persistence/postgres/session_deletion.py",
+      "source_module": "app.adapters.persistence.postgres.session_deletion",
+      "source_layer": "adapters",
+      "target_module": "psycopg2",
+      "import_type": "from",
+      "line": 91,
+      "package": "psycopg2",
+      "category": "database",
+      "classification": "合法技术依赖",
+      "reason": "adapters 层负责具体技术适配，直接依赖 psycopg2 属于 adapter 职责。"
+    },
+    {
+      "source_file": "app/adapters/persistence/postgres/session_deletion.py",
+      "source_module": "app.adapters.persistence.postgres.session_deletion",
+      "source_layer": "adapters",
+      "target_module": "psycopg2",
+      "import_type": "from",
+      "line": 159,
+      "package": "psycopg2",
+      "category": "database",
+      "classification": "合法技术依赖",
+      "reason": "adapters 层负责具体技术适配，直接依赖 psycopg2 属于 adapter 职责。"
+    },
+    {
+      "source_file": "app/adapters/persistence/postgres/session_deletion.py",
+      "source_module": "app.adapters.persistence.postgres.session_deletion",
+      "source_layer": "adapters",
+      "target_module": "psycopg2",
+      "import_type": "from",
+      "line": 159,
+      "package": "psycopg2",
+      "category": "database",
+      "classification": "合法技术依赖",
+      "reason": "adapters 层负责具体技术适配，直接依赖 psycopg2 属于 adapter 职责。"
+    },
+    {
+      "source_file": "app/adapters/persistence/postgres/session_deletion.py",
+      "source_module": "app.adapters.persistence.postgres.session_deletion",
+      "source_layer": "adapters",
+      "target_module": "psycopg2",
+      "import_type": "from",
+      "line": 208,
+      "package": "psycopg2",
+      "category": "database",
+      "classification": "合法技术依赖",
+      "reason": "adapters 层负责具体技术适配，直接依赖 psycopg2 属于 adapter 职责。"
+    },
+    {
+      "source_file": "app/adapters/persistence/postgres/session_deletion_tombstones.py",
+      "source_module": "app.adapters.persistence.postgres.session_deletion_tombstones",
+      "source_layer": "adapters",
+      "target_module": "psycopg2",
+      "import_type": "from",
+      "line": 102,
+      "package": "psycopg2",
+      "category": "database",
+      "classification": "合法技术依赖",
+      "reason": "adapters 层负责具体技术适配，直接依赖 psycopg2 属于 adapter 职责。"
+    },
+    {
+      "source_file": "app/adapters/persistence/postgres/session_deletion_tombstones.py",
+      "source_module": "app.adapters.persistence.postgres.session_deletion_tombstones",
+      "source_layer": "adapters",
+      "target_module": "psycopg2",
+      "import_type": "from",
+      "line": 118,
+      "package": "psycopg2",
+      "category": "database",
+      "classification": "合法技术依赖",
+      "reason": "adapters 层负责具体技术适配，直接依赖 psycopg2 属于 adapter 职责。"
+    },
+    {
+      "source_file": "app/adapters/persistence/postgres/session_deletion_tombstones.py",
+      "source_module": "app.adapters.persistence.postgres.session_deletion_tombstones",
+      "source_layer": "adapters",
+      "target_module": "psycopg2",
+      "import_type": "from",
+      "line": 137,
+      "package": "psycopg2",
+      "category": "database",
+      "classification": "合法技术依赖",
+      "reason": "adapters 层负责具体技术适配，直接依赖 psycopg2 属于 adapter 职责。"
+    },
+    {
+      "source_file": "app/adapters/persistence/postgres/session_deletion_tombstones.py",
+      "source_module": "app.adapters.persistence.postgres.session_deletion_tombstones",
+      "source_layer": "adapters",
+      "target_module": "psycopg2",
+      "import_type": "from",
+      "line": 183,
+      "package": "psycopg2",
+      "category": "database",
+      "classification": "合法技术依赖",
+      "reason": "adapters 层负责具体技术适配，直接依赖 psycopg2 属于 adapter 职责。"
+    },
+    {
+      "source_file": "app/adapters/pgvector/repository.py",
+      "source_module": "app.adapters.pgvector.repository",
+      "source_layer": "adapters",
+      "target_module": "psycopg2",
+      "import_type": "import",
+      "line": 1228,
+      "package": "psycopg2",
+      "category": "database",
+      "classification": "合法技术依赖",
+      "reason": "adapters 层负责具体技术适配，直接依赖 psycopg2 属于 adapter 职责。"
+    },
+    {
+      "source_file": "app/adapters/pgvector/repository.py",
+      "source_module": "app.adapters.pgvector.repository",
+      "source_layer": "adapters",
+      "target_module": "psycopg2",
+      "import_type": "from",
+      "line": 1229,
+      "package": "psycopg2",
+      "category": "database",
+      "classification": "合法技术依赖",
+      "reason": "adapters 层负责具体技术适配，直接依赖 psycopg2 属于 adapter 职责。"
+    },
+    {
+      "source_file": "app/adapters/pgvector/user_document_repository.py",
+      "source_module": "app.adapters.pgvector.user_document_repository",
+      "source_layer": "adapters",
+      "target_module": "psycopg2",
+      "import_type": "from",
+      "line": 356,
+      "package": "psycopg2",
+      "category": "database",
+      "classification": "合法技术依赖",
+      "reason": "adapters 层负责具体技术适配，直接依赖 psycopg2 属于 adapter 职责。"
+    },
+    {
+      "source_file": "app/adapters/postgres/connections.py",
+      "source_module": "app.adapters.postgres.connections",
+      "source_layer": "adapters",
+      "target_module": "psycopg2",
+      "import_type": "import",
+      "line": 95,
+      "package": "psycopg2",
+      "category": "database",
+      "classification": "合法技术依赖",
+      "reason": "adapters 层负责具体技术适配，直接依赖 psycopg2 属于 adapter 职责。"
+    },
+    {
+      "source_file": "app/adapters/postgres/connections.py",
+      "source_module": "app.adapters.postgres.connections",
+      "source_layer": "adapters",
+      "target_module": "psycopg2.pool",
+      "import_type": "from",
+      "line": 189,
+      "package": "psycopg2",
+      "category": "database",
+      "classification": "合法技术依赖",
+      "reason": "adapters 层负责具体技术适配，直接依赖 psycopg2 属于 adapter 职责。"
+    },
+    {
+      "source_file": "app/adapters/postgres/context_artifacts.py",
+      "source_module": "app.adapters.postgres.context_artifacts",
+      "source_layer": "adapters",
+      "target_module": "psycopg2",
+      "import_type": "from",
+      "line": 641,
+      "package": "psycopg2",
+      "category": "database",
+      "classification": "合法技术依赖",
+      "reason": "adapters 层负责具体技术适配，直接依赖 psycopg2 属于 adapter 职责。"
+    },
+    {
+      "source_file": "app/adapters/postgres/context_artifacts.py",
+      "source_module": "app.adapters.postgres.context_artifacts",
+      "source_layer": "adapters",
+      "target_module": "psycopg2",
+      "import_type": "from",
+      "line": 703,
+      "package": "psycopg2",
+      "category": "database",
+      "classification": "合法技术依赖",
+      "reason": "adapters 层负责具体技术适配，直接依赖 psycopg2 属于 adapter 职责。"
+    },
+    {
+      "source_file": "app/adapters/postgres/context_artifacts.py",
+      "source_module": "app.adapters.postgres.context_artifacts",
+      "source_layer": "adapters",
+      "target_module": "psycopg2",
+      "import_type": "from",
+      "line": 1031,
+      "package": "psycopg2",
+      "category": "database",
+      "classification": "合法技术依赖",
+      "reason": "adapters 层负责具体技术适配，直接依赖 psycopg2 属于 adapter 职责。"
+    },
+    {
+      "source_file": "app/adapters/postgres/context_artifacts.py",
+      "source_module": "app.adapters.postgres.context_artifacts",
+      "source_layer": "adapters",
+      "target_module": "psycopg2",
+      "import_type": "import",
+      "line": 1040,
+      "package": "psycopg2",
+      "category": "database",
+      "classification": "合法技术依赖",
+      "reason": "adapters 层负责具体技术适配，直接依赖 psycopg2 属于 adapter 职责。"
+    },
+    {
+      "source_file": "app/adapters/postgres/context_artifacts.py",
+      "source_module": "app.adapters.postgres.context_artifacts",
+      "source_layer": "adapters",
+      "target_module": "psycopg2",
+      "import_type": "from",
+      "line": 1041,
+      "package": "psycopg2",
+      "category": "database",
+      "classification": "合法技术依赖",
+      "reason": "adapters 层负责具体技术适配，直接依赖 psycopg2 属于 adapter 职责。"
+    },
+    {
+      "source_file": "app/adapters/postgres/owned_scope.py",
+      "source_module": "app.adapters.postgres.owned_scope",
+      "source_layer": "adapters",
+      "target_module": "psycopg2",
+      "import_type": "from",
+      "line": 259,
+      "package": "psycopg2",
+      "category": "database",
+      "classification": "合法技术依赖",
+      "reason": "adapters 层负责具体技术适配，直接依赖 psycopg2 属于 adapter 职责。"
+    },
+    {
+      "source_file": "app/adapters/postgres/owned_scope.py",
+      "source_module": "app.adapters.postgres.owned_scope",
+      "source_layer": "adapters",
+      "target_module": "psycopg2",
+      "import_type": "from",
+      "line": 292,
+      "package": "psycopg2",
+      "category": "database",
+      "classification": "合法技术依赖",
+      "reason": "adapters 层负责具体技术适配，直接依赖 psycopg2 属于 adapter 职责。"
+    },
+    {
+      "source_file": "app/adapters/postgres/owned_scope.py",
+      "source_module": "app.adapters.postgres.owned_scope",
+      "source_layer": "adapters",
+      "target_module": "psycopg2",
+      "import_type": "from",
+      "line": 350,
+      "package": "psycopg2",
+      "category": "database",
+      "classification": "合法技术依赖",
+      "reason": "adapters 层负责具体技术适配，直接依赖 psycopg2 属于 adapter 职责。"
+    },
+    {
+      "source_file": "app/adapters/postgres/owned_scope.py",
+      "source_module": "app.adapters.postgres.owned_scope",
+      "source_layer": "adapters",
+      "target_module": "psycopg2",
+      "import_type": "from",
+      "line": 376,
+      "package": "psycopg2",
+      "category": "database",
+      "classification": "合法技术依赖",
+      "reason": "adapters 层负责具体技术适配，直接依赖 psycopg2 属于 adapter 职责。"
+    },
+    {
+      "source_file": "app/adapters/postgres/principal_memory.py",
+      "source_module": "app.adapters.postgres.principal_memory",
+      "source_layer": "adapters",
+      "target_module": "psycopg2",
+      "import_type": "from",
+      "line": 52,
+      "package": "psycopg2",
+      "category": "database",
+      "classification": "合法技术依赖",
+      "reason": "adapters 层负责具体技术适配，直接依赖 psycopg2 属于 adapter 职责。"
+    },
+    {
+      "source_file": "app/adapters/postgres/principal_memory.py",
+      "source_module": "app.adapters.postgres.principal_memory",
+      "source_layer": "adapters",
+      "target_module": "psycopg2",
+      "import_type": "from",
+      "line": 87,
+      "package": "psycopg2",
+      "category": "database",
+      "classification": "合法技术依赖",
+      "reason": "adapters 层负责具体技术适配，直接依赖 psycopg2 属于 adapter 职责。"
+    },
+    {
+      "source_file": "app/adapters/postgres/principal_memory.py",
+      "source_module": "app.adapters.postgres.principal_memory",
+      "source_layer": "adapters",
+      "target_module": "psycopg2",
+      "import_type": "from",
+      "line": 219,
+      "package": "psycopg2",
+      "category": "database",
+      "classification": "合法技术依赖",
+      "reason": "adapters 层负责具体技术适配，直接依赖 psycopg2 属于 adapter 职责。"
+    },
+    {
+      "source_file": "app/adapters/postgres/principal_memory.py",
+      "source_module": "app.adapters.postgres.principal_memory",
+      "source_layer": "adapters",
+      "target_module": "psycopg2",
+      "import_type": "from",
+      "line": 353,
+      "package": "psycopg2",
+      "category": "database",
+      "classification": "合法技术依赖",
+      "reason": "adapters 层负责具体技术适配，直接依赖 psycopg2 属于 adapter 职责。"
+    },
+    {
+      "source_file": "app/adapters/postgres/principal_memory.py",
+      "source_module": "app.adapters.postgres.principal_memory",
+      "source_layer": "adapters",
+      "target_module": "psycopg2",
+      "import_type": "from",
+      "line": 413,
+      "package": "psycopg2",
+      "category": "database",
+      "classification": "合法技术依赖",
+      "reason": "adapters 层负责具体技术适配，直接依赖 psycopg2 属于 adapter 职责。"
+    },
+    {
+      "source_file": "app/adapters/postgres/principal_memory.py",
+      "source_module": "app.adapters.postgres.principal_memory",
+      "source_layer": "adapters",
+      "target_module": "psycopg2",
+      "import_type": "from",
+      "line": 440,
+      "package": "psycopg2",
+      "category": "database",
+      "classification": "合法技术依赖",
+      "reason": "adapters 层负责具体技术适配，直接依赖 psycopg2 属于 adapter 职责。"
+    },
+    {
+      "source_file": "app/adapters/postgres/principal_memory.py",
+      "source_module": "app.adapters.postgres.principal_memory",
+      "source_layer": "adapters",
+      "target_module": "psycopg2",
+      "import_type": "from",
+      "line": 471,
+      "package": "psycopg2",
+      "category": "database",
+      "classification": "合法技术依赖",
+      "reason": "adapters 层负责具体技术适配，直接依赖 psycopg2 属于 adapter 职责。"
+    },
+    {
+      "source_file": "app/adapters/postgres/principal_memory.py",
+      "source_module": "app.adapters.postgres.principal_memory",
+      "source_layer": "adapters",
+      "target_module": "psycopg2",
+      "import_type": "from",
+      "line": 492,
+      "package": "psycopg2",
+      "category": "database",
+      "classification": "合法技术依赖",
+      "reason": "adapters 层负责具体技术适配，直接依赖 psycopg2 属于 adapter 职责。"
+    },
+    {
+      "source_file": "app/adapters/postgres/principal_memory.py",
+      "source_module": "app.adapters.postgres.principal_memory",
+      "source_layer": "adapters",
+      "target_module": "psycopg2",
+      "import_type": "from",
+      "line": 514,
+      "package": "psycopg2",
+      "category": "database",
+      "classification": "合法技术依赖",
+      "reason": "adapters 层负责具体技术适配，直接依赖 psycopg2 属于 adapter 职责。"
+    },
+    {
+      "source_file": "app/adapters/postgres/principal_memory.py",
+      "source_module": "app.adapters.postgres.principal_memory",
+      "source_layer": "adapters",
+      "target_module": "psycopg2",
+      "import_type": "from",
+      "line": 531,
+      "package": "psycopg2",
+      "category": "database",
+      "classification": "合法技术依赖",
+      "reason": "adapters 层负责具体技术适配，直接依赖 psycopg2 属于 adapter 职责。"
+    },
+    {
+      "source_file": "app/adapters/postgres/principal_memory.py",
+      "source_module": "app.adapters.postgres.principal_memory",
+      "source_layer": "adapters",
+      "target_module": "psycopg2",
+      "import_type": "from",
+      "line": 546,
+      "package": "psycopg2",
+      "category": "database",
+      "classification": "合法技术依赖",
+      "reason": "adapters 层负责具体技术适配，直接依赖 psycopg2 属于 adapter 职责。"
+    },
+    {
+      "source_file": "app/adapters/postgres/principal_memory.py",
+      "source_module": "app.adapters.postgres.principal_memory",
+      "source_layer": "adapters",
+      "target_module": "psycopg2",
+      "import_type": "from",
+      "line": 601,
+      "package": "psycopg2",
+      "category": "database",
+      "classification": "合法技术依赖",
+      "reason": "adapters 层负责具体技术适配，直接依赖 psycopg2 属于 adapter 职责。"
+    },
+    {
+      "source_file": "app/adapters/postgres/principal_memory_migration.py",
+      "source_module": "app.adapters.postgres.principal_memory_migration",
+      "source_layer": "adapters",
+      "target_module": "psycopg2",
+      "import_type": "from",
+      "line": 20,
+      "package": "psycopg2",
+      "category": "database",
+      "classification": "合法技术依赖",
+      "reason": "adapters 层负责具体技术适配，直接依赖 psycopg2 属于 adapter 职责。"
+    },
+    {
+      "source_file": "app/adapters/postgres/runtime_repository_support.py",
+      "source_module": "app.adapters.postgres.runtime_repository_support",
+      "source_layer": "adapters",
+      "target_module": "psycopg2",
+      "import_type": "from",
+      "line": 6,
+      "package": "psycopg2",
+      "category": "database",
+      "classification": "合法技术依赖",
+      "reason": "adapters 层负责具体技术适配，直接依赖 psycopg2 属于 adapter 职责。"
+    },
+    {
+      "source_file": "app/adapters/postgres/session_repository_support.py",
+      "source_module": "app.adapters.postgres.session_repository_support",
+      "source_layer": "adapters",
+      "target_module": "psycopg2",
+      "import_type": "from",
+      "line": 8,
+      "package": "psycopg2",
+      "category": "database",
+      "classification": "合法技术依赖",
+      "reason": "adapters 层负责具体技术适配，直接依赖 psycopg2 属于 adapter 职责。"
+    },
+    {
+      "source_file": "app/adapters/postgres/user_documents.py",
+      "source_module": "app.adapters.postgres.user_documents",
+      "source_layer": "adapters",
+      "target_module": "psycopg2",
+      "import_type": "from",
+      "line": 536,
+      "package": "psycopg2",
+      "category": "database",
+      "classification": "合法技术依赖",
+      "reason": "adapters 层负责具体技术适配，直接依赖 psycopg2 属于 adapter 职责。"
+    },
+    {
+      "source_file": "app/adapters/providers/context_compression.py",
+      "source_module": "app.adapters.providers.context_compression",
+      "source_layer": "adapters",
+      "target_module": "langchain_openai",
+      "import_type": "from",
+      "line": 235,
+      "package": "langchain_openai",
+      "category": "model_sdk",
+      "classification": "合法技术依赖",
+      "reason": "adapters 层负责具体技术适配，直接依赖 langchain_openai 属于 adapter 职责。"
+    },
+    {
+      "source_file": "app/adapters/providers/llm.py",
+      "source_module": "app.adapters.providers.llm",
+      "source_layer": "adapters",
+      "target_module": "langchain_openai",
+      "import_type": "from",
+      "line": 1037,
+      "package": "langchain_openai",
+      "category": "model_sdk",
+      "classification": "合法技术依赖",
+      "reason": "adapters 层负责具体技术适配，直接依赖 langchain_openai 属于 adapter 职责。"
+    },
+    {
+      "source_file": "app/adapters/providers/siliconflow_embeddings.py",
+      "source_module": "app.adapters.providers.siliconflow_embeddings",
+      "source_layer": "adapters",
+      "target_module": "httpx",
+      "import_type": "import",
+      "line": 10,
+      "package": "httpx",
+      "category": "provider_transport",
+      "classification": "合法技术依赖",
+      "reason": "adapters 层负责具体技术适配，直接依赖 httpx 属于 adapter 职责。"
+    },
+    {
+      "source_file": "app/adapters/providers/t65_provider_http_transport.py",
+      "source_module": "app.adapters.providers.t65_provider_http_transport",
+      "source_layer": "adapters",
+      "target_module": "httpx",
+      "import_type": "import",
+      "line": 17,
+      "package": "httpx",
+      "category": "provider_transport",
+      "classification": "合法技术依赖",
+      "reason": "adapters 层负责具体技术适配，直接依赖 httpx 属于 adapter 职责。"
+    },
+    {
+      "source_file": "app/adapters/reliability/runtime_failure.py",
+      "source_module": "app.adapters.reliability.runtime_failure",
+      "source_layer": "adapters",
+      "target_module": "httpx",
+      "import_type": "import",
+      "line": 5,
+      "package": "httpx",
+      "category": "provider_transport",
+      "classification": "合法技术依赖",
+      "reason": "adapters 层负责具体技术适配，直接依赖 httpx 属于 adapter 职责。"
+    },
+    {
+      "source_file": "app/adapters/reliability/runtime_failure.py",
+      "source_module": "app.adapters.reliability.runtime_failure",
+      "source_layer": "adapters",
+      "target_module": "openai",
+      "import_type": "import",
+      "line": 6,
+      "package": "openai",
+      "category": "model_sdk",
+      "classification": "合法技术依赖",
+      "reason": "adapters 层负责具体技术适配，直接依赖 openai 属于 adapter 职责。"
+    },
+    {
+      "source_file": "app/adapters/workflows/checkpointer_schema.py",
+      "source_module": "app.adapters.workflows.checkpointer_schema",
+      "source_layer": "adapters",
+      "target_module": "langgraph.checkpoint.postgres",
+      "import_type": "from",
+      "line": 92,
+      "package": "langgraph",
+      "category": "workflow",
+      "classification": "合法技术依赖",
+      "reason": "adapters 层负责具体技术适配，直接依赖 langgraph 属于 adapter 职责。"
+    },
+    {
+      "source_file": "app/api/a2a/routes.py",
+      "source_module": "app.api.a2a.routes",
+      "source_layer": "api",
+      "target_module": "fastapi",
+      "import_type": "from",
+      "line": 5,
+      "package": "fastapi",
+      "category": "web",
+      "classification": "合法技术依赖",
+      "reason": "api 层是 FastAPI HTTP 边界，直接依赖 fastapi 属于边界实现。"
+    },
+    {
+      "source_file": "app/api/a2a/routes.py",
+      "source_module": "app.api.a2a.routes",
+      "source_layer": "api",
+      "target_module": "fastapi",
+      "import_type": "from",
+      "line": 5,
+      "package": "fastapi",
+      "category": "web",
+      "classification": "合法技术依赖",
+      "reason": "api 层是 FastAPI HTTP 边界，直接依赖 fastapi 属于边界实现。"
+    },
+    {
+      "source_file": "app/api/deletion/routes.py",
+      "source_module": "app.api.deletion.routes",
+      "source_layer": "api",
+      "target_module": "fastapi",
+      "import_type": "from",
+      "line": 1,
+      "package": "fastapi",
+      "category": "web",
+      "classification": "合法技术依赖",
+      "reason": "api 层是 FastAPI HTTP 边界，直接依赖 fastapi 属于边界实现。"
+    },
+    {
+      "source_file": "app/api/deletion/routes.py",
+      "source_module": "app.api.deletion.routes",
+      "source_layer": "api",
+      "target_module": "fastapi",
+      "import_type": "from",
+      "line": 1,
+      "package": "fastapi",
+      "category": "web",
+      "classification": "合法技术依赖",
+      "reason": "api 层是 FastAPI HTTP 边界，直接依赖 fastapi 属于边界实现。"
+    },
+    {
+      "source_file": "app/api/deletion/routes.py",
+      "source_module": "app.api.deletion.routes",
+      "source_layer": "api",
+      "target_module": "fastapi",
+      "import_type": "from",
+      "line": 1,
+      "package": "fastapi",
+      "category": "web",
+      "classification": "合法技术依赖",
+      "reason": "api 层是 FastAPI HTTP 边界，直接依赖 fastapi 属于边界实现。"
+    },
+    {
+      "source_file": "app/api/interview/routes.py",
+      "source_module": "app.api.interview.routes",
+      "source_layer": "api",
+      "target_module": "fastapi",
+      "import_type": "from",
+      "line": 1,
+      "package": "fastapi",
+      "category": "web",
+      "classification": "合法技术依赖",
+      "reason": "api 层是 FastAPI HTTP 边界，直接依赖 fastapi 属于边界实现。"
+    },
+    {
+      "source_file": "app/api/interview/routes.py",
+      "source_module": "app.api.interview.routes",
+      "source_layer": "api",
+      "target_module": "fastapi",
+      "import_type": "from",
+      "line": 1,
+      "package": "fastapi",
+      "category": "web",
+      "classification": "合法技术依赖",
+      "reason": "api 层是 FastAPI HTTP 边界，直接依赖 fastapi 属于边界实现。"
+    },
+    {
+      "source_file": "app/api/interview/routes.py",
+      "source_module": "app.api.interview.routes",
+      "source_layer": "api",
+      "target_module": "fastapi",
+      "import_type": "from",
+      "line": 1,
+      "package": "fastapi",
+      "category": "web",
+      "classification": "合法技术依赖",
+      "reason": "api 层是 FastAPI HTTP 边界，直接依赖 fastapi 属于边界实现。"
+    },
+    {
+      "source_file": "app/api/interview/routes.py",
+      "source_module": "app.api.interview.routes",
+      "source_layer": "api",
+      "target_module": "fastapi",
+      "import_type": "from",
+      "line": 1,
+      "package": "fastapi",
+      "category": "web",
+      "classification": "合法技术依赖",
+      "reason": "api 层是 FastAPI HTTP 边界，直接依赖 fastapi 属于边界实现。"
+    },
+    {
+      "source_file": "app/api/interview/routes.py",
+      "source_module": "app.api.interview.routes",
+      "source_layer": "api",
+      "target_module": "fastapi",
+      "import_type": "from",
+      "line": 1,
+      "package": "fastapi",
+      "category": "web",
+      "classification": "合法技术依赖",
+      "reason": "api 层是 FastAPI HTTP 边界，直接依赖 fastapi 属于边界实现。"
+    },
+    {
+      "source_file": "app/api/interview/routes.py",
+      "source_module": "app.api.interview.routes",
+      "source_layer": "api",
+      "target_module": "fastapi.responses",
+      "import_type": "from",
+      "line": 8,
+      "package": "fastapi",
+      "category": "web",
+      "classification": "合法技术依赖",
+      "reason": "api 层是 FastAPI HTTP 边界，直接依赖 fastapi 属于边界实现。"
+    },
+    {
+      "source_file": "app/api/interview/routes.py",
+      "source_module": "app.api.interview.routes",
+      "source_layer": "api",
+      "target_module": "fastapi.responses",
+      "import_type": "from",
+      "line": 8,
+      "package": "fastapi",
+      "category": "web",
+      "classification": "合法技术依赖",
+      "reason": "api 层是 FastAPI HTTP 边界，直接依赖 fastapi 属于边界实现。"
+    },
+    {
+      "source_file": "app/api/interview/routes.py",
+      "source_module": "app.api.interview.routes",
+      "source_layer": "api",
+      "target_module": "fastapi.responses",
+      "import_type": "from",
+      "line": 8,
+      "package": "fastapi",
+      "category": "web",
+      "classification": "合法技术依赖",
+      "reason": "api 层是 FastAPI HTTP 边界，直接依赖 fastapi 属于边界实现。"
+    },
+    {
+      "source_file": "app/api/materials/routes.py",
+      "source_module": "app.api.materials.routes",
+      "source_layer": "api",
+      "target_module": "fastapi",
+      "import_type": "from",
+      "line": 5,
+      "package": "fastapi",
+      "category": "web",
+      "classification": "合法技术依赖",
+      "reason": "api 层是 FastAPI HTTP 边界，直接依赖 fastapi 属于边界实现。"
+    },
+    {
+      "source_file": "app/api/materials/routes.py",
+      "source_module": "app.api.materials.routes",
+      "source_layer": "api",
+      "target_module": "fastapi",
+      "import_type": "from",
+      "line": 5,
+      "package": "fastapi",
+      "category": "web",
+      "classification": "合法技术依赖",
+      "reason": "api 层是 FastAPI HTTP 边界，直接依赖 fastapi 属于边界实现。"
+    },
+    {
+      "source_file": "app/api/materials/routes.py",
+      "source_module": "app.api.materials.routes",
+      "source_layer": "api",
+      "target_module": "fastapi",
+      "import_type": "from",
+      "line": 5,
+      "package": "fastapi",
+      "category": "web",
+      "classification": "合法技术依赖",
+      "reason": "api 层是 FastAPI HTTP 边界，直接依赖 fastapi 属于边界实现。"
+    },
+    {
+      "source_file": "app/api/materials/routes.py",
+      "source_module": "app.api.materials.routes",
+      "source_layer": "api",
+      "target_module": "fastapi",
+      "import_type": "from",
+      "line": 5,
+      "package": "fastapi",
+      "category": "web",
+      "classification": "合法技术依赖",
+      "reason": "api 层是 FastAPI HTTP 边界，直接依赖 fastapi 属于边界实现。"
+    },
+    {
+      "source_file": "app/api/materials/routes.py",
+      "source_module": "app.api.materials.routes",
+      "source_layer": "api",
+      "target_module": "fastapi",
+      "import_type": "from",
+      "line": 5,
+      "package": "fastapi",
+      "category": "web",
+      "classification": "合法技术依赖",
+      "reason": "api 层是 FastAPI HTTP 边界，直接依赖 fastapi 属于边界实现。"
+    },
+    {
+      "source_file": "app/api/materials/routes.py",
+      "source_module": "app.api.materials.routes",
+      "source_layer": "api",
+      "target_module": "fastapi",
+      "import_type": "from",
+      "line": 5,
+      "package": "fastapi",
+      "category": "web",
+      "classification": "合法技术依赖",
+      "reason": "api 层是 FastAPI HTTP 边界，直接依赖 fastapi 属于边界实现。"
+    },
+    {
+      "source_file": "app/api/materials/routes.py",
+      "source_module": "app.api.materials.routes",
+      "source_layer": "api",
+      "target_module": "fastapi",
+      "import_type": "from",
+      "line": 5,
+      "package": "fastapi",
+      "category": "web",
+      "classification": "合法技术依赖",
+      "reason": "api 层是 FastAPI HTTP 边界，直接依赖 fastapi 属于边界实现。"
+    },
+    {
+      "source_file": "app/api/memory/routes.py",
+      "source_module": "app.api.memory.routes",
+      "source_layer": "api",
+      "target_module": "fastapi",
+      "import_type": "from",
+      "line": 5,
+      "package": "fastapi",
+      "category": "web",
+      "classification": "合法技术依赖",
+      "reason": "api 层是 FastAPI HTTP 边界，直接依赖 fastapi 属于边界实现。"
+    },
+    {
+      "source_file": "app/api/memory/routes.py",
+      "source_module": "app.api.memory.routes",
+      "source_layer": "api",
+      "target_module": "fastapi",
+      "import_type": "from",
+      "line": 5,
+      "package": "fastapi",
+      "category": "web",
+      "classification": "合法技术依赖",
+      "reason": "api 层是 FastAPI HTTP 边界，直接依赖 fastapi 属于边界实现。"
+    },
+    {
+      "source_file": "app/api/memory/routes.py",
+      "source_module": "app.api.memory.routes",
+      "source_layer": "api",
+      "target_module": "fastapi",
+      "import_type": "from",
+      "line": 5,
+      "package": "fastapi",
+      "category": "web",
+      "classification": "合法技术依赖",
+      "reason": "api 层是 FastAPI HTTP 边界，直接依赖 fastapi 属于边界实现。"
+    },
+    {
+      "source_file": "app/api/memory/routes.py",
+      "source_module": "app.api.memory.routes",
+      "source_layer": "api",
+      "target_module": "fastapi",
+      "import_type": "from",
+      "line": 5,
+      "package": "fastapi",
+      "category": "web",
+      "classification": "合法技术依赖",
+      "reason": "api 层是 FastAPI HTTP 边界，直接依赖 fastapi 属于边界实现。"
+    },
+    {
+      "source_file": "app/api/plans/routes.py",
+      "source_module": "app.api.plans.routes",
+      "source_layer": "api",
+      "target_module": "fastapi",
+      "import_type": "from",
+      "line": 3,
+      "package": "fastapi",
+      "category": "web",
+      "classification": "合法技术依赖",
+      "reason": "api 层是 FastAPI HTTP 边界，直接依赖 fastapi 属于边界实现。"
+    },
+    {
+      "source_file": "app/api/plans/routes.py",
+      "source_module": "app.api.plans.routes",
+      "source_layer": "api",
+      "target_module": "fastapi",
+      "import_type": "from",
+      "line": 3,
+      "package": "fastapi",
+      "category": "web",
+      "classification": "合法技术依赖",
+      "reason": "api 层是 FastAPI HTTP 边界，直接依赖 fastapi 属于边界实现。"
+    },
+    {
+      "source_file": "app/api/plans/routes.py",
+      "source_module": "app.api.plans.routes",
+      "source_layer": "api",
+      "target_module": "fastapi",
+      "import_type": "from",
+      "line": 3,
+      "package": "fastapi",
+      "category": "web",
+      "classification": "合法技术依赖",
+      "reason": "api 层是 FastAPI HTTP 边界，直接依赖 fastapi 属于边界实现。"
+    },
+    {
+      "source_file": "app/api/plans/routes.py",
+      "source_module": "app.api.plans.routes",
+      "source_layer": "api",
+      "target_module": "fastapi.responses",
+      "import_type": "from",
+      "line": 4,
+      "package": "fastapi",
+      "category": "web",
+      "classification": "合法技术依赖",
+      "reason": "api 层是 FastAPI HTTP 边界，直接依赖 fastapi 属于边界实现。"
+    },
+    {
+      "source_file": "app/api/prep/routes.py",
+      "source_module": "app.api.prep.routes",
+      "source_layer": "api",
+      "target_module": "fastapi",
+      "import_type": "from",
+      "line": 5,
+      "package": "fastapi",
+      "category": "web",
+      "classification": "合法技术依赖",
+      "reason": "api 层是 FastAPI HTTP 边界，直接依赖 fastapi 属于边界实现。"
+    },
+    {
+      "source_file": "app/api/prep/routes.py",
+      "source_module": "app.api.prep.routes",
+      "source_layer": "api",
+      "target_module": "fastapi",
+      "import_type": "from",
+      "line": 5,
+      "package": "fastapi",
+      "category": "web",
+      "classification": "合法技术依赖",
+      "reason": "api 层是 FastAPI HTTP 边界，直接依赖 fastapi 属于边界实现。"
+    },
+    {
+      "source_file": "app/api/prep/routes.py",
+      "source_module": "app.api.prep.routes",
+      "source_layer": "api",
+      "target_module": "fastapi",
+      "import_type": "from",
+      "line": 5,
+      "package": "fastapi",
+      "category": "web",
+      "classification": "合法技术依赖",
+      "reason": "api 层是 FastAPI HTTP 边界，直接依赖 fastapi 属于边界实现。"
+    },
+    {
+      "source_file": "app/api/prep/routes.py",
+      "source_module": "app.api.prep.routes",
+      "source_layer": "api",
+      "target_module": "fastapi",
+      "import_type": "from",
+      "line": 5,
+      "package": "fastapi",
+      "category": "web",
+      "classification": "合法技术依赖",
+      "reason": "api 层是 FastAPI HTTP 边界，直接依赖 fastapi 属于边界实现。"
+    },
+    {
+      "source_file": "app/api/prep/routes.py",
+      "source_module": "app.api.prep.routes",
+      "source_layer": "api",
+      "target_module": "fastapi",
+      "import_type": "from",
+      "line": 5,
+      "package": "fastapi",
+      "category": "web",
+      "classification": "合法技术依赖",
+      "reason": "api 层是 FastAPI HTTP 边界，直接依赖 fastapi 属于边界实现。"
+    },
+    {
+      "source_file": "app/api/prep/routes.py",
+      "source_module": "app.api.prep.routes",
+      "source_layer": "api",
+      "target_module": "fastapi",
+      "import_type": "from",
+      "line": 5,
+      "package": "fastapi",
+      "category": "web",
+      "classification": "合法技术依赖",
+      "reason": "api 层是 FastAPI HTTP 边界，直接依赖 fastapi 属于边界实现。"
+    },
+    {
+      "source_file": "app/api/prep/routes.py",
+      "source_module": "app.api.prep.routes",
+      "source_layer": "api",
+      "target_module": "fastapi",
+      "import_type": "from",
+      "line": 5,
+      "package": "fastapi",
+      "category": "web",
+      "classification": "合法技术依赖",
+      "reason": "api 层是 FastAPI HTTP 边界，直接依赖 fastapi 属于边界实现。"
+    },
+    {
+      "source_file": "app/api/rag/access.py",
+      "source_module": "app.api.rag.access",
+      "source_layer": "api",
+      "target_module": "fastapi",
+      "import_type": "from",
+      "line": 3,
+      "package": "fastapi",
+      "category": "web",
+      "classification": "合法技术依赖",
+      "reason": "api 层是 FastAPI HTTP 边界，直接依赖 fastapi 属于边界实现。"
+    },
+    {
+      "source_file": "app/api/rag/access.py",
+      "source_module": "app.api.rag.access",
+      "source_layer": "api",
+      "target_module": "fastapi",
+      "import_type": "from",
+      "line": 3,
+      "package": "fastapi",
+      "category": "web",
+      "classification": "合法技术依赖",
+      "reason": "api 层是 FastAPI HTTP 边界，直接依赖 fastapi 属于边界实现。"
+    },
+    {
+      "source_file": "app/api/rag/routes.py",
+      "source_module": "app.api.rag.routes",
+      "source_layer": "api",
+      "target_module": "fastapi",
+      "import_type": "from",
+      "line": 1,
+      "package": "fastapi",
+      "category": "web",
+      "classification": "合法技术依赖",
+      "reason": "api 层是 FastAPI HTTP 边界，直接依赖 fastapi 属于边界实现。"
+    },
+    {
+      "source_file": "app/api/rag/routes.py",
+      "source_module": "app.api.rag.routes",
+      "source_layer": "api",
+      "target_module": "fastapi",
+      "import_type": "from",
+      "line": 1,
+      "package": "fastapi",
+      "category": "web",
+      "classification": "合法技术依赖",
+      "reason": "api 层是 FastAPI HTTP 边界，直接依赖 fastapi 属于边界实现。"
+    },
+    {
+      "source_file": "app/api/rag/routes.py",
+      "source_module": "app.api.rag.routes",
+      "source_layer": "api",
+      "target_module": "fastapi",
+      "import_type": "from",
+      "line": 1,
+      "package": "fastapi",
+      "category": "web",
+      "classification": "合法技术依赖",
+      "reason": "api 层是 FastAPI HTTP 边界，直接依赖 fastapi 属于边界实现。"
+    },
+    {
+      "source_file": "app/api/rag/routes.py",
+      "source_module": "app.api.rag.routes",
+      "source_layer": "api",
+      "target_module": "fastapi",
+      "import_type": "from",
+      "line": 1,
+      "package": "fastapi",
+      "category": "web",
+      "classification": "合法技术依赖",
+      "reason": "api 层是 FastAPI HTTP 边界，直接依赖 fastapi 属于边界实现。"
+    },
+    {
+      "source_file": "app/api/rag/routes.py",
+      "source_module": "app.api.rag.routes",
+      "source_layer": "api",
+      "target_module": "fastapi.exceptions",
+      "import_type": "from",
+      "line": 2,
+      "package": "fastapi",
+      "category": "web",
+      "classification": "合法技术依赖",
+      "reason": "api 层是 FastAPI HTTP 边界，直接依赖 fastapi 属于边界实现。"
+    },
+    {
+      "source_file": "app/api/rag/routes.py",
+      "source_module": "app.api.rag.routes",
+      "source_layer": "api",
+      "target_module": "fastapi.responses",
+      "import_type": "from",
+      "line": 3,
+      "package": "fastapi",
+      "category": "web",
+      "classification": "合法技术依赖",
+      "reason": "api 层是 FastAPI HTTP 边界，直接依赖 fastapi 属于边界实现。"
+    },
+    {
+      "source_file": "app/api/rag/routes.py",
+      "source_module": "app.api.rag.routes",
+      "source_layer": "api",
+      "target_module": "fastapi.routing",
+      "import_type": "from",
+      "line": 4,
+      "package": "fastapi",
+      "category": "web",
+      "classification": "合法技术依赖",
+      "reason": "api 层是 FastAPI HTTP 边界，直接依赖 fastapi 属于边界实现。"
+    },
+    {
+      "source_file": "app/api/reports/routes.py",
+      "source_module": "app.api.reports.routes",
+      "source_layer": "api",
+      "target_module": "fastapi",
+      "import_type": "from",
+      "line": 4,
+      "package": "fastapi",
+      "category": "web",
+      "classification": "合法技术依赖",
+      "reason": "api 层是 FastAPI HTTP 边界，直接依赖 fastapi 属于边界实现。"
+    },
+    {
+      "source_file": "app/api/reports/routes.py",
+      "source_module": "app.api.reports.routes",
+      "source_layer": "api",
+      "target_module": "fastapi",
+      "import_type": "from",
+      "line": 4,
+      "package": "fastapi",
+      "category": "web",
+      "classification": "合法技术依赖",
+      "reason": "api 层是 FastAPI HTTP 边界，直接依赖 fastapi 属于边界实现。"
+    },
+    {
+      "source_file": "app/api/reports/routes.py",
+      "source_module": "app.api.reports.routes",
+      "source_layer": "api",
+      "target_module": "fastapi",
+      "import_type": "from",
+      "line": 4,
+      "package": "fastapi",
+      "category": "web",
+      "classification": "合法技术依赖",
+      "reason": "api 层是 FastAPI HTTP 边界，直接依赖 fastapi 属于边界实现。"
+    },
+    {
+      "source_file": "app/api/reports/routes.py",
+      "source_module": "app.api.reports.routes",
+      "source_layer": "api",
+      "target_module": "fastapi",
+      "import_type": "from",
+      "line": 4,
+      "package": "fastapi",
+      "category": "web",
+      "classification": "合法技术依赖",
+      "reason": "api 层是 FastAPI HTTP 边界，直接依赖 fastapi 属于边界实现。"
+    },
+    {
+      "source_file": "app/api/reports/routes.py",
+      "source_module": "app.api.reports.routes",
+      "source_layer": "api",
+      "target_module": "fastapi",
+      "import_type": "from",
+      "line": 4,
+      "package": "fastapi",
+      "category": "web",
+      "classification": "合法技术依赖",
+      "reason": "api 层是 FastAPI HTTP 边界，直接依赖 fastapi 属于边界实现。"
+    },
+    {
+      "source_file": "app/api/reports/routes.py",
+      "source_module": "app.api.reports.routes",
+      "source_layer": "api",
+      "target_module": "fastapi.responses",
+      "import_type": "from",
+      "line": 5,
+      "package": "fastapi",
+      "category": "web",
+      "classification": "合法技术依赖",
+      "reason": "api 层是 FastAPI HTTP 边界，直接依赖 fastapi 属于边界实现。"
+    },
+    {
+      "source_file": "app/api/reports/routes.py",
+      "source_module": "app.api.reports.routes",
+      "source_layer": "api",
+      "target_module": "fastapi.responses",
+      "import_type": "from",
+      "line": 5,
+      "package": "fastapi",
+      "category": "web",
+      "classification": "合法技术依赖",
+      "reason": "api 层是 FastAPI HTTP 边界，直接依赖 fastapi 属于边界实现。"
+    },
+    {
+      "source_file": "app/api/router.py",
+      "source_module": "app.api.router",
+      "source_layer": "api",
+      "target_module": "fastapi",
+      "import_type": "from",
+      "line": 3,
+      "package": "fastapi",
+      "category": "web",
+      "classification": "合法技术依赖",
+      "reason": "api 层是 FastAPI HTTP 边界，直接依赖 fastapi 属于边界实现。"
+    },
+    {
+      "source_file": "app/api/runtime/routes.py",
+      "source_module": "app.api.runtime.routes",
+      "source_layer": "api",
+      "target_module": "fastapi",
+      "import_type": "from",
+      "line": 1,
+      "package": "fastapi",
+      "category": "web",
+      "classification": "合法技术依赖",
+      "reason": "api 层是 FastAPI HTTP 边界，直接依赖 fastapi 属于边界实现。"
+    },
+    {
+      "source_file": "app/api/runtime/routes.py",
+      "source_module": "app.api.runtime.routes",
+      "source_layer": "api",
+      "target_module": "fastapi",
+      "import_type": "from",
+      "line": 1,
+      "package": "fastapi",
+      "category": "web",
+      "classification": "合法技术依赖",
+      "reason": "api 层是 FastAPI HTTP 边界，直接依赖 fastapi 属于边界实现。"
+    },
+    {
+      "source_file": "app/api/runtime/routes.py",
+      "source_module": "app.api.runtime.routes",
+      "source_layer": "api",
+      "target_module": "fastapi",
+      "import_type": "from",
+      "line": 1,
+      "package": "fastapi",
+      "category": "web",
+      "classification": "合法技术依赖",
+      "reason": "api 层是 FastAPI HTTP 边界，直接依赖 fastapi 属于边界实现。"
+    },
+    {
+      "source_file": "app/api/shared/dependencies.py",
+      "source_module": "app.api.shared.dependencies",
+      "source_layer": "api",
+      "target_module": "fastapi",
+      "import_type": "from",
+      "line": 8,
+      "package": "fastapi",
+      "category": "web",
+      "classification": "合法技术依赖",
+      "reason": "api 层是 FastAPI HTTP 边界，直接依赖 fastapi 属于边界实现。"
+    },
+    {
+      "source_file": "app/api/shared/dependencies.py",
+      "source_module": "app.api.shared.dependencies",
+      "source_layer": "api",
+      "target_module": "fastapi",
+      "import_type": "from",
+      "line": 8,
+      "package": "fastapi",
+      "category": "web",
+      "classification": "合法技术依赖",
+      "reason": "api 层是 FastAPI HTTP 边界，直接依赖 fastapi 属于边界实现。"
+    },
+    {
+      "source_file": "app/api/shared/dependencies.py",
+      "source_module": "app.api.shared.dependencies",
+      "source_layer": "api",
+      "target_module": "fastapi",
+      "import_type": "from",
+      "line": 8,
+      "package": "fastapi",
+      "category": "web",
+      "classification": "合法技术依赖",
+      "reason": "api 层是 FastAPI HTTP 边界，直接依赖 fastapi 属于边界实现。"
+    },
+    {
+      "source_file": "app/api/shared/errors.py",
+      "source_module": "app.api.shared.errors",
+      "source_layer": "api",
+      "target_module": "fastapi",
+      "import_type": "from",
+      "line": 3,
+      "package": "fastapi",
+      "category": "web",
+      "classification": "合法技术依赖",
+      "reason": "api 层是 FastAPI HTTP 边界，直接依赖 fastapi 属于边界实现。"
+    },
+    {
+      "source_file": "app/api/shared/errors.py",
+      "source_module": "app.api.shared.errors",
+      "source_layer": "api",
+      "target_module": "fastapi.responses",
+      "import_type": "from",
+      "line": 4,
+      "package": "fastapi",
+      "category": "web",
+      "classification": "合法技术依赖",
+      "reason": "api 层是 FastAPI HTTP 边界，直接依赖 fastapi 属于边界实现。"
+    },
+    {
+      "source_file": "app/evals/langgraph_canary_status.py",
+      "source_module": "app.evals.langgraph_canary_status",
+      "source_layer": "evals",
+      "target_module": "psycopg2",
+      "import_type": "import",
+      "line": 645,
+      "package": "psycopg2",
+      "category": "database",
+      "classification": "合法技术依赖",
+      "reason": "evals 是离线评测与诊断边界，可调用受控 provider、transport 与数据库探针。"
+    },
+    {
+      "source_file": "app/evals/langgraph_canary_status.py",
+      "source_module": "app.evals.langgraph_canary_status",
+      "source_layer": "evals",
+      "target_module": "psycopg2",
+      "import_type": "from",
+      "line": 646,
+      "package": "psycopg2",
+      "category": "database",
+      "classification": "合法技术依赖",
+      "reason": "evals 是离线评测与诊断边界，可调用受控 provider、transport 与数据库探针。"
+    },
+    {
+      "source_file": "app/evals/report_runtime_preflight.py",
+      "source_module": "app.evals.report_runtime_preflight",
+      "source_layer": "evals",
+      "target_module": "psycopg2",
+      "import_type": "from",
+      "line": 114,
+      "package": "psycopg2",
+      "category": "database",
+      "classification": "合法技术依赖",
+      "reason": "evals 是离线评测与诊断边界，可调用受控 provider、transport 与数据库探针。"
+    },
+    {
+      "source_file": "app/evals/t65_production_capture.py",
+      "source_module": "app.evals.t65_production_capture",
+      "source_layer": "evals",
+      "target_module": "httpx",
+      "import_type": "import",
+      "line": 15,
+      "package": "httpx",
+      "category": "provider_transport",
+      "classification": "合法技术依赖",
+      "reason": "evals 是离线评测与诊断边界，可调用受控 provider、transport 与数据库探针。"
+    },
+    {
+      "source_file": "app/graphs/durable_interview_graph.py",
+      "source_module": "app.graphs.durable_interview_graph",
+      "source_layer": "graphs",
+      "target_module": "langgraph.graph",
+      "import_type": "from",
+      "line": 12,
+      "package": "langgraph",
+      "category": "workflow",
+      "classification": "合法技术依赖",
+      "reason": "graphs 层当前承载 LangGraph workflow wiring，直接依赖 langgraph 符合其当前职责。"
+    },
+    {
+      "source_file": "app/graphs/durable_interview_graph.py",
+      "source_module": "app.graphs.durable_interview_graph",
+      "source_layer": "graphs",
+      "target_module": "langgraph.graph",
+      "import_type": "from",
+      "line": 12,
+      "package": "langgraph",
+      "category": "workflow",
+      "classification": "合法技术依赖",
+      "reason": "graphs 层当前承载 LangGraph workflow wiring，直接依赖 langgraph 符合其当前职责。"
+    },
+    {
+      "source_file": "app/graphs/durable_interview_graph.py",
+      "source_module": "app.graphs.durable_interview_graph",
+      "source_layer": "graphs",
+      "target_module": "langgraph.graph",
+      "import_type": "from",
+      "line": 12,
+      "package": "langgraph",
+      "category": "workflow",
+      "classification": "合法技术依赖",
+      "reason": "graphs 层当前承载 LangGraph workflow wiring，直接依赖 langgraph 符合其当前职责。"
+    },
+    {
+      "source_file": "app/graphs/durable_interview_graph.py",
+      "source_module": "app.graphs.durable_interview_graph",
+      "source_layer": "graphs",
+      "target_module": "langgraph.types",
+      "import_type": "from",
+      "line": 13,
+      "package": "langgraph",
+      "category": "workflow",
+      "classification": "合法技术依赖",
+      "reason": "graphs 层当前承载 LangGraph workflow wiring，直接依赖 langgraph 符合其当前职责。"
+    },
+    {
+      "source_file": "app/graphs/durable_review_graph.py",
+      "source_module": "app.graphs.durable_review_graph",
+      "source_layer": "graphs",
+      "target_module": "langgraph.graph",
+      "import_type": "from",
+      "line": 7,
+      "package": "langgraph",
+      "category": "workflow",
+      "classification": "合法技术依赖",
+      "reason": "graphs 层当前承载 LangGraph workflow wiring，直接依赖 langgraph 符合其当前职责。"
+    },
+    {
+      "source_file": "app/graphs/durable_review_graph.py",
+      "source_module": "app.graphs.durable_review_graph",
+      "source_layer": "graphs",
+      "target_module": "langgraph.graph",
+      "import_type": "from",
+      "line": 7,
+      "package": "langgraph",
+      "category": "workflow",
+      "classification": "合法技术依赖",
+      "reason": "graphs 层当前承载 LangGraph workflow wiring，直接依赖 langgraph 符合其当前职责。"
+    },
+    {
+      "source_file": "app/graphs/durable_review_graph.py",
+      "source_module": "app.graphs.durable_review_graph",
+      "source_layer": "graphs",
+      "target_module": "langgraph.graph",
+      "import_type": "from",
+      "line": 7,
+      "package": "langgraph",
+      "category": "workflow",
+      "classification": "合法技术依赖",
+      "reason": "graphs 层当前承载 LangGraph workflow wiring，直接依赖 langgraph 符合其当前职责。"
+    },
+    {
+      "source_file": "app/graphs/durable_review_graph.py",
+      "source_module": "app.graphs.durable_review_graph",
+      "source_layer": "graphs",
+      "target_module": "langgraph.types",
+      "import_type": "from",
+      "line": 8,
+      "package": "langgraph",
+      "category": "workflow",
+      "classification": "合法技术依赖",
+      "reason": "graphs 层当前承载 LangGraph workflow wiring，直接依赖 langgraph 符合其当前职责。"
+    },
+    {
+      "source_file": "app/graphs/durable_review_graph.py",
+      "source_module": "app.graphs.durable_review_graph",
+      "source_layer": "graphs",
+      "target_module": "langgraph.types",
+      "import_type": "from",
+      "line": 8,
+      "package": "langgraph",
+      "category": "workflow",
+      "classification": "合法技术依赖",
+      "reason": "graphs 层当前承载 LangGraph workflow wiring，直接依赖 langgraph 符合其当前职责。"
+    },
+    {
+      "source_file": "app/graphs/orchestrator_graph.py",
+      "source_module": "app.graphs.orchestrator_graph",
+      "source_layer": "graphs",
+      "target_module": "langgraph.graph",
+      "import_type": "from",
+      "line": 4,
+      "package": "langgraph",
+      "category": "workflow",
+      "classification": "合法技术依赖",
+      "reason": "graphs 层当前承载 LangGraph workflow wiring，直接依赖 langgraph 符合其当前职责。"
+    },
+    {
+      "source_file": "app/graphs/orchestrator_graph.py",
+      "source_module": "app.graphs.orchestrator_graph",
+      "source_layer": "graphs",
+      "target_module": "langgraph.graph",
+      "import_type": "from",
+      "line": 4,
+      "package": "langgraph",
+      "category": "workflow",
+      "classification": "合法技术依赖",
+      "reason": "graphs 层当前承载 LangGraph workflow wiring，直接依赖 langgraph 符合其当前职责。"
+    },
+    {
+      "source_file": "app/graphs/orchestrator_graph.py",
+      "source_module": "app.graphs.orchestrator_graph",
+      "source_layer": "graphs",
+      "target_module": "langgraph.graph",
+      "import_type": "from",
+      "line": 4,
+      "package": "langgraph",
+      "category": "workflow",
+      "classification": "合法技术依赖",
+      "reason": "graphs 层当前承载 LangGraph workflow wiring，直接依赖 langgraph 符合其当前职责。"
+    },
+    {
+      "source_file": "app/main.py",
+      "source_module": "app.main",
+      "source_layer": "other",
+      "target_module": "fastapi",
+      "import_type": "from",
+      "line": 4,
+      "package": "fastapi",
+      "category": "web",
+      "classification": "合法技术依赖",
+      "reason": "app/main.py 是 API 启动/组合入口，使用 fastapi 属于边界实现。"
+    },
+    {
+      "source_file": "app/main.py",
+      "source_module": "app.main",
+      "source_layer": "other",
+      "target_module": "fastapi.middleware.cors",
+      "import_type": "from",
+      "line": 5,
+      "package": "fastapi",
+      "category": "web",
+      "classification": "合法技术依赖",
+      "reason": "app/main.py 是 API 启动/组合入口，使用 fastapi 属于边界实现。"
+    },
+    {
+      "source_file": "app/main.py",
+      "source_module": "app.main",
+      "source_layer": "other",
+      "target_module": "fastapi.responses",
+      "import_type": "from",
+      "line": 6,
+      "package": "fastapi",
+      "category": "web",
+      "classification": "合法技术依赖",
+      "reason": "app/main.py 是 API 启动/组合入口，使用 fastapi 属于边界实现。"
+    },
+    {
+      "source_file": "app/runtime/celery_app.py",
+      "source_module": "app.runtime.celery_app",
+      "source_layer": "runtime",
+      "target_module": "celery",
+      "import_type": "from",
+      "line": 1,
+      "package": "celery",
+      "category": "cache_queue",
+      "classification": "合法技术依赖",
+      "reason": "runtime 是 composition root，可合法选择并构造具体基础设施实现。"
+    },
+    {
+      "source_file": "app/runtime/interview_workflow.py",
+      "source_module": "app.runtime.interview_workflow",
+      "source_layer": "runtime",
+      "target_module": "langgraph.types",
+      "import_type": "from",
+      "line": 295,
+      "package": "langgraph",
+      "category": "workflow",
+      "classification": "合法技术依赖",
+      "reason": "runtime 是 composition root，可合法选择并构造具体基础设施实现。"
+    },
+    {
+      "source_file": "app/runtime/interview_workflow.py",
+      "source_module": "app.runtime.interview_workflow",
+      "source_layer": "runtime",
+      "target_module": "langgraph.types",
+      "import_type": "from",
+      "line": 316,
+      "package": "langgraph",
+      "category": "workflow",
+      "classification": "合法技术依赖",
+      "reason": "runtime 是 composition root，可合法选择并构造具体基础设施实现。"
+    },
+    {
+      "source_file": "app/runtime/langgraph_runtime.py",
+      "source_module": "app.runtime.langgraph_runtime",
+      "source_layer": "runtime",
+      "target_module": "psycopg.rows",
+      "import_type": "from",
+      "line": 160,
+      "package": "psycopg",
+      "category": "database",
+      "classification": "合法技术依赖",
+      "reason": "runtime 是 composition root，可合法选择并构造具体基础设施实现。"
+    },
+    {
+      "source_file": "app/runtime/langgraph_runtime.py",
+      "source_module": "app.runtime.langgraph_runtime",
+      "source_layer": "runtime",
+      "target_module": "langgraph.checkpoint.postgres",
+      "import_type": "from",
+      "line": 89,
+      "package": "langgraph",
+      "category": "workflow",
+      "classification": "合法技术依赖",
+      "reason": "runtime 是 composition root，可合法选择并构造具体基础设施实现。"
+    },
+    {
+      "source_file": "app/runtime/review_workflow.py",
+      "source_module": "app.runtime.review_workflow",
+      "source_layer": "runtime",
+      "target_module": "langgraph.types",
+      "import_type": "from",
+      "line": 7,
+      "package": "langgraph",
+      "category": "workflow",
+      "classification": "合法技术依赖",
+      "reason": "runtime 是 composition root，可合法选择并构造具体基础设施实现。"
+    }
+  ],
+  "summary_by_package": [
+    {
+      "package": "anthropic",
+      "category": "model_sdk",
+      "mandated": true,
+      "edges": 0,
+      "source_files": 0,
+      "source_layers": []
+    },
+    {
+      "package": "celery",
+      "category": "cache_queue",
+      "mandated": true,
+      "edges": 1,
+      "source_files": 1,
+      "source_layers": [
+        "runtime"
+      ]
+    },
+    {
+      "package": "fastapi",
+      "category": "web",
+      "mandated": true,
+      "edges": 63,
+      "source_files": 15,
+      "source_layers": [
+        "api",
+        "other"
+      ]
+    },
+    {
+      "package": "google",
+      "category": "model_sdk",
+      "mandated": false,
+      "edges": 0,
+      "source_files": 0,
+      "source_layers": []
+    },
+    {
+      "package": "google_genai",
+      "category": "model_sdk",
+      "mandated": false,
+      "edges": 0,
+      "source_files": 0,
+      "source_layers": []
+    },
+    {
+      "package": "httpx",
+      "category": "provider_transport",
+      "mandated": false,
+      "edges": 4,
+      "source_files": 4,
+      "source_layers": [
+        "adapters",
+        "evals"
+      ]
+    },
+    {
+      "package": "langchain",
+      "category": "model_sdk",
+      "mandated": false,
+      "edges": 0,
+      "source_files": 0,
+      "source_layers": []
+    },
+    {
+      "package": "langchain_core",
+      "category": "model_sdk",
+      "mandated": false,
+      "edges": 0,
+      "source_files": 0,
+      "source_layers": []
+    },
+    {
+      "package": "langchain_openai",
+      "category": "model_sdk",
+      "mandated": false,
+      "edges": 2,
+      "source_files": 2,
+      "source_layers": [
+        "adapters"
+      ]
+    },
+    {
+      "package": "langgraph",
+      "category": "workflow",
+      "mandated": true,
+      "edges": 18,
+      "source_files": 8,
+      "source_layers": [
+        "adapters",
+        "graphs",
+        "runtime"
+      ]
+    },
+    {
+      "package": "openai",
+      "category": "model_sdk",
+      "mandated": true,
+      "edges": 1,
+      "source_files": 1,
+      "source_layers": [
+        "adapters"
+      ]
+    },
+    {
+      "package": "psycopg",
+      "category": "database",
+      "mandated": true,
+      "edges": 1,
+      "source_files": 1,
+      "source_layers": [
+        "runtime"
+      ]
+    },
+    {
+      "package": "psycopg2",
+      "category": "database",
+      "mandated": true,
+      "edges": 139,
+      "source_files": 34,
+      "source_layers": [
+        "adapters",
+        "evals"
+      ]
+    },
+    {
+      "package": "redis",
+      "category": "cache_queue",
+      "mandated": true,
+      "edges": 0,
+      "source_files": 0,
+      "source_layers": []
+    },
+    {
+      "package": "sentence_transformers",
+      "category": "model_sdk",
+      "mandated": false,
+      "edges": 0,
+      "source_files": 0,
+      "source_layers": []
+    }
+  ],
+  "layer_classification_matrix": [
+    {
+      "source_layer": "adapters",
+      "classification": "合法技术依赖",
+      "edges": 144
+    },
+    {
+      "source_layer": "adapters",
+      "classification": "明确违规",
+      "edges": 0
+    },
+    {
+      "source_layer": "adapters",
+      "classification": "暂时无法判断",
+      "edges": 0
+    },
+    {
+      "source_layer": "adapters",
+      "classification": "潜在违规",
+      "edges": 0
+    },
+    {
+      "source_layer": "agents",
+      "classification": "合法技术依赖",
+      "edges": 0
+    },
+    {
+      "source_layer": "agents",
+      "classification": "明确违规",
+      "edges": 0
+    },
+    {
+      "source_layer": "agents",
+      "classification": "暂时无法判断",
+      "edges": 0
+    },
+    {
+      "source_layer": "agents",
+      "classification": "潜在违规",
+      "edges": 0
+    },
+    {
+      "source_layer": "api",
+      "classification": "合法技术依赖",
+      "edges": 60
+    },
+    {
+      "source_layer": "api",
+      "classification": "明确违规",
+      "edges": 0
+    },
+    {
+      "source_layer": "api",
+      "classification": "暂时无法判断",
+      "edges": 0
+    },
+    {
+      "source_layer": "api",
+      "classification": "潜在违规",
+      "edges": 0
+    },
+    {
+      "source_layer": "application",
+      "classification": "合法技术依赖",
+      "edges": 0
+    },
+    {
+      "source_layer": "application",
+      "classification": "明确违规",
+      "edges": 0
+    },
+    {
+      "source_layer": "application",
+      "classification": "暂时无法判断",
+      "edges": 0
+    },
+    {
+      "source_layer": "application",
+      "classification": "潜在违规",
+      "edges": 0
+    },
+    {
+      "source_layer": "domain",
+      "classification": "合法技术依赖",
+      "edges": 0
+    },
+    {
+      "source_layer": "domain",
+      "classification": "明确违规",
+      "edges": 0
+    },
+    {
+      "source_layer": "domain",
+      "classification": "暂时无法判断",
+      "edges": 0
+    },
+    {
+      "source_layer": "domain",
+      "classification": "潜在违规",
+      "edges": 0
+    },
+    {
+      "source_layer": "evals",
+      "classification": "合法技术依赖",
+      "edges": 4
+    },
+    {
+      "source_layer": "evals",
+      "classification": "明确违规",
+      "edges": 0
+    },
+    {
+      "source_layer": "evals",
+      "classification": "暂时无法判断",
+      "edges": 0
+    },
+    {
+      "source_layer": "evals",
+      "classification": "潜在违规",
+      "edges": 0
+    },
+    {
+      "source_layer": "graphs",
+      "classification": "合法技术依赖",
+      "edges": 12
+    },
+    {
+      "source_layer": "graphs",
+      "classification": "明确违规",
+      "edges": 0
+    },
+    {
+      "source_layer": "graphs",
+      "classification": "暂时无法判断",
+      "edges": 0
+    },
+    {
+      "source_layer": "graphs",
+      "classification": "潜在违规",
+      "edges": 0
+    },
+    {
+      "source_layer": "other",
+      "classification": "合法技术依赖",
+      "edges": 3
+    },
+    {
+      "source_layer": "other",
+      "classification": "明确违规",
+      "edges": 0
+    },
+    {
+      "source_layer": "other",
+      "classification": "暂时无法判断",
+      "edges": 0
+    },
+    {
+      "source_layer": "other",
+      "classification": "潜在违规",
+      "edges": 0
+    },
+    {
+      "source_layer": "ports",
+      "classification": "合法技术依赖",
+      "edges": 0
+    },
+    {
+      "source_layer": "ports",
+      "classification": "明确违规",
+      "edges": 0
+    },
+    {
+      "source_layer": "ports",
+      "classification": "暂时无法判断",
+      "edges": 0
+    },
+    {
+      "source_layer": "ports",
+      "classification": "潜在违规",
+      "edges": 0
+    },
+    {
+      "source_layer": "runtime",
+      "classification": "合法技术依赖",
+      "edges": 6
+    },
+    {
+      "source_layer": "runtime",
+      "classification": "明确违规",
+      "edges": 0
+    },
+    {
+      "source_layer": "runtime",
+      "classification": "暂时无法判断",
+      "edges": 0
+    },
+    {
+      "source_layer": "runtime",
+      "classification": "潜在违规",
+      "edges": 0
+    },
+    {
+      "source_layer": "services",
+      "classification": "合法技术依赖",
+      "edges": 0
+    },
+    {
+      "source_layer": "services",
+      "classification": "明确违规",
+      "edges": 0
+    },
+    {
+      "source_layer": "services",
+      "classification": "暂时无法判断",
+      "edges": 0
+    },
+    {
+      "source_layer": "services",
+      "classification": "潜在违规",
+      "edges": 0
+    }
+  ],
+  "top_source_files": [
+    {
+      "source_file": "app/adapters/persistence/postgres/principal_memory_rights.py",
+      "edges": 18
+    },
+    {
+      "source_file": "app/adapters/postgres/principal_memory.py",
+      "edges": 12
+    },
+    {
+      "source_file": "app/adapters/persistence/postgres/runtime_migrations.py",
+      "edges": 11
+    },
+    {
+      "source_file": "app/adapters/persistence/postgres/prep_plan_store.py",
+      "edges": 9
+    },
+    {
+      "source_file": "app/api/interview/routes.py",
+      "edges": 8
+    },
+    {
+      "source_file": "app/adapters/persistence/postgres/draft_store.py",
+      "edges": 7
+    },
+    {
+      "source_file": "app/adapters/persistence/postgres/session_deletion.py",
+      "edges": 7
+    },
+    {
+      "source_file": "app/api/materials/routes.py",
+      "edges": 7
+    },
+    {
+      "source_file": "app/api/prep/routes.py",
+      "edges": 7
+    },
+    {
+      "source_file": "app/api/rag/routes.py",
+      "edges": 7
+    },
+    {
+      "source_file": "app/api/reports/routes.py",
+      "edges": 7
+    },
+    {
+      "source_file": "app/adapters/persistence/postgres/interview_launch_repository.py",
+      "edges": 6
+    },
+    {
+      "source_file": "app/adapters/persistence/postgres/memory_metrics.py",
+      "edges": 6
+    },
+    {
+      "source_file": "app/adapters/persistence/postgres/principal_memory_control.py",
+      "edges": 6
+    },
+    {
+      "source_file": "app/adapters/persistence/postgres/question_memory_index.py",
+      "edges": 6
+    },
+    {
+      "source_file": "app/adapters/persistence/postgres/principal_memory_consent.py",
+      "edges": 5
+    },
+    {
+      "source_file": "app/adapters/postgres/context_artifacts.py",
+      "edges": 5
+    },
+    {
+      "source_file": "app/graphs/durable_review_graph.py",
+      "edges": 5
+    },
+    {
+      "source_file": "app/adapters/persistence/postgres/session_deletion_tombstones.py",
+      "edges": 4
+    },
+    {
+      "source_file": "app/adapters/postgres/owned_scope.py",
+      "edges": 4
+    }
+  ],
+  "classification_counts": {
+    "合法技术依赖": 229,
+    "潜在违规": 0,
+    "明确违规": 0,
+    "暂时无法判断": 0
+  }
+}

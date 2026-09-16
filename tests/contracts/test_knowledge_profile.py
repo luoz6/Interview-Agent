@@ -1,6 +1,6 @@
 import pytest
 
-from app.services.knowledge_profile import (
+from app.domain.knowledge.profile import (
     P1_REQUIRED_COVERED_TAGS,
     build_role_profile,
     derive_covered_tags_from_manifest,

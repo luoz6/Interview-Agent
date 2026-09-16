@@ -1,7 +1,7 @@
 import pytest
 
-from app.services.report import DimensionScores
-from app.services.report_rule_score import (
+from app.domain.report.models import DimensionScores
+from app.domain.report.scoring import (
     REPORT_SCORING_RUBRIC_VERSION,
     REPORT_SCORING_RUBRIC_SHA256,
     DimensionEvidence,

@@ -2,16 +2,14 @@ from uuid import uuid4
 
 import pytest
 
-from app.services.interview_plan_editor import (
+from app.application.interview.plan_editor import (
     InterviewPlanEditor,
     PlanEditRequest,
     PlanOperationValidationError,
 )
-from app.services.interview_plan_revision import InterviewPlanQuestionV2
-from app.services.interview_plan_revision_store import (
-    InMemoryInterviewPlanRevisionStore,
-    PlanRevisionConflict,
-)
+from app.domain.interview.plan_revision import InterviewPlanQuestionV2
+from app.adapters.memory.plan_revision_store import InMemoryInterviewPlanRevisionStore
+from app.ports.plan_revision_store import PlanRevisionConflict
 from tests.unit.test_interview_plan_revision import plan, source
 
 
@@ -196,7 +194,7 @@ def test_frozen_history_restore_never_reassesses_or_rewrites_quality(
     )
 
     monkeypatch.setattr(
-        "app.services.interview_plan_editor.assess_interview_question_quality",
+        "app.application.interview.plan_editor.assess_interview_question_quality",
         lambda _questions: (_ for _ in ()).throw(
             AssertionError("frozen history must not be reassessed")
         ),

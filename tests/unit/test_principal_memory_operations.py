@@ -7,26 +7,26 @@ import pytest
 from pydantic import ValidationError
 
 from app.runtime.config.memory import load_effective_memory_config
-from app.services.memory_metrics import (
+from app.runtime.memory_metrics import (
     InMemoryMemoryMetricStore,
     MemoryMetricEvent,
     configure_memory_metric_store,
     publish_principal_local_consume_metric,
     reset_memory_metric_store,
 )
-from app.services.principal_identity import ExplicitPrincipalIdentityResolver
-from app.services.principal_memory_operations import (
+from app.adapters.memory.principal_identity import ExplicitPrincipalIdentityResolver
+from app.runtime.principal_memory_operations import (
     LOCAL_MEMORY_OPERATION_GATE_CODES,
     PrincipalMemoryOperationsService,
     evaluate_local_memory_readiness,
 )
-from app.services.principal_memory_ledger import GENESIS_HEAD_SHA256
-from app.services.principal_memory_rights import (
+from app.adapters.memory.principal_memory_ledger import GENESIS_HEAD_SHA256
+from app.adapters.memory.principal_memory_rights import (
     InMemoryPrincipalMemoryDeletionTombstoneStore,
     InMemoryPrincipalMemoryExportStore,
-    PrincipalMemoryExportRecord,
 )
-from app.services.principal_memory_safe_refs import (
+from app.domain.memory.rights import PrincipalMemoryExportRecord
+from app.adapters.memory.principal_memory_safe_refs import (
     InMemoryPrincipalMemorySafeRefStore,
     PrincipalMemorySafeRefRecord,
 )

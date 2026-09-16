@@ -8,12 +8,12 @@ from app.graphs.durable_review_graph import (
     build_durable_review_graph,
 )
 from app.graphs.durable_review_state import make_durable_review_initial_state
-from app.services.report import InterviewReport, ReportEvidenceRefV2
-from app.services.report_artifact_store import InMemoryReportArtifactStore
-from app.services.report_contract import assemble_interview_report
-from app.services.report_degraded import build_degraded_report_from_feedbacks
-from app.services.report_provider_adapter import normalize_provider_payload
-from app.services.report_runtime_quality import evaluate_runtime_report_quality
+from app.domain.report.models import InterviewReport, ReportEvidenceRefV2
+from app.adapters.memory.report_artifact_store import InMemoryReportArtifactStore
+from app.domain.report.assembly import assemble_interview_report
+from app.domain.report.degraded import build_degraded_report_from_feedbacks
+from app.adapters.providers.report_payload import normalize_provider_payload
+from app.domain.report.runtime_quality import evaluate_runtime_report_quality
 from tests.unit.test_durable_review_graph import FakeStore
 from tests.unit.test_durable_review_state import make_finished_state, make_job
 from tests.unit.test_report_artifact_store import publish_payload, start_job

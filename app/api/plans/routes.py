@@ -6,21 +6,21 @@ from pydantic import BaseModel, Field
 
 from app.api.shared import dependencies
 from app.api.shared.projections import plan_revision_payload
-from app.services.interview_plan_editor import (
+from app.application.interview.plan_editor import (
     InterviewPlanEditor,
     PlanEditRequest,
     PlanOperation,
     PlanOperationValidationError,
 )
-from app.services.interview_plan_regenerator import (
+from app.runtime.interview_plan_regenerator import (
     PlanRegenerationFailed,
     ProviderPlanRegenerator,
 )
-from app.services.interview_plan_revision import (
+from app.domain.interview.plan_revision import (
     PlanConfigurationSnapshot,
     canonical_sha256,
 )
-from app.services.interview_plan_revision_store import (
+from app.ports.plan_revision_store import (
     PlanRevisionConflict,
     PlanRevisionNotFound,
     PlanSourceUnavailable,

@@ -1,8 +1,8 @@
 from app.runtime.config.compatibility import PostgresPoolSettings, get_postgres_pool_settings
 import pytest
 
-from app.services.postgres_connection_domains import PostgresConnectionDomains
-from app.services.postgres_connections import PostgresPoolDrainTimeout
+from app.runtime.postgres_connection_domains import PostgresConnectionDomains
+from app.adapters.postgres.connections import PostgresPoolDrainTimeout
 
 
 class FakeConnection:

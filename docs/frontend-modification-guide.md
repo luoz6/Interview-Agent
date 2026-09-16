@@ -43,7 +43,7 @@ npm.cmd run dev:frontend
 需要处理异步报告任务时，另开终端启动 worker：
 
 ```powershell
-& 'F:\python3.11\python.exe' -m app.services.report_worker
+& 'F:\python3.11\python.exe' -m app.runtime.report_worker
 ```
 
 生产构建：

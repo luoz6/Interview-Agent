@@ -1,7 +1,7 @@
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
-from app.services.interview_plan_revision import PlanConfigurationSnapshot
+from app.domain.interview.plan_revision import PlanConfigurationSnapshot
 
 
 class PrepKnowledgeScopeRequest(BaseModel):

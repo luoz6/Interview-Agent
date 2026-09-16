@@ -2,15 +2,15 @@ from concurrent.futures import ThreadPoolExecutor
 
 import pytest
 
-from app.services.interview_plan_revision_store import (
+from app.ports.plan_revision_store import (
     PlanRevisionConflict,
     PlanSourceInUse,
     PlanSourceUnavailable,
 )
-from app.services.interview_plan_revision import v2_plan_to_legacy
-from app.services.postgres_session import PostgresInterviewSessionStore
-from app.services.session_plan_binding import session_plan_binding_from_revision
-from app.services.postgres_plan_revision_store import (
+from app.domain.interview.prep import v2_plan_to_legacy
+from app.adapters.persistence.postgres.session_store import PostgresInterviewSessionStore
+from app.domain.interview.session_plan_binding import session_plan_binding_from_revision
+from app.adapters.persistence.postgres.plan_revision_store import (
     PostgresInterviewPlanRevisionStore,
 )
 from tests.unit.test_interview_plan_revision import plan, source

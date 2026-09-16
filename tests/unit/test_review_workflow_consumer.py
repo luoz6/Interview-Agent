@@ -1,5 +1,5 @@
-from app.services.review_workflow_consumer import ReviewWorkflowConsumer
-from app.services.runtime_domain_events import ReviewRetryDueEvent
+from app.runtime.review_workflow_consumer import ReviewWorkflowConsumer
+from app.domain.runtime_events import ReviewRetryDueEvent
 
 
 class FakeJobStore:

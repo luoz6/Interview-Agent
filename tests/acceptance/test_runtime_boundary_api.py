@@ -8,6 +8,16 @@ from app.main import app
 def test_runtime_boundary_endpoint_reports_stage_29_components(monkeypatch):
     monkeypatch.delenv("INTERVIEW_EVENT_BACKEND", raising=False)
     monkeypatch.delenv("AGENT_TRACE_DIR", raising=False)
+    monkeypatch.delenv("POSTGRES_DSN", raising=False)
+    monkeypatch.delenv("INTERVIEW_RUNTIME_STORE", raising=False)
+    monkeypatch.setattr(
+        "app.api.runtime.routes.dependencies.get_memory_metric_store",
+        lambda: type(
+            "IncompleteMetrics",
+            (),
+            {"diagnostics": lambda self: {"data_complete": False}},
+        )(),
+    )
     client = TestClient(app)
 
     response = client.get("/api/runtime")

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from app.services.token_estimation import (
+from app.domain.context.token_estimation import (
     CompositeTokenEstimator,
     ConservativeUtf8TokenEstimator,
     ContextEstimatorUnavailable,

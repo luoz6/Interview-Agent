@@ -1,6 +1,6 @@
 from app.agents.shadow_reviewer import ShadowReviewerAgent
-from app.services.report import DimensionScores
-from app.services.report_contract import CanonicalQuestionResult, assemble_interview_report
+from app.domain.report.models import DimensionScores
+from app.domain.report.assembly import CanonicalQuestionResult, assemble_interview_report
 from tests.eval_support import (
     GoldenLLM,
     GoldenVectorStore,

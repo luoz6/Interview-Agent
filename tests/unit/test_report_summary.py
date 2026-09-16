@@ -3,18 +3,18 @@ import json
 
 import pytest
 
-from app.services.report import (
+from app.domain.report.models import (
     DimensionScores,
     ReportCoverageV2,
     ReportEvidenceRefV2,
     ReportObservationV2,
     ScoreEvaluation,
 )
-from app.services.report_contract import (
+from app.domain.report.assembly import (
     CanonicalQuestionResult,
     assemble_interview_report,
 )
-from app.services.report_summary import (
+from app.domain.report.summary import (
     REPORT_SUMMARY_PROMPT_SHA256,
     REPORT_SUMMARY_PROMPT_TEMPLATE,
     REPORT_SUMMARY_PROMPT_VERSION,

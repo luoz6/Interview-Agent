@@ -19,8 +19,8 @@ from app.application.materials.deletion_service import UserDocumentDeletionServi
 from app.application.materials.ingestion_service import UserDocumentIngestionService
 from app.application.materials.service import UserDocumentService, UserMaterialsError
 from app.domain.knowledge.user_document import UserDocumentPublicStatus
-from app.services.embedding_providers import EmbeddingProviderError
-from app.services.postgres_connections import DirectPsycopg2ConnectionProvider
+from app.adapters.providers.embedding_providers import EmbeddingProviderError
+from app.adapters.postgres.connections import DirectPsycopg2ConnectionProvider
 from tests.vector_store_fixtures import FakeEmbeddingProvider
 
 

@@ -1,9 +1,9 @@
 from copy import deepcopy
 from typing import Any
 
-from app.graphs.interview_graph import fallback_followup
-from app.graphs.interview_state import InterviewState, get_current_question
-from app.graphs.interview_transitions import (
+from app.domain.interview.followup_prompts import fallback_followup
+from app.domain.interview.state import InterviewState, get_current_question
+from app.domain.interview.transitions import (
     _elapsed_seconds,
     _ensure_state_metadata,
     _question_answer_counts,
@@ -194,8 +194,8 @@ __all__ = ["SessionSnapshotProjector", "interview_assistance_metadata"]
 
 
 def _public_session_plan_snapshot(snapshot: dict[str, Any]) -> dict[str, Any]:
-    from app.services.interview_plan_revision import InterviewPlanV2
-    from app.services.prep import public_interview_plan_v2_payload
+    from app.domain.interview.plan_revision import InterviewPlanV2
+    from app.domain.interview.prep import public_interview_plan_v2_payload
 
     public_snapshot = deepcopy(snapshot)
     public_snapshot.pop("source_id", None)

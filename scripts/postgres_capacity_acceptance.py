@@ -13,14 +13,14 @@ from app.runtime.config.compatibility import (
     get_postgres_capacity_settings,
     get_postgres_pool_settings,
 )
-from app.services.postgres_capacity import (
+from app.evals.postgres_capacity import (
     PostgresServerCapacity,
     build_capacity_evidence_payload,
     query_postgres_server_capacity,
     run_deterministic_multi_domain_overlap,
 )
-from app.services.postgres_connection_domains import PostgresConnectionDomains
-from app.services.postgres_connections import (
+from app.runtime.postgres_connection_domains import PostgresConnectionDomains
+from app.adapters.postgres.connections import (
     DirectPsycopg2ConnectionProvider,
     PostgresSchemaNotReady,
 )

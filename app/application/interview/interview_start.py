@@ -3,8 +3,12 @@ from typing import Any
 
 from app.domain.interview.models import InterviewTurn
 from app.ports.runtime import InterviewSessionRepository
-from app.services.job_tags import extract_job_tags
-from app.services.prep import prepare_interview, validate_launchable_interview_plan
+from app.domain.knowledge.job_tags import extract_job_tags
+from app.domain.interview.plan_generation import validate_launchable_interview_plan
+
+
+# Legacy monkeypatch slot. Runtime composition supplies the production factory.
+prepare_interview: Callable[..., Any] | None = None
 
 
 class InterviewPlanNotLaunchable(ValueError):
@@ -22,14 +26,14 @@ class InterviewStartService:
         execution_runner_factory: Callable[[], Any],
         runtime_store_factory: Callable[[], str],
         rollout_percent_factory: Callable[[], int],
-        plan_factory: Callable[..., Any] | None = None,
+        plan_factory: Callable[..., Any],
     ) -> None:
         self.store = store
         self.workflow_service_factory = workflow_service_factory
         self.execution_runner_factory = execution_runner_factory
         self.runtime_store_factory = runtime_store_factory
         self.rollout_percent_factory = rollout_percent_factory
-        self.plan_factory = plan_factory or prepare_interview
+        self.plan_factory = prepare_interview or plan_factory
 
     def start(
         self,

@@ -7,8 +7,8 @@ from uuid import uuid4
 
 import pytest
 
-from app.services.workflow_thread_lock import (
-    PostgresWorkflowThreadLock,
+from app.adapters.workflows.workflow_thread_lock import PostgresWorkflowThreadLock
+from app.domain.workflow_thread_lock import (
     WorkflowThreadBusy,
     interview_thread_identity,
 )

@@ -3,13 +3,15 @@ from uuid import uuid4
 
 import pytest
 
-from app.services.postgres_report_artifact_store import PostgresReportArtifactStore
-from app.services.report_artifact_store import ReportArtifactConflict
-from app.services.review_workflow_store import PostgresReviewWorkflowStore
-from app.services.postgres_session import PostgresInterviewSessionStore
-from app.services.report_jobs import PostgresReportJobStore
-from app.services.prep import InterviewPlan, InterviewQuestion
-from app.services.report import InterviewReport
+from app.adapters.persistence.postgres.report_artifact_store import (
+    PostgresReportArtifactStore,
+)
+from app.ports.report_artifacts import ReportArtifactConflict
+from app.adapters.persistence.postgres.review_workflow_store import PostgresReviewWorkflowStore
+from app.adapters.persistence.postgres.session_store import PostgresInterviewSessionStore
+from app.adapters.persistence.postgres.report_job_store import PostgresReportJobStore
+from app.runtime.interview_prep import InterviewPlan, InterviewQuestion
+from app.domain.report.models import InterviewReport
 from tests.postgres_support import require_postgres_dsn
 
 
@@ -32,7 +34,7 @@ def make_plan():
 
 
 def payload(score_status="scored"):
-    from app.services.report_artifact import PublishReportArtifact
+    from app.domain.report.artifact import PublishReportArtifact
 
     return PublishReportArtifact(
         schema_version="report-artifact-v2",

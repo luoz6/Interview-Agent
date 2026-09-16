@@ -8,9 +8,9 @@ from app.adapters.postgres.session_repository_support import (
     iso_timestamp,
     postgres_sql,
 )
-from app.services.postgres_connections import ConnectionProvider
-from app.services.prep import InterviewPlan
-from app.services.report import ReportRecord
+from app.adapters.postgres.connections import ConnectionProvider
+from app.domain.interview.prep import InterviewPlan
+from app.domain.report.models import ReportRecord
 
 
 _postgres_sql = postgres_sql

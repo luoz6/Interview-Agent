@@ -2,8 +2,8 @@
 
 import pytest
 
-from app.services.evaluator_ext import ExpertShadowEvaluator
-from app.services.report_quality import collect_report_quality_issues
+from app.runtime.expert_evaluator import ExpertShadowEvaluator
+from app.domain.report.quality import collect_report_quality_issues
 from tests.eval_support import (
     GoldenLLM,
     GoldenVectorStore,

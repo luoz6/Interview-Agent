@@ -2,13 +2,13 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
-from app.services.postgres_schema_contract import (
+from app.adapters.postgres.schema_contract import (
     LATEST_RUNTIME_MIGRATION,
     RUNTIME_MIGRATIONS,
     required_columns_for_relation,
     required_index_tokens_for_relation,
 )
-from app.services.postgres_session_deletion import (
+from app.adapters.persistence.postgres.session_deletion import (
     PostgresSessionDeletionJobStore,
 )
 

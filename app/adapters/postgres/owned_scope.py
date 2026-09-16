@@ -19,7 +19,7 @@ from app.ports.postgres_scope import (
     PostgresTargetIdentity,
     PostgresTargetMismatch,
 )
-from app.services.postgres_connections import ConnectionProvider
+from app.adapters.postgres.connections import ConnectionProvider
 from contracts.evidence.digest import canonical_sha256
 
 

@@ -4,7 +4,7 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
-from app.services.knowledge_eval_dataset_v2 import (
+from app.domain.knowledge.eval_dataset_v2 import (
     EVALUATION_GROUP_DOMAIN_MAP,
     KnowledgeRetrievalCaseV2,
     KnowledgeRetrievalDatasetV2,

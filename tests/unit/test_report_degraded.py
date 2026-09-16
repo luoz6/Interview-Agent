@@ -1,8 +1,8 @@
 import pytest
 
-from app.services.report import DimensionScores
-from app.services.report_artifact import PublishReportArtifact
-from app.services.report_degraded import (
+from app.domain.report.models import DimensionScores
+from app.domain.report.artifact import PublishReportArtifact
+from app.domain.report.degraded import (
     DEGRADED_REPORT_TEMPLATE_VERSION,
     build_degraded_report_from_feedbacks,
     completed_feedbacks_in_manifest_order,

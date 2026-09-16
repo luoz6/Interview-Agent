@@ -10,7 +10,7 @@ from app.graphs.durable_interview_state_v2 import (
     make_durable_initial_state_v2,
 )
 import json
-from app.services.prep import InterviewPlan, InterviewQuestion
+from app.runtime.interview_prep import InterviewPlan, InterviewQuestion
 
 
 def make_start_kwargs():

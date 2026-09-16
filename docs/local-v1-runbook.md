@@ -148,7 +148,7 @@ Vite serves the client routes on `http://127.0.0.1:5173` and proxies `/api` to t
 Start the report worker in a third PowerShell window. PostgreSQL mode stores report generation requests in `interview_report_jobs`; without this worker, `/report-processing` will remain in progress:
 
 ```powershell
-python -m app.services.report_worker
+python -m app.runtime.report_worker
 ```
 
 Optional Stage 26A round-review worker:
@@ -156,7 +156,7 @@ Optional Stage 26A round-review worker:
 ```powershell
 $env:INTERVIEW_EVENT_BACKEND="celery"
 $env:REDIS_URL="redis://127.0.0.1:6379/0"
-celery -A app.services.celery_app.celery_app worker --loglevel=info
+celery -A app.runtime.celery_app.celery_app worker --loglevel=info
 ```
 
 ## 5. Automated Smoke
@@ -367,7 +367,7 @@ persisted `round_closed` event:
 ```powershell
 $env:REDIS_URL="redis://:your-password@127.0.0.1:6379/0"
 python -m scripts.runtime_preflight --profile celery
-python -m celery -A app.services.celery_app.celery_app worker --loglevel=info --pool=solo
+python -m celery -A app.runtime.celery_app.celery_app worker --loglevel=info --pool=solo
 python -m scripts.celery_acceptance --timeout 150
 ```
 
@@ -489,8 +489,8 @@ only; they are not completion ledgers. Configure bounded leases:
 PostgreSQL plus Local starts one dispatcher from FastAPI lifespan. PostgreSQL
 plus Celery requires both workers:
 
-    python -m celery -A app.services.celery_app.celery_app worker --loglevel=info --pool=solo
-    python -m app.services.runtime_outbox_worker
+    python -m celery -A app.runtime.celery_app.celery_app worker --loglevel=info --pool=solo
+    python -m app.runtime.runtime_outbox_worker
 
 Preflight and recovery commands:
 
@@ -898,7 +898,7 @@ Use a clean clone and verify the publication tag before using the runbook:
 git fetch origin --tags
 git rev-parse refs/tags/local-v1-hardening-v0.4-accepted^{}
 git merge-base --is-ancestor e6b8f29d25276f17c874d07cebc15565bad37492 refs/tags/local-v1-hardening-v0.4-accepted^{}
-python -m pytest tests/contracts/test_memory_publication_evidence.py -q
+python -m pytest tests/acceptance/test_local_v1_long_term_memory_acceptance.py -q
 ```
 
 The tag resolves to the documentation-only evidence publication revision. The

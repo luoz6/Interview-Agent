@@ -9,20 +9,20 @@ from threading import Barrier
 
 import pytest
 
-from app.services.interview_generation_store import (
+from app.adapters.persistence.postgres.interview_generation_store import (
     PostgresInterviewGenerationStore,
 )
-from app.services.interview_workflow_store import (
+from app.adapters.persistence.postgres.interview_workflow_store import (
     PostgresInterviewWorkflowStore,
 )
-from app.services.langgraph_canary_status import (
+from app.evals.langgraph_canary_status import (
     PostgresLangGraphCanaryStatusService,
 )
-from app.services.postgres_runtime_control import PostgresRuntimeControlStore
-from app.services.postgres_session import PostgresInterviewSessionStore
-from app.services.report_jobs import PostgresReportJobStore
-from app.services.review_workflow_store import PostgresReviewWorkflowStore
-from app.services.runtime_signal_metrics import PostgresRuntimeSignalStore
+from app.adapters.persistence.postgres.runtime_control import PostgresRuntimeControlStore
+from app.adapters.persistence.postgres.session_store import PostgresInterviewSessionStore
+from app.adapters.persistence.postgres.report_job_store import PostgresReportJobStore
+from app.adapters.persistence.postgres.review_workflow_store import PostgresReviewWorkflowStore
+from app.adapters.persistence.postgres.runtime_signal_metrics import PostgresRuntimeSignalStore
 from tests.postgres_support import (
     assert_safe_test_prefix,
     make_runtime_table_prefix,

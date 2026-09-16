@@ -4,7 +4,7 @@ import subprocess
 
 import pytest
 
-from app.services.principal_memory_ledger import (
+from app.adapters.memory.principal_memory_ledger import (
     PrincipalMemoryLedgerError,
     ProtectedPrincipalMemoryLedger,
 )

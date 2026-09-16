@@ -1,6 +1,6 @@
 from app.adapters.postgres.row_mappers.session import SessionRowMapper
-from app.services.prep import InterviewPlan, InterviewQuestion
-from app.services.session_plan_binding import legacy_session_plan_binding
+from app.runtime.interview_prep import InterviewPlan, InterviewQuestion
+from app.domain.interview.session_plan_binding import legacy_session_plan_binding
 
 
 def test_session_row_mapper_reconstructs_followup_count_from_messages():

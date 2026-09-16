@@ -12,8 +12,8 @@ from app.runtime.config.compatibility import (
     get_report_langgraph_runtime_enabled,
     get_report_langgraph_version,
 )
-from app.services.langgraph_runtime import VersionedGraphRegistry
-from app.services.report_jobs import choose_report_workflow_engine
+from app.runtime.langgraph_runtime import VersionedGraphRegistry
+from app.adapters.persistence.postgres.report_job_store import choose_report_workflow_engine
 
 
 def test_review_langgraph_packages_are_available():

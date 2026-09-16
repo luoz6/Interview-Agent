@@ -12,7 +12,7 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from app.services.knowledge_corpus_schema import KnowledgeDocumentV2, load_knowledge_document_v2
+from app.domain.knowledge.corpus_schema import KnowledgeDocumentV2, load_knowledge_document_v2
 
 
 KNOWLEDGE_V2_ROOT = Path("app/data/knowledge_v2")

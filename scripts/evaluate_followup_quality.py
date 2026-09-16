@@ -15,21 +15,22 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from app.services.decision_store import DecisionStoreConflict, InMemoryDecisionStore
-from app.services.evaluator_candidate_identity import (
+from app.adapters.memory.decision_store import InMemoryDecisionStore
+from app.domain.interview.decision_store import DecisionStoreConflict
+from app.evals.evaluator_candidate_identity import (
     EvaluatorCandidateIdentity,
     capture_evaluator_candidate_identity,
 )
-from app.services.followup_decision_service import (
+from app.application.interview.followup_decision import (
     DecisionProviderResult,
     FollowupDecisionExecutionService,
 )
-from app.services.followup_diagnostics import (
+from app.domain.interview.followup_diagnostics import (
     FOLLOWUP_DIAGNOSTICS_VERSION,
     FollowupDiagnosticInput,
     is_duplicate_followup_text,
 )
-from app.services.followup_eval import (
+from app.evals.followup_eval import (
     SavedDecisionAttempt,
     SavedFollowupCaseResponse,
     SavedFollowupProviderArtifact,
@@ -40,34 +41,36 @@ from app.services.followup_eval import (
     load_saved_provider_artifact,
     replay_saved_provider_artifact,
 )
-from app.services.followup_prompts import (
+from app.domain.interview.followup_prompts import (
     FOLLOWUP_DECISION_PROMPT_SHA256,
     FOLLOWUP_DECISION_PROMPT_VERSION,
     FOLLOWUP_GENERATION_PROMPT_SHA256,
     FOLLOWUP_GENERATION_PROMPT_VERSION,
-    ProviderModelMismatchError,
-    StructuredFollowupGenerationProvider,
-    build_followup_decision_provider,
     generation_context_for_decision,
     resolve_followup_decision_output_mode,
 )
-from app.services.followup_provider_preflight import (
+from app.adapters.providers.followup_prompts import (
+    ProviderModelMismatchError,
+    StructuredFollowupGenerationProvider,
+    build_followup_decision_provider,
+)
+from app.evals.followup_provider_preflight import (
     discover_deepseek_provider,
     estimate_provider_cost,
     evaluate_followup_provider_preflight,
 )
-from app.services.interview_quality_dataset import (
+from app.evals.interview_quality_dataset import (
     InterviewQualityCase,
     InterviewQualityDataset,
     load_interview_quality_dataset,
 )
-from app.services.interview_quality_gate import load_gate_config
-from app.services.interview_quality_provider_authorization import (
+from app.evals.interview_quality_gate import load_gate_config
+from app.evals.interview_quality_provider_authorization import (
     load_provider_authorization,
 )
-from app.services.llm import LLMConfig, OpenAIInterviewLLM
-from app.services.report_eval_artifacts import EvaluationArtifactStore
-from app.services.t65_formal_execution_receipt import validate_t65_formal_route
+from app.adapters.providers.llm import LLMConfig, OpenAIInterviewLLM
+from app.evals.report_eval_artifacts import EvaluationArtifactStore
+from app.evals.t65_formal_execution_receipt import validate_t65_formal_route
 
 
 DEFAULT_DATASET = Path(

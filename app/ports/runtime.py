@@ -3,10 +3,10 @@ from dataclasses import dataclass, field
 from typing import Any, Protocol, runtime_checkable
 
 from app.domain.interview.models import InterviewTurn, PreparedInterviewTurn
-from app.graphs.interview_state import InterviewState
-from app.services.prep import InterviewPlan
-from app.services.question_evaluations import QuestionEvaluationRecord
-from app.services.report import InterviewReport, ReportProgress, ReportRecord
+from app.domain.interview.state import InterviewState
+from app.domain.interview.prep import InterviewPlan
+from app.domain.report.question_evaluations import QuestionEvaluationRecord
+from app.domain.report.models import InterviewReport, ReportProgress, ReportRecord
 
 
 @runtime_checkable

@@ -3,7 +3,7 @@ import json
 import pytest
 from pydantic import ValidationError
 
-from app.services.knowledge_eval_dataset_v3 import (
+from app.domain.knowledge.eval_dataset_v3 import (
     CaseType,
     KnowledgeRetrievalCaseV3,
     KnowledgeRetrievalDatasetV3,

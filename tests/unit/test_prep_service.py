@@ -3,8 +3,8 @@ from __future__ import annotations
 import pytest
 from pydantic import ValidationError
 
-from app.services.agent_runtime import AgentExecutionRunner
-from app.services.prep import (
+from app.runtime.agent_execution import AgentExecutionRunner
+from app.runtime.interview_prep import (
     InterviewPlan,
     InterviewQuestion,
     PlanGenerationValidationError,
@@ -15,7 +15,7 @@ from app.services.prep import (
     prepare_interview,
     validate_launchable_interview_plan,
 )
-from app.services.report import InterviewReport
+from app.domain.report.models import InterviewReport
 from tests.unit.test_grounded_knowledge_agent import make_repository
 
 
@@ -339,7 +339,7 @@ def test_prepare_interview_provider_failure_keeps_native_v3_intent_fallback(
 def test_v3_intent_fallback_does_not_build_a_legacy_question_plan(monkeypatch):
     monkeypatch.setenv("INTERVIEW_JIT_MAIN_QUESTION_ENABLED", "true")
     monkeypatch.setattr(
-        "app.services.prep.fallback_interview_plan",
+        "app.runtime.interview_prep.fallback_interview_plan",
         lambda *_args, **_kwargs: (_ for _ in ()).throw(
             AssertionError("legacy fallback must not be used")
         ),

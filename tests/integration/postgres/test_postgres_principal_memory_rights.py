@@ -9,39 +9,37 @@ from datetime import datetime, timedelta, timezone
 import pytest
 
 from app.adapters.postgres.principal_memory import PostgresPrincipalMemoryFactStore
-from app.services.postgres_principal_memory_consent import (
+from app.adapters.persistence.postgres.principal_memory_consent import (
     PostgresPrincipalMemoryConsentStore,
 )
-from app.services.postgres_principal_memory_control import (
+from app.adapters.persistence.postgres.principal_memory_control import (
     PostgresPrincipalMemoryControlStore,
 )
-from app.services.postgres_principal_memory_rights import (
+from app.adapters.persistence.postgres.principal_memory_rights import (
     PostgresPrincipalMemoryDeletionTombstoneStore,
     PostgresPrincipalMemoryExportStore,
     PostgresPrincipalMemorySafeRefStore,
 )
-from app.services.postgres_connections import PostgresSchemaNotReady
-from app.services.principal_identity import ExplicitPrincipalIdentityResolver
-from app.services.principal_memory_consent import PrincipalMemoryConsent
-from app.services.principal_memory_control import PrincipalMemoryControlService
-from app.services.principal_memory_deletion import PrincipalMemoryDeletionService
-from app.services.principal_memory_rights import (
-    InMemoryPrincipalMemoryDeletionTombstoneStore,
-    PrincipalMemoryExportRecord,
-    PrincipalMemoryExportService,
-)
-from app.services.principal_memory_ledger import ProtectedPrincipalMemoryLedger
-from app.services.principal_memory_ledger_replay import (
+from app.adapters.postgres.connections import PostgresSchemaNotReady
+from app.adapters.memory.principal_identity import ExplicitPrincipalIdentityResolver
+from app.application.memory.consent import PrincipalMemoryConsent
+from app.application.memory.control import PrincipalMemoryControlService
+from app.application.memory.deletion import PrincipalMemoryDeletionService
+from app.adapters.memory.principal_memory_rights import InMemoryPrincipalMemoryDeletionTombstoneStore
+from app.domain.memory.rights import PrincipalMemoryExportRecord
+from app.application.memory.rights import PrincipalMemoryExportService
+from app.adapters.memory.principal_memory_ledger import ProtectedPrincipalMemoryLedger
+from app.adapters.memory.principal_memory_ledger_replay import (
     PostgresPrincipalMemoryScopeInventory,
     PrincipalMemoryOpaqueLedgerReplay,
 )
-from app.services.postgres_principal_memory_ledger import (
+from app.adapters.persistence.postgres.principal_memory_ledger import (
     PostgresPrincipalMemoryLedgerWatermarkStore,
 )
-from app.services.principal_memory_operations import (
+from app.runtime.principal_memory_operations import (
     PostgresPrincipalMemoryMigrationProbe,
 )
-from app.services.postgres_connections import DirectPsycopg2ConnectionProvider
+from app.adapters.postgres.connections import DirectPsycopg2ConnectionProvider
 from tests.postgres_support import assert_safe_test_prefix
 from tests.integration.postgres.test_postgres_principal_memory import (
     make_active_language,

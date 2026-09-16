@@ -11,7 +11,7 @@ from app.domain.interview.question_intent import (
     question_intent_sha256,
     validate_rendered_question_text,
 )
-from app.services.main_question_generation import (
+from app.domain.interview.main_question_generation import (
     MAIN_QUESTION_GENERATION_PROMPT_SHA256,
     MAIN_QUESTION_GENERATION_PROMPT_TEMPLATE,
     MainQuestionGenerationSettings,

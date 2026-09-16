@@ -8,13 +8,23 @@ import pytest
 
 from app.ports.runtime import EmbeddingProvider
 from app.runtime.config.compatibility import EmbeddingSettings
-import app.services.embedding_providers as embedding_providers
-from app.services.embedding_providers import (
+import app.adapters.providers.embedding_providers as embedding_providers
+from app.adapters.providers.embedding_providers import (
     build_embedding_provider,
     DisabledEmbeddingProvider,
     EmbeddingConfigurationError,
+    EmbeddingProviderError,
     validate_embedding_batch,
 )
+from app.domain.knowledge.embedding_validation import (
+    EmbeddingConfigurationError as DomainEmbeddingConfigurationError,
+    EmbeddingProviderError as DomainEmbeddingProviderError,
+)
+
+
+def test_embedding_failures_are_domain_canonical():
+    assert EmbeddingConfigurationError is DomainEmbeddingConfigurationError
+    assert EmbeddingProviderError is DomainEmbeddingProviderError
 
 
 def test_disabled_provider_satisfies_port_and_fails_without_network():

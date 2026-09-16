@@ -1,7 +1,7 @@
 import pytest
 from pydantic import ValidationError
 
-from app.services.decision_store import DecisionContract
+from app.domain.interview.decision_store import DecisionContract
 
 
 def valid_followup(**updates):

@@ -36,21 +36,21 @@ from app.api.shared.models import (
 )
 from app.api.shared.projections import plan_revision_payload
 from app.domain.knowledge.source_scope import build_knowledge_source_scope
-from app.services.job_tags import extract_job_tags
-from app.services.interview_knowledge_scope import InterviewKnowledgeScopeError
-from app.services.interview_plan_revision import (
+from app.domain.knowledge.job_tags import extract_job_tags
+from app.application.knowledge.scope import InterviewKnowledgeScopeError
+from app.domain.interview.plan_revision import (
     build_interview_knowledge_scope_snapshot,
     default_plan_configuration,
     legacy_interview_knowledge_scope_snapshot,
 )
-from app.services.prep import (
-    PlanGenerationValidationError,
-    prepare_interview,
-    prepared_plan_revision,
+from app.domain.interview.prep import PlanGenerationValidationError
+from app.runtime.interview_prep import prepare_interview
+from app.runtime.prepared_plan import prepared_plan_revision
+from app.domain.interview.prep_plans import PrepPlanError
+from app.application.interview.prep_question_regeneration import (
+    PrepQuestionRegenerator,
 )
-from app.services.prep_plans import PrepPlanError
-from app.services.prep_question_regeneration import PrepQuestionRegenerator
-from app.services.prep_source_import import (
+from app.application.materials.prep_source_import import (
     PREP_SOURCE_MAX_BYTES,
     PrepSourceImportError,
     extract_prep_source,

@@ -5,8 +5,8 @@ from pathlib import Path
 
 import pytest
 
-from app.services.llm import LLMConfig, REPORT_EVIDENCE_PROMPT_SHA256
-from app.services.report_eval_dataset import load_evaluation_dataset
+from app.adapters.providers.llm import LLMConfig, REPORT_EVIDENCE_PROMPT_SHA256
+from app.evals.report_eval_dataset import load_evaluation_dataset
 from scripts import evaluate_report_quality as cli
 
 

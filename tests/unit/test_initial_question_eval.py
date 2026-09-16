@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
-from app.services.initial_question_eval import (
+from app.evals.initial_question_eval import (
     InitialQuestionEvalAttempt,
     InitialQuestionFailedGenerationLifecycle,
     InitialQuestionProviderArtifact,
@@ -17,13 +17,13 @@ from app.services.initial_question_eval import (
     load_initial_question_provider_artifact,
     saved_replay_attempts,
 )
-from app.services.llm import (
+from app.adapters.providers.llm import (
     PLAN_QUALITY_REPAIR_PROMPT_SHA256,
     PLAN_QUALITY_REPAIR_PROMPT_VERSION,
 )
-from app.services.interview_plan_revision import plan_payload_sha256
-from app.services.interview_quality_dataset import load_interview_quality_dataset
-from app.services.interview_quality_gate import load_gate_config
+from app.domain.interview.plan_revision import plan_payload_sha256
+from app.evals.interview_quality_dataset import load_interview_quality_dataset
+from app.evals.interview_quality_gate import load_gate_config
 
 
 DATASET_PATH = Path(

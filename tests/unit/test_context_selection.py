@@ -4,7 +4,7 @@ from dataclasses import replace
 
 import pytest
 
-from app.services.context_selection import (
+from app.domain.context.selection import (
     OMISSION_MARKER,
     build_interview_context,
     build_interview_context_selection,
@@ -14,12 +14,12 @@ from app.services.context_selection import (
     select_interview_messages,
     truncate_text_to_tokens,
 )
-from app.services.context_budget import (
+from app.domain.context.budget import (
     ContextSelectionBudget,
     FOLLOWUP_CONTEXT_POLICY,
 )
-from app.services.token_estimation import ConservativeUtf8TokenEstimator
-from app.services.context_source_identity import (
+from app.domain.context.token_estimation import ConservativeUtf8TokenEstimator
+from app.domain.context.source_identity import (
     ConversationSourceIdentity,
     canonical_conversation_sequence_pair,
     content_sha256,
@@ -267,7 +267,7 @@ def evidence_replay(
     representation: str = "authoritative_raw",
     mandatory_bounded_raw: bool | None = None,
 ):
-    from app.services.context_source_identity import content_sha256
+    from app.domain.context.source_identity import content_sha256
 
     item = {
         "role": "knowledge_evidence",
@@ -286,7 +286,7 @@ def evidence_replay(
 
 
 def test_context_selection_stats_pre_loss_measurements_default_to_absent():
-    from app.services.context_selection import ContextSelectionStats
+    from app.domain.context.selection import ContextSelectionStats
 
     stats = ContextSelectionStats()
 
@@ -526,7 +526,7 @@ def test_mandatory_bounded_raw_replay_wins_even_when_older():
 
 
 def test_conversation_mandatory_bounded_representation_wins_optional_raw():
-    from app.services.context_source_identity import content_sha256
+    from app.domain.context.source_identity import content_sha256
 
     authoritative_digest = content_sha256("authoritative full answer")
     messages = [
@@ -561,7 +561,7 @@ def test_conversation_mandatory_bounded_representation_wins_optional_raw():
 
 
 def test_conversation_optional_alternative_representations_are_both_retained():
-    from app.services.context_source_identity import content_sha256
+    from app.domain.context.source_identity import content_sha256
 
     authoritative_digest = content_sha256("authoritative full answer")
     messages = [
@@ -597,7 +597,7 @@ def test_conversation_optional_alternative_representations_are_both_retained():
 
 
 def test_conversation_mandatory_alternatives_keep_stable_order_and_raw():
-    from app.services.context_source_identity import content_sha256
+    from app.domain.context.source_identity import content_sha256
 
     authoritative_digest = content_sha256("authoritative full answer")
     messages = [
@@ -1011,7 +1011,7 @@ def test_exact_recent_bounding_is_visible_in_selection_stats():
 
 
 def test_mandatory_bounded_raw_overflow_has_a_stable_failure_contract():
-    from app.services.context_selection import MandatoryBoundedRawOverflow
+    from app.domain.context.selection import MandatoryBoundedRawOverflow
 
     selection_budget = ContextSelectionBudget(
         available_input_tokens=20,
@@ -1082,7 +1082,7 @@ def test_evidence_max_items_zero_is_not_a_silent_authority_drop():
 
 
 def test_evidence_zero_budget_uses_stable_mandatory_overflow():
-    from app.services.context_selection import MandatoryBoundedRawOverflow
+    from app.domain.context.selection import MandatoryBoundedRawOverflow
 
     with pytest.raises(MandatoryBoundedRawOverflow) as exc_info:
         select_evidence_messages(
@@ -1114,7 +1114,7 @@ def test_evidence_selection_truncates_large_item():
 
 
 def test_unrepresentable_evidence_fails_the_whole_mandatory_floor():
-    from app.services.context_selection import MandatoryBoundedRawOverflow
+    from app.domain.context.selection import MandatoryBoundedRawOverflow
 
     with pytest.raises(MandatoryBoundedRawOverflow) as exc_info:
         select_evidence_messages(
@@ -1207,7 +1207,7 @@ def test_authoritative_evidence_borrows_beyond_soft_35_percent_partition():
 
 
 def test_conversation_and_evidence_share_one_mandatory_overflow_contract():
-    from app.services.context_selection import MandatoryBoundedRawOverflow
+    from app.domain.context.selection import MandatoryBoundedRawOverflow
 
     with pytest.raises(MandatoryBoundedRawOverflow) as exc_info:
         build_interview_context_selection(

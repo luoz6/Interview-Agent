@@ -4,7 +4,7 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
-from app.services.interview_quality_gate import (
+from app.evals.interview_quality_gate import (
     GateConfig,
     evaluate_metric,
     gate_config_sha256,

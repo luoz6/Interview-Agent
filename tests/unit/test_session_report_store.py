@@ -3,13 +3,13 @@ from contextlib import contextmanager
 import pytest
 
 from app.adapters.postgres.report_repository import PostgresReportRepository
-from app.services.prep import InterviewPlan, InterviewQuestion
-from app.services.report import (
+from app.runtime.interview_prep import InterviewPlan, InterviewQuestion
+from app.domain.report.models import (
     DimensionScores,
     InterviewFeedback,
     InterviewReport,
 )
-from app.services.session import InterviewSessionStore
+from app.adapters.memory.session_store import InterviewSessionStore
 
 
 class _CapturingCursor:

@@ -9,7 +9,7 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from app.services.synthetic_session_diagnostics import (
+from app.evals.synthetic_session_diagnostics import (
     RM5_COMPLETION_STATUS,
     RM5_FAILURE_STATUS,
     build_rm5_artifact,
@@ -52,7 +52,7 @@ def main(argv: list[str] | None = None) -> int:
         if args.mode == "contract":
             # Contract mode deliberately builds no session records and therefore
             # cannot make a Provider call.  Use dry mode for the full artifact.
-            from app.services.synthetic_session_diagnostics import load_rm5_scenarios
+            from app.evals.synthetic_session_diagnostics import load_rm5_scenarios
 
             load_rm5_scenarios(args.scenarios)
             print("RM5_SYNTHETIC_CONTRACT_VALID")

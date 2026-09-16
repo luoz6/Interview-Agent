@@ -16,10 +16,8 @@ from app.domain.knowledge.user_document import (
     UserDocument,
     UserDocumentPublicStatus,
 )
-from app.services.interview_plan_revision import (
-    build_interview_knowledge_scope_snapshot,
-)
-from app.services.knowledge_citations import project_safe_knowledge_citations
+from app.domain.interview.plan_revision import build_interview_knowledge_scope_snapshot
+from app.application.report.knowledge_citations import project_safe_knowledge_citations
 
 
 NOW = datetime(2026, 8, 15, 12, 0, tzinfo=timezone.utc)

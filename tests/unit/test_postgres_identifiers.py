@@ -1,7 +1,7 @@
 import pytest
 
 from app.runtime.config.compatibility import get_runtime_table_prefix
-from app.services.postgres_identifiers import (
+from app.adapters.postgres.identifiers import (
     POSTGRES_IDENTIFIER_MAX_BYTES,
     PostgresIdentifierInvalid,
     PostgresIdentifierTooLong,

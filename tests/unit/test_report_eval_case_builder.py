@@ -2,8 +2,8 @@ from pathlib import Path
 
 import pytest
 
-from app.services.report_eval_case_builder import build_report_evaluation_input
-from app.services.report_eval_dataset import load_evaluation_dataset
+from app.evals.report_eval_case_builder import build_report_evaluation_input
+from app.evals.report_eval_dataset import load_evaluation_dataset
 
 
 @pytest.fixture

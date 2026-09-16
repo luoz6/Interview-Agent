@@ -8,22 +8,22 @@ from types import SimpleNamespace
 
 import pytest
 
-import app.services.postgres_runtime_migrations as migrations
-from app.services.postgres_connections import PostgresSchemaNotReady
-from app.services.postgres_runtime_migrations import (
+import app.adapters.persistence.postgres.runtime_migrations as migrations
+from app.adapters.postgres.connections import PostgresSchemaNotReady
+from app.adapters.persistence.postgres.runtime_migrations import (
     BorrowedMigrationConnectionProvider,
     PostgresMigrationConflict,
     migrate_postgres_runtime,
 )
-from app.services.postgres_schema import validate_relations
-from app.services.postgres_schema_contract import LATEST_RUNTIME_MIGRATION
-from app.services.postgres_schema_contract import RUNTIME_MIGRATIONS
-from app.services.postgres_schema_contract import required_columns_for_relation
-from app.services.embedding_providers import DisabledEmbeddingProvider
-from app.services.postgres_identifiers import runtime_schema_identifier
+from app.adapters.postgres.schema import validate_relations
+from app.adapters.postgres.schema_contract import LATEST_RUNTIME_MIGRATION
+from app.adapters.postgres.schema_contract import RUNTIME_MIGRATIONS
+from app.adapters.postgres.schema_contract import required_columns_for_relation
+from app.adapters.providers.embedding_providers import DisabledEmbeddingProvider
+from app.adapters.postgres.identifiers import runtime_schema_identifier
 from app.adapters.postgres.principal_memory import PostgresPrincipalMemoryFactStore
-from app.services.postgres_session import PostgresInterviewSessionStore
-from app.services.prep import InterviewPlan, InterviewQuestion
+from app.adapters.persistence.postgres.session_store import PostgresInterviewSessionStore
+from app.runtime.interview_prep import InterviewPlan, InterviewQuestion
 from tests.postgres_support import make_runtime_table_prefix
 from tests.integration.postgres.test_postgres_principal_memory import (
     NOW,
@@ -204,7 +204,7 @@ def test_v15_prep_plan_versions_uses_specific_contract_not_pgvector_suffix():
 
 
 def test_v16_context_artifact_identity_contract_requires_versioned_columns():
-    from app.services.postgres_schema_contract import (
+    from app.adapters.postgres.schema_contract import (
         RUNTIME_SCHEMA_V15_CHECKSUM,
         RUNTIME_SCHEMA_V16_CHECKSUM,
         RUNTIME_SCHEMA_V16_MANIFEST,
@@ -633,25 +633,37 @@ def _patch_full_schema_owners(monkeypatch, seen):
         )
 
     local_owners = (
-        ("app.services.postgres_question_memory_index", "PostgresQuestionMemoryIndexStore"),
-        ("app.services.postgres_session_deletion", "PostgresSessionDeletionJobStore"),
         (
-            "app.services.postgres_session_deletion_tombstones",
+            "app.adapters.persistence.postgres.question_memory_index",
+            "PostgresQuestionMemoryIndexStore",
+        ),
+        (
+            "app.adapters.persistence.postgres.session_deletion",
+            "PostgresSessionDeletionJobStore",
+        ),
+        (
+            "app.adapters.persistence.postgres.session_deletion_tombstones",
             "PostgresSessionDeletionTombstoneStore",
         ),
-        ("app.services.postgres_draft_store", "PostgresDraftStore"),
-        ("app.services.postgres_prep_plan_store", "PostgresPrepPlanStore"),
+        ("app.adapters.persistence.postgres.draft_store", "PostgresDraftStore"),
         (
-            "app.services.postgres_interview_launch_repository",
+            "app.adapters.persistence.postgres.prep_plan_store",
+            "PostgresPrepPlanStore",
+        ),
+        (
+            "app.adapters.persistence.postgres.interview_launch_repository",
             "PostgresInterviewLaunchRepository",
         ),
         (
-            "app.services.postgres_report_artifact_store",
+            "app.adapters.persistence.postgres.report_artifact_store",
             "PostgresReportArtifactStore",
         ),
-        ("app.services.postgres_decision_store", "PostgresDecisionStore"),
         (
-            "app.services.postgres_plan_revision_store",
+            "app.adapters.persistence.postgres.decision_store",
+            "PostgresDecisionStore",
+        ),
+        (
+            "app.adapters.persistence.postgres.plan_revision_store",
             "PostgresInterviewPlanRevisionStore",
         ),
     )
@@ -833,7 +845,7 @@ def test_migration_uses_one_borrowed_transaction_connection(monkeypatch):
 
 
 def test_v28_failure_state_manifest_is_append_only_and_canonical():
-    from app.services.postgres_schema_contract import (
+    from app.adapters.postgres.schema_contract import (
         RUNTIME_SCHEMA_V16_CHECKSUM,
         RUNTIME_SCHEMA_V27_CHECKSUM,
         RUNTIME_SCHEMA_V28_CHECKSUM,
@@ -1072,7 +1084,7 @@ def test_schema_validation_rejects_existing_table_with_missing_fencing_column():
 
 
 def test_report_job_contract_requires_independent_heartbeat_column():
-    from app.services.postgres_schema_contract import required_columns_for_relation
+    from app.adapters.postgres.schema_contract import required_columns_for_relation
 
     required = required_columns_for_relation("interview_report_jobs")
 
@@ -1082,7 +1094,7 @@ def test_report_job_contract_requires_independent_heartbeat_column():
 
 
 def test_local_principal_rights_schema_contract_is_complete():
-    from app.services.postgres_schema_contract import required_columns_for_relation
+    from app.adapters.postgres.schema_contract import required_columns_for_relation
 
     expected = {
         "interview_principal_memory_controls": {"session_key", "enabled", "version"},
@@ -1106,7 +1118,7 @@ def test_local_principal_rights_schema_contract_is_complete():
 
 
 def test_principal_fact_schema_contract_owns_taxonomy_scope_columns_and_index():
-    from app.services.postgres_schema_contract import (
+    from app.adapters.postgres.schema_contract import (
         required_check_tokens_for_relation,
         required_columns_for_relation,
         required_index_tokens_for_relation,
@@ -1127,7 +1139,7 @@ def test_principal_fact_schema_contract_owns_taxonomy_scope_columns_and_index():
 
 
 def test_ledger_watermark_contract_owns_columns_and_database_checks():
-    from app.services.postgres_schema_contract import (
+    from app.adapters.postgres.schema_contract import (
         required_check_tokens_for_relation,
         required_columns_for_relation,
     )
@@ -1146,7 +1158,7 @@ def test_ledger_watermark_contract_owns_columns_and_database_checks():
 
 
 def test_decision_attempt_contract_requires_usage_and_trace_checks():
-    from app.services.postgres_schema_contract import (
+    from app.adapters.postgres.schema_contract import (
         required_check_tokens_for_relation,
         required_columns_for_relation,
     )
@@ -1206,7 +1218,7 @@ def test_schema_validation_accepts_latest_migration_contract():
 
 
 def test_draft_schema_validation_requires_binding_checks_index_and_foreign_key():
-    from app.services.postgres_schema_contract import (
+    from app.adapters.postgres.schema_contract import (
         required_columns_for_relation,
         required_foreign_key_tokens_for_relation,
     )
@@ -1269,7 +1281,7 @@ def test_draft_schema_validation_requires_binding_checks_index_and_foreign_key()
 def test_actual_migration_installs_heartbeat_and_is_idempotent(postgres_dsn):
     import psycopg2
     from psycopg2 import sql
-    from app.services.postgres_decision_store import PostgresDecisionStore
+    from app.adapters.persistence.postgres.decision_store import PostgresDecisionStore
 
     prefix = make_runtime_table_prefix("report_heartbeat")
     vector = make_runtime_table_prefix("report_vector")
@@ -1585,7 +1597,7 @@ def test_actual_migration_upgrades_v10_and_runtime_factories_are_durable(
 ):
     import psycopg2
     from psycopg2 import sql
-    from app.services import runtime
+    import app.runtime.composition as runtime
 
     prefix = make_runtime_table_prefix("principal_rights_upgrade")
     vector = make_runtime_table_prefix("principal_rights_vector")

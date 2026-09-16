@@ -7,8 +7,8 @@ from app.adapters.postgres.runtime_receipt_repository import (
     PostgresRuntimeReceiptRepository,
 )
 from app.adapters.postgres.runtime_repository_support import postgres_sql
-from app.services.postgres_connections import ConnectionProvider
-from app.services.runtime_domain_events import RuntimeEventEnvelope
+from app.adapters.postgres.connections import ConnectionProvider
+from app.domain.runtime_events import RuntimeEventEnvelope
 
 
 _postgres_sql = postgres_sql

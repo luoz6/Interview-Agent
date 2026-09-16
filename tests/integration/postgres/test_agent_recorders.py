@@ -2,10 +2,10 @@
 
 import pytest
 
-from app.services.agent_recorders import PostgresAgentRunRecorder
-from app.services.postgres_runtime_control import PostgresRuntimeControlStore
-from app.services.postgres_session import PostgresInterviewSessionStore
-from app.services.prep import InterviewPlan, InterviewQuestion
+from app.runtime.agent_recorders import PostgresAgentRunRecorder
+from app.adapters.persistence.postgres.runtime_control import PostgresRuntimeControlStore
+from app.adapters.persistence.postgres.session_store import PostgresInterviewSessionStore
+from app.runtime.interview_prep import InterviewPlan, InterviewQuestion
 from tests.agent_runtime_fixtures import make_record
 from tests.postgres_support import make_runtime_table_prefix, require_postgres_dsn
 

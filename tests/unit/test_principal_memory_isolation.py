@@ -5,9 +5,9 @@ from datetime import datetime, timezone
 import pytest
 
 from app.adapters.memory.principal_memory import InMemoryPrincipalMemoryFactStore
-from app.services.knowledge_corpus_schema import load_knowledge_document_v2
+from app.domain.knowledge.corpus_schema import load_knowledge_document_v2
 from app.domain.memory.contracts import PrincipalMemoryFact
-from app.services.principal_memory_shadow import PrincipalMemoryShadowService
+from app.runtime.principal_memory_shadow import PrincipalMemoryShadowService
 from tests.principal_memory_fixtures import build_retriever, make_active_fact, make_fact
 
 

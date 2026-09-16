@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from app.services import runtime
+import app.runtime.composition as runtime
 
 
 LOCAL_ENV = {

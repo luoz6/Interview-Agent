@@ -6,29 +6,29 @@ from types import SimpleNamespace
 import pytest
 from pydantic import ValidationError
 
-from app.services.interview_plan_editor import (
+from app.application.interview.plan_editor import (
     InterviewPlanEditor,
     PlanEditRequest,
     PlanOperation,
 )
-from app.services.interview_plan_knowledge import (
+from app.domain.interview.plan_knowledge import (
     valid_question_knowledge,
 )
-from app.services.interview_plan_revision import (
+from app.domain.interview.plan_revision import (
     PlanConfigurationSnapshot,
     PlanSourcePayload,
     legacy_plan_to_v2,
     plan_payload_sha256,
-    v2_plan_to_legacy,
 )
-from app.services.interview_plan_revision_store import (
+from app.domain.interview.prep import v2_plan_to_legacy
+from app.adapters.memory.plan_revision_store import (
     InMemoryInterviewPlanRevisionStore,
 )
-from app.services.knowledge_binding import KnowledgeBindingResolver
-from app.services.postgres_plan_revision_store import (
+from app.application.knowledge.binding import KnowledgeBindingResolver
+from app.adapters.persistence.postgres.plan_revision_store import (
     PostgresInterviewPlanRevisionStore,
 )
-from app.services.prep import (
+from app.runtime.interview_prep import (
     InterviewPlan,
     InterviewQuestion,
     KnowledgeBindingSnapshot,

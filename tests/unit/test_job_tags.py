@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from app.services.job_tags import extract_job_tags
+from app.domain.knowledge.job_tags import extract_job_tags
 
 
 def test_extract_job_tags_matches_known_keywords():

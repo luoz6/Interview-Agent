@@ -2,7 +2,7 @@ import json
 
 import pytest
 
-from app.services.report_eval_artifacts import (
+from app.evals.report_eval_artifacts import (
     EvaluationArtifactStore,
     EvaluationRunLockUnavailable,
 )

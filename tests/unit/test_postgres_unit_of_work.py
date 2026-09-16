@@ -1,7 +1,7 @@
 import pytest
 
 from app.adapters.postgres.unit_of_work import PostgresUnitOfWork
-from app.services.postgres_connections import DirectPsycopg2ConnectionProvider
+from app.adapters.postgres.connections import DirectPsycopg2ConnectionProvider
 
 
 class FakeCursor:

@@ -8,9 +8,9 @@ from app.application.materials.deletion_service import UserDocumentDeletionServi
 from app.application.materials.ingestion_service import UserDocumentIngestionService
 from app.domain.knowledge.evidence import EvidenceRef
 from app.domain.knowledge.source_scope import build_knowledge_source_scope
-from app.services.interview_knowledge_scope import InterviewKnowledgeScopeResolver
-from app.services.knowledge_citations import project_safe_knowledge_citations
-from app.services.report import DimensionScores, InterviewFeedback
+from app.application.knowledge.scope import InterviewKnowledgeScopeResolver
+from app.application.report.knowledge_citations import project_safe_knowledge_citations
+from app.domain.report.models import DimensionScores, InterviewFeedback
 from tests.vector_store_fixtures import FakeEmbeddingProvider
 
 

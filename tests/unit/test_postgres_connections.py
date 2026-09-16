@@ -4,7 +4,7 @@ from threading import Event, Thread
 
 import pytest
 
-from app.services.postgres_connections import (
+from app.adapters.postgres.connections import (
     ConnectionProvider,
     DirectPsycopg2ConnectionProvider,
     ExclusiveConnectionProvider,

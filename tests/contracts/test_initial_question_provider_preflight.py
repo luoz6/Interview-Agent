@@ -2,15 +2,15 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from app.services.followup_provider_preflight import (
+from app.evals.followup_provider_preflight import (
     DeepSeekDiscoverySnapshot,
     ProviderPrice,
 )
-from app.services.initial_question_provider_preflight import (
+from app.evals.initial_question_provider_preflight import (
     evaluate_initial_question_provider_preflight,
 )
-from app.services.interview_quality_dataset import load_interview_quality_dataset
-from app.services.interview_quality_provider_authorization import (
+from app.evals.interview_quality_dataset import load_interview_quality_dataset
+from app.evals.interview_quality_provider_authorization import (
     load_provider_authorization,
 )
 

@@ -1,0 +1,383 @@
+{
+  "metadata": {
+    "generated_by": "tools/architecture/generate_final_architecture_report.py",
+    "p0_baseline_commit": "0af2a8b",
+    "p0_services_loc_source": "docs/architecture/current-architecture-baseline.md",
+    "p0_god_module_source": "artifacts/architecture/god-module-baseline.md",
+    "retrospective_metrics": [
+      "total Python LOC",
+      "cross-layer violation pairs",
+      "dependency cycle SCCs",
+      "exact normalized AST duplicate groups"
+    ],
+    "p0_parse_errors": 0,
+    "p9_parse_errors": 0
+  },
+  "loc": {
+    "p0": {
+      "python_files": 418,
+      "physical_loc": 118413,
+      "nonempty_loc": 108150,
+      "services_python_files": 220,
+      "services_physical_loc": 82727,
+      "services_nonempty_loc": 75970,
+      "largest_module": {
+        "file": "app/services/runtime.py",
+        "module": "app.services.runtime",
+        "physical_loc": 2459,
+        "nonempty_loc": 2193
+      },
+      "official_services_nonempty_loc": 75970
+    },
+    "p9": {
+      "python_files": 470,
+      "physical_loc": 120151,
+      "nonempty_loc": 109519,
+      "services_python_files": 0,
+      "services_physical_loc": 0,
+      "services_nonempty_loc": 0,
+      "largest_module": {
+        "file": "app/runtime/composition.py",
+        "module": "app.runtime.composition",
+        "physical_loc": 2585,
+        "nonempty_loc": 2308
+      },
+      "official_services_nonempty_loc": 0
+    }
+  },
+  "god_module_owner_comparison": [
+    {
+      "owner": "Runtime composition",
+      "p0_module": "app.services.runtime",
+      "p0_physical_loc": 2459,
+      "p9_module": "app.runtime.composition",
+      "p9_physical_loc": 2585,
+      "delta": 126
+    },
+    {
+      "owner": "Durable interview graph",
+      "p0_module": "app.graphs.durable_interview_graph",
+      "p0_physical_loc": 2296,
+      "p9_module": "app.graphs.durable_interview_graph",
+      "p9_physical_loc": 2303,
+      "delta": 7
+    },
+    {
+      "owner": "LLM provider",
+      "p0_module": "app.services.llm",
+      "p0_physical_loc": 1507,
+      "p9_module": "app.adapters.providers.llm",
+      "p9_physical_loc": 1404,
+      "delta": -103
+    }
+  ],
+  "architecture_metrics": {
+    "cross_layer_violation_pairs": {
+      "p0": {
+        "unique_pair_count": 19,
+        "by_rule": {
+          "DOMAIN_MUST_NOT_IMPORT_APPLICATION": 0,
+          "DOMAIN_MUST_NOT_IMPORT_ADAPTERS": 0,
+          "DOMAIN_MUST_NOT_IMPORT_RUNTIME": 0,
+          "DOMAIN_MUST_NOT_IMPORT_SERVICES": 0,
+          "APPLICATION_MUST_NOT_IMPORT_ADAPTERS": 0,
+          "APPLICATION_MUST_NOT_IMPORT_RUNTIME": 1,
+          "APPLICATION_MUST_NOT_IMPORT_SERVICES": 13,
+          "PORTS_MUST_NOT_IMPORT_ADAPTERS": 0,
+          "PORTS_MUST_NOT_IMPORT_RUNTIME": 0,
+          "PORTS_MUST_NOT_IMPORT_SERVICES": 5
+        },
+        "pairs": [
+          {
+            "rule": "APPLICATION_MUST_NOT_IMPORT_RUNTIME",
+            "source": "app.application.knowledge.diagnostics_service",
+            "target": "app.runtime.config"
+          },
+          {
+            "rule": "APPLICATION_MUST_NOT_IMPORT_SERVICES",
+            "source": "app.application.interview.interview_start",
+            "target": "app.services.job_tags"
+          },
+          {
+            "rule": "APPLICATION_MUST_NOT_IMPORT_SERVICES",
+            "source": "app.application.interview.interview_start",
+            "target": "app.services.prep"
+          },
+          {
+            "rule": "APPLICATION_MUST_NOT_IMPORT_SERVICES",
+            "source": "app.application.interview.session_commands",
+            "target": "app.services.interview_rounds"
+          },
+          {
+            "rule": "APPLICATION_MUST_NOT_IMPORT_SERVICES",
+            "source": "app.application.interview.session_commands",
+            "target": "app.services.prep"
+          },
+          {
+            "rule": "APPLICATION_MUST_NOT_IMPORT_SERVICES",
+            "source": "app.application.interview.session_commands",
+            "target": "app.services.report_enqueue"
+          },
+          {
+            "rule": "APPLICATION_MUST_NOT_IMPORT_SERVICES",
+            "source": "app.application.interview.session_commands",
+            "target": "app.services.runtime_events"
+          },
+          {
+            "rule": "APPLICATION_MUST_NOT_IMPORT_SERVICES",
+            "source": "app.application.interview.session_snapshot",
+            "target": "app.services.interview_plan_revision"
+          },
+          {
+            "rule": "APPLICATION_MUST_NOT_IMPORT_SERVICES",
+            "source": "app.application.interview.session_snapshot",
+            "target": "app.services.prep"
+          },
+          {
+            "rule": "APPLICATION_MUST_NOT_IMPORT_SERVICES",
+            "source": "app.application.knowledge.corpus_write_service",
+            "target": "app.services.knowledge_corpus_schema"
+          },
+          {
+            "rule": "APPLICATION_MUST_NOT_IMPORT_SERVICES",
+            "source": "app.application.knowledge.corpus_write_service",
+            "target": "app.services.knowledge_ingestion"
+          },
+          {
+            "rule": "APPLICATION_MUST_NOT_IMPORT_SERVICES",
+            "source": "app.application.knowledge.diagnostics_service",
+            "target": "app.services.knowledge_eval_artifacts_v3"
+          },
+          {
+            "rule": "APPLICATION_MUST_NOT_IMPORT_SERVICES",
+            "source": "app.application.knowledge.diagnostics_service",
+            "target": "app.services.knowledge_eval_dataset_v3"
+          },
+          {
+            "rule": "APPLICATION_MUST_NOT_IMPORT_SERVICES",
+            "source": "app.application.materials.ingestion_service",
+            "target": "app.services.embedding_providers"
+          },
+          {
+            "rule": "PORTS_MUST_NOT_IMPORT_SERVICES",
+            "source": "app.ports.context_compression_failure_state",
+            "target": "app.services.context_compression_failure_containment"
+          },
+          {
+            "rule": "PORTS_MUST_NOT_IMPORT_SERVICES",
+            "source": "app.ports.question_memory",
+            "target": "app.services.question_memory_index"
+          },
+          {
+            "rule": "PORTS_MUST_NOT_IMPORT_SERVICES",
+            "source": "app.ports.runtime",
+            "target": "app.services.prep"
+          },
+          {
+            "rule": "PORTS_MUST_NOT_IMPORT_SERVICES",
+            "source": "app.ports.runtime",
+            "target": "app.services.question_evaluations"
+          },
+          {
+            "rule": "PORTS_MUST_NOT_IMPORT_SERVICES",
+            "source": "app.ports.runtime",
+            "target": "app.services.report"
+          }
+        ]
+      },
+      "p9": {
+        "unique_pair_count": 0,
+        "by_rule": {
+          "DOMAIN_MUST_NOT_IMPORT_APPLICATION": 0,
+          "DOMAIN_MUST_NOT_IMPORT_ADAPTERS": 0,
+          "DOMAIN_MUST_NOT_IMPORT_RUNTIME": 0,
+          "DOMAIN_MUST_NOT_IMPORT_SERVICES": 0,
+          "APPLICATION_MUST_NOT_IMPORT_ADAPTERS": 0,
+          "APPLICATION_MUST_NOT_IMPORT_RUNTIME": 0,
+          "APPLICATION_MUST_NOT_IMPORT_SERVICES": 0,
+          "PORTS_MUST_NOT_IMPORT_ADAPTERS": 0,
+          "PORTS_MUST_NOT_IMPORT_RUNTIME": 0,
+          "PORTS_MUST_NOT_IMPORT_SERVICES": 0
+        },
+        "pairs": []
+      },
+      "delta": -19
+    },
+    "dependency_cycles": {
+      "p0_group_count": 2,
+      "p0_module_count": 123,
+      "p0_groups": [
+        [
+          "app.a2a.adapters",
+          "app.a2a.bridge",
+          "app.a2a.invocation.a2a",
+          "app.a2a.invocation.context",
+          "app.a2a.invocation.execution_context",
+          "app.a2a.invocation.local",
+          "app.a2a.runtime",
+          "app.adapters.knowledge",
+          "app.adapters.knowledge.exact_term_retriever",
+          "app.adapters.knowledge.runtime_repository",
+          "app.adapters.pgvector.repository",
+          "app.adapters.postgres.message_repository",
+          "app.adapters.postgres.question_evaluation_repository",
+          "app.adapters.postgres.report_repository",
+          "app.adapters.postgres.row_mappers",
+          "app.adapters.postgres.row_mappers.session",
+          "app.adapters.postgres.runtime_outbox_repository",
+          "app.adapters.postgres.runtime_receipt_repository",
+          "app.adapters.postgres.session_repository",
+          "app.adapters.postgres.store_schema_adapter",
+          "app.adapters.reliability.runtime_failure",
+          "app.agents.context_compressor",
+          "app.agents.examiner",
+          "app.agents.knowledge",
+          "app.agents.orchestrator",
+          "app.agents.report_coach",
+          "app.agents.shadow_reviewer",
+          "app.application.interview.session_snapshot",
+          "app.application.knowledge",
+          "app.application.knowledge.followup_gap_service",
+          "app.application.knowledge.hybrid_retrieval_service",
+          "app.application.knowledge.retrieval_service",
+          "app.application.knowledge.runtime_retrieval_service",
+          "app.application.materials.ingestion_service",
+          "app.domain.interview.models",
+          "app.domain.interview.state_machine",
+          "app.graphs.durable_interview_graph",
+          "app.graphs.durable_interview_state",
+          "app.graphs.durable_interview_state_v2",
+          "app.graphs.durable_interview_state_v3",
+          "app.graphs.durable_review_graph",
+          "app.graphs.interview_graph",
+          "app.graphs.interview_state",
+          "app.graphs.interview_transitions",
+          "app.graphs.orchestrator_graph",
+          "app.ports.knowledge",
+          "app.ports.runtime",
+          "app.runtime.config",
+          "app.runtime.config.compatibility",
+          "app.runtime.config.loader",
+          "app.runtime.config.memory",
+          "app.runtime.container",
+          "app.services.agent_recorders",
+          "app.services.agent_runtime",
+          "app.services.agent_trace",
+          "app.services.celery_app",
+          "app.services.context_budget",
+          "app.services.context_compression",
+          "app.services.context_compression_eligibility",
+          "app.services.context_compression_gating",
+          "app.services.context_compression_request",
+          "app.services.context_compression_runner",
+          "app.services.context_compression_validation",
+          "app.services.context_runtime",
+          "app.services.context_selection",
+          "app.services.embedding_providers",
+          "app.services.evaluator",
+          "app.services.evaluator_ext",
+          "app.services.event_publisher",
+          "app.services.evidence_context_artifacts",
+          "app.services.followup_decision_service",
+          "app.services.followup_prompts",
+          "app.services.in_memory_draft_store",
+          "app.services.in_memory_prep_plan_store",
+          "app.services.interview_context_artifacts",
+          "app.services.interview_knowledge_scope",
+          "app.services.interview_launch",
+          "app.services.interview_plan_budget",
+          "app.services.interview_plan_revision",
+          "app.services.interview_plan_revision_store",
+          "app.services.interview_rounds",
+          "app.services.interview_workflow",
+          "app.services.interview_workflow_store",
+          "app.services.knowledge_binding",
+          "app.services.knowledge_citations",
+          "app.services.knowledge_grounding",
+          "app.services.knowledge_profile",
+          "app.services.knowledge_query",
+          "app.services.knowledge_trace",
+          "app.services.langgraph_runtime",
+          "app.services.llm",
+          "app.services.postgres_connection_domains",
+          "app.services.postgres_draft_store",
+          "app.services.postgres_plan_revision_store",
+          "app.services.postgres_prep_plan_store",
+          "app.services.postgres_report_artifact_store",
+          "app.services.postgres_runtime_control",
+          "app.services.postgres_session",
+          "app.services.prep",
+          "app.services.prep_context",
+          "app.services.prep_plans",
+          "app.services.principal_memory_tasks",
+          "app.services.provider_usage",
+          "app.services.question_memory",
+          "app.services.report_artifact",
+          "app.services.report_artifact_store",
+          "app.services.report_jobs",
+          "app.services.report_microbatch",
+          "app.services.report_pipeline",
+          "app.services.report_tasks",
+          "app.services.report_trace",
+          "app.services.review_workflow_store",
+          "app.services.round_review",
+          "app.services.round_review_runner",
+          "app.services.runtime",
+          "app.services.runtime_event_consumer",
+          "app.services.runtime_outbox_dispatcher",
+          "app.services.session",
+          "app.services.session_plan_binding",
+          "app.services.siliconflow_embeddings",
+          "app.services.static_knowledge_store"
+        ],
+        [
+          "app.ports.context_compression_failure_state",
+          "app.services.context_compression_failure_containment"
+        ]
+      ],
+      "p9_group_count": 4,
+      "p9_module_count": 8,
+      "p9_groups": [
+        [
+          "app.adapters.providers.embedding_providers",
+          "app.adapters.providers.siliconflow_embeddings"
+        ],
+        [
+          "app.domain.context.failure_containment",
+          "app.ports.context_compression_failure_state"
+        ],
+        [
+          "app.domain.interview.plan_budget",
+          "app.domain.interview.plan_revision"
+        ],
+        [
+          "app.runtime.composition",
+          "app.runtime.interview_entry"
+        ]
+      ]
+    },
+    "exact_duplicate_groups": {
+      "p0": 19,
+      "p9": 25
+    }
+  },
+  "final_gate_signals": {
+    "domain_to_infrastructure_edges": 0,
+    "application_to_adapters_edges": 0,
+    "application_to_services_edges": 0,
+    "application_to_runtime_edges": 0,
+    "application_to_langgraph_edges": 0,
+    "services_directory_exists": false,
+    "ratchet_legacy_violation_pairs": 0
+  },
+  "measured_boundary_signals_satisfied": true,
+  "architecture_refactor_status": "COMPLETE",
+  "architecture_refactor_gate": "PASS",
+  "architecture_boundary_gate": "PASS",
+  "postgres_reliability_verification": "DEFERRED",
+  "postgres_reliability_deferred_reason": "BLOCKED_ENVIRONMENT / EXTERNAL_APPROVAL_UNAVAILABLE",
+  "full_production_reliability_gate": "NOT_VERIFIED",
+  "final_architecture_definition_satisfied": true,
+  "final_gate_scope_note": "P9-T04 supplies measurement evidence for the P0-P9 architecture refactor closure. Protected PostgreSQL reliability is deferred and the full production reliability gate remains NOT_VERIFIED.",
+  "decision": "The P9 measurement task is complete, its measured boundary signals are satisfied, and it supports P0-P9 architecture refactor closure."
+}

@@ -16,28 +16,28 @@ from app.domain.context.artifacts import (
     ContextCompressorConfig,
     canonical_identity_payload,
 )
-from app.services.context_budget import (
+from app.domain.context.budget import (
     DynamicCompressionTargetPolicy,
     allocate_dynamic_compression_target,
 )
-from app.services.context_compression import QUESTION_MEMORY_COMPRESSION_POLICY
-from app.services.context_compression_request import (
+from app.adapters.providers.context_compression import QUESTION_MEMORY_COMPRESSION_POLICY
+from app.domain.context.compression_request import (
     ResolvedCompressionRequest,
     bind_resolved_target_to_identity,
 )
-from app.services.context_compression_runner import ContextCompressionRunner
+from app.application.context.compression_runner import ContextCompressionRunner
 from app.adapters.memory.context_artifacts import (
     InMemoryContextArtifactStore,
 )
-from app.services.in_memory_question_memory_index import (
+from app.adapters.memory.question_memory_index import (
     InMemoryQuestionMemoryIndexStore,
 )
 from app.runtime.config.memory import load_effective_memory_config
-from app.services.postgres_question_memory_index import (
+from app.adapters.persistence.postgres.question_memory_index import (
     PostgresQuestionMemoryIndexStore,
 )
-from app.services.question_memory import QuestionMemoryCoordinator
-from app.services.question_memory_index import QuestionMemoryIndexEntry
+from app.runtime.question_memory import QuestionMemoryCoordinator
+from app.domain.memory.question_index import QuestionMemoryIndexEntry
 from tests.question_memory_fixtures import (
     CompressorAgent,
     ParentOwnership,

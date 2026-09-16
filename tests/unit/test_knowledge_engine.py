@@ -8,7 +8,7 @@ from app.domain.knowledge.engine import (
     RuntimeEngineExecution,
     RuntimeFallbackReason,
 )
-from app.services.prep import KnowledgeBindingSnapshot
+from app.runtime.interview_prep import KnowledgeBindingSnapshot
 
 
 def test_runtime_execution_requires_an_explicit_hybrid_to_legacy_fallback():

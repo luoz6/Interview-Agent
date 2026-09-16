@@ -2,8 +2,8 @@ from pathlib import Path
 
 import pytest
 
-from app.services.report_calibration_dataset import load_calibration_dataset
-from app.services.report_calibration_runner import evaluate_calibration_dataset
+from app.evals.report_calibration_dataset import load_calibration_dataset
+from app.evals.report_calibration_runner import evaluate_calibration_dataset
 
 
 DATASET_PATH = Path(

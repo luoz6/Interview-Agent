@@ -3,7 +3,9 @@
 import pytest
 from pydantic import ValidationError
 
-from app.services.agent_runtime import (
+from app.domain import agent_execution as agent_execution_contracts
+from app.runtime import agent_execution as agent_execution_runtime
+from app.runtime.agent_execution import (
     AgentExecutionContext,
     AgentExecutionRunner,
     AgentFallback,
@@ -12,7 +14,7 @@ from app.services.agent_runtime import (
     correlation_id_from_plan,
     evidence_ids_for_question,
 )
-from app.services.prep import (
+from app.runtime.interview_prep import (
     InterviewPlan,
     KnowledgeBindingSnapshot,
     PrepContext,
@@ -49,6 +51,14 @@ def make_context() -> AgentExecutionContext:
         phase="review",
         session_id="s1",
     )
+
+
+def test_legacy_runtime_reexports_canonical_domain_contracts():
+    assert AgentExecutionContext is agent_execution_contracts.AgentExecutionContext
+    assert AgentRunRecord is agent_execution_contracts.AgentRunRecord
+    assert AgentFallback is agent_execution_contracts.AgentFallback
+    assert AgentOutcome is agent_execution_contracts.AgentOutcome
+    assert AgentExecutionRunner is agent_execution_runtime.AgentExecutionRunner
 
 
 def test_agent_execution_context_has_stable_schema_and_unique_run_id():

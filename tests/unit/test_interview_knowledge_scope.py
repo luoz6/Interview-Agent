@@ -21,16 +21,16 @@ from app.domain.knowledge.user_document import (
     UserDocumentPublicStatus,
 )
 from app.main import app
-from app.services.in_memory_prep_plan_store import InMemoryPrepPlanStore
-from app.services.interview_knowledge_scope import (
+from app.adapters.memory.prep_plan_store import InMemoryPrepPlanStore
+from app.application.knowledge.scope import (
     InterviewKnowledgeScopeError,
     InterviewKnowledgeScopeResolver,
 )
-from app.services.interview_plan_revision_store import (
+from app.adapters.memory.plan_revision_store import (
     InMemoryInterviewPlanRevisionStore,
 )
-from app.services.prep import bind_prepared_plan_revision, fallback_interview_plan
-from app.services.principal_identity import ExplicitPrincipalIdentityResolver
+from app.runtime.interview_prep import bind_prepared_plan_revision, fallback_interview_plan
+from app.adapters.memory.principal_identity import ExplicitPrincipalIdentityResolver
 from tests.vector_store_fixtures import FakeEmbeddingProvider
 
 

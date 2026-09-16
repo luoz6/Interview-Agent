@@ -9,8 +9,8 @@ from reportlab.pdfgen import canvas
 
 from app.api.prep import routes as prep_routes
 from app.main import app
-from app.services import runtime
-from app.services.prep_source_import import (
+import app.runtime.composition as runtime
+from app.application.materials.prep_source_import import (
     PREP_SOURCE_MAX_BYTES,
     PREP_SOURCE_MAX_TEXT_CHARS,
     PrepSourceImportError,

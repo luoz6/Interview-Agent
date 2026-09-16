@@ -4,17 +4,17 @@ import logging
 
 import pytest
 
-from app.services.agent_runtime import AgentExecutionRunner
-from app.services.llm import OpenAIInterviewLLM
-from app.services.prep import (
+from app.runtime.agent_execution import AgentExecutionRunner
+from app.adapters.providers.llm import OpenAIInterviewLLM
+from app.runtime.interview_prep import (
     InterviewPlan,
     InterviewQuestion,
     KnowledgeBindingSnapshot,
     PrepContext,
     PrepQuestionHint,
 )
-from app.services.question_evaluations import question_evaluation_from_feedback
-from app.services.report import (
+from app.domain.report.question_evaluations import question_evaluation_from_feedback
+from app.domain.report.models import (
     DimensionScores,
     InterviewFeedback,
     InterviewReport,
@@ -22,19 +22,30 @@ from app.services.report import (
     ReportGenerationTimeout,
     ReportQualityFailed,
 )
-from app.services.report_tasks import (
+from app.runtime.report_tasks import (
     execute_report_generation,
     generate_report_for_session,
     run_report_generation,
 )
-from app.services.session import InterviewSessionStore
+from app.adapters.memory.session_store import InterviewSessionStore
 
 
 @pytest.fixture(autouse=True)
 def isolate_runtime_container():
-    from app.services.runtime import reset_runtime_for_tests
+    import app.runtime.report_tasks as report_tasks
+    from app.runtime.composition import (
+        get_agent_execution_runner,
+        get_runtime_knowledge_repository,
+        get_user_document_store,
+        reset_runtime_for_tests,
+        resolve_runtime_llm,
+    )
 
     reset_runtime_for_tests()
+    report_tasks.get_agent_execution_runner = get_agent_execution_runner
+    report_tasks.get_knowledge_store = get_runtime_knowledge_repository
+    report_tasks.get_user_document_store = get_user_document_store
+    report_tasks.resolve_runtime_llm = resolve_runtime_llm
     yield
     reset_runtime_for_tests()
 
@@ -67,7 +78,7 @@ class CapturingRecorder:
 
 
 def test_evaluate_full_session_returns_retrieval_metadata_from_evaluator(monkeypatch):
-    import app.services.report_pipeline as report_pipeline
+    import app.runtime.report_pipeline as report_pipeline
 
     expected_report = object()
     expected_metadata = {
@@ -488,7 +499,7 @@ def test_generate_report_for_session_saves_completed_report():
         def search(self, query_text: str, *, job_tags: list[str], source_types=None, limit=5):
             return []
 
-    import app.services.report_tasks as report_tasks
+    import app.runtime.report_tasks as report_tasks
 
     report_tasks.get_knowledge_store = lambda: FakeVectorStore()
     store = InterviewSessionStore(llm=ReportLLM(report_score=81))
@@ -806,7 +817,7 @@ def test_run_report_generation_publishes_safe_fallback_when_coach_raises():
 
 
 def test_run_report_generation_marks_failed_for_unexpected_value_error(monkeypatch):
-    import app.services.report_tasks as report_tasks
+    import app.runtime.report_tasks as report_tasks
 
     store = FakeStore(make_finished_state())
     monkeypatch.setattr(
@@ -829,7 +840,7 @@ def test_run_report_generation_marks_failed_for_unexpected_value_error(monkeypat
 def test_generate_report_for_session_marks_failed_when_runtime_llm_init_fails(
     monkeypatch,
 ):
-    import app.services.report_tasks as report_tasks
+    import app.runtime.report_tasks as report_tasks
 
     class FakeVectorStore:
         pass
@@ -859,7 +870,7 @@ def test_generate_report_for_session_saves_safe_fallback_on_timeout(monkeypatch)
         def search(self, query_text: str, *, job_tags: list[str], source_types=None, limit=5):
             return []
 
-    import app.services.report_tasks as report_tasks
+    import app.runtime.report_tasks as report_tasks
 
     monkeypatch.setattr(report_tasks, "get_knowledge_store", lambda: FakeVectorStore())
     store = InterviewSessionStore(llm=ReportLLM(should_timeout=True))
@@ -881,7 +892,7 @@ def test_generate_report_for_session_saves_failed_record_when_retrieval_is_unava
         def search(self, query_text: str, *, job_tags: list[str], source_types=None, limit=5):
             raise RuntimeError("db down")
 
-    import app.services.report_tasks as report_tasks
+    import app.runtime.report_tasks as report_tasks
 
     report_tasks.get_knowledge_store = lambda: FailingVectorStore()
     store = InterviewSessionStore(llm=ReportLLM())
@@ -900,7 +911,7 @@ def test_generate_report_for_session_saves_failed_record_when_retrieval_is_unava
 def test_generate_report_for_session_saves_failed_record_when_knowledge_store_is_unconfigured(
     monkeypatch,
 ):
-    import app.services.report_tasks as report_tasks
+    import app.runtime.report_tasks as report_tasks
 
     monkeypatch.setattr(
         report_tasks,
@@ -925,7 +936,7 @@ def test_generate_report_for_session_saves_unscored_fallback_when_evidence_is_in
         def search(self, query_text: str, *, job_tags: list[str], source_types=None, limit=5):
             return []
 
-    import app.services.report_tasks as report_tasks
+    import app.runtime.report_tasks as report_tasks
 
     report_tasks.get_knowledge_store = lambda: FakeVectorStore()
     store = InterviewSessionStore(llm=FallbackReportLLM())
@@ -949,7 +960,7 @@ def test_generate_report_for_session_returns_when_session_is_missing():
         def search(self, query_text: str, *, job_tags: list[str], source_types=None, limit=5):
             return []
 
-    import app.services.report_tasks as report_tasks
+    import app.runtime.report_tasks as report_tasks
 
     report_tasks.get_knowledge_store = lambda: FakeVectorStore()
     store = InterviewSessionStore(llm=ReportLLM())

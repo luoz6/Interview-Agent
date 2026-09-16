@@ -4,9 +4,9 @@ from langgraph.types import Command
 from app.graphs.durable_review_graph import DurableReviewGraphDependencies, build_durable_review_graph
 from app.graphs.durable_review_state import make_durable_review_initial_state
 from tests.unit.test_durable_review_state import make_finished_state, make_job
-from app.services.prep import InterviewPlan, InterviewQuestion
-from app.services.report import ReportGenerationTimeout
-from app.services.workflow_thread_lock import ReviewEffectLeaseLost
+from app.runtime.interview_prep import InterviewPlan, InterviewQuestion
+from app.domain.report.models import ReportGenerationTimeout
+from app.domain.workflow_thread_lock import ReviewEffectLeaseLost
 from tests.review_fixtures import FakeReviewWorkflowStore as FakeStore
 
 

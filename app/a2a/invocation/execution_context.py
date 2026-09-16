@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from app.a2a.invocation.context import InvocationContext
-from app.services.agent_runtime import AgentExecutionContext
+from app.domain.agent_execution import AgentExecutionContext
 
 
 _AGENT_NAME_MAP = {

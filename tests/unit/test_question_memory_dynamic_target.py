@@ -5,21 +5,21 @@ from types import SimpleNamespace
 
 import pytest
 
-from app.services.context_artifact_scope import (
+from app.domain.context.privacy_scope import (
     StableContextArtifactPrivacyScopeResolver,
 )
 from app.domain.context.artifacts import (
     ContextCompressorConfig,
     canonical_identity_payload,
 )
-from app.services.context_budget import DynamicCompressionTargetPolicy
-from app.services.context_compression import QUESTION_MEMORY_COMPRESSION_POLICY
-from app.services.context_compression_runner import ContextCompressionRunner
-from app.services.context_selection import (
+from app.domain.context.budget import DynamicCompressionTargetPolicy
+from app.adapters.providers.context_compression import QUESTION_MEMORY_COMPRESSION_POLICY
+from app.application.context.compression_runner import ContextCompressionRunner
+from app.domain.context.selection import (
     ContextSelectionStats,
     InterviewContextSelection,
 )
-from app.services.context_source_identity import (
+from app.domain.context.source_identity import (
     ConversationSourceIdentity,
     canonical_conversation_sequence_pair,
     content_sha256,
@@ -27,10 +27,10 @@ from app.services.context_source_identity import (
 from app.adapters.memory.context_artifacts import (
     InMemoryContextArtifactStore,
 )
-from app.services.in_memory_question_memory_index import (
+from app.adapters.memory.question_memory_index import (
     InMemoryQuestionMemoryIndexStore,
 )
-from app.services.question_memory import QuestionMemoryCoordinator
+from app.runtime.question_memory import QuestionMemoryCoordinator
 
 
 MODEL = "gpt-4o"

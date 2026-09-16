@@ -3,7 +3,7 @@ import hashlib
 import json
 from pathlib import Path
 
-from app.services.report_calibration_dataset import CalibrationDataset
+from app.evals.report_calibration_dataset import CalibrationDataset
 
 
 SCENARIOS = [

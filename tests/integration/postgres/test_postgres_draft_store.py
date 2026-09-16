@@ -8,14 +8,14 @@ from uuid import uuid4
 import pytest
 
 from app.domain.interview.drafts import DraftWriteConflict
-from app.services.postgres_connections import PostgresSchemaNotReady
-from app.services.postgres_draft_store import PostgresDraftStore
-from app.services.postgres_identifiers import runtime_schema_identifier
-from app.services.postgres_plan_revision_store import (
+from app.adapters.postgres.connections import PostgresSchemaNotReady
+from app.adapters.persistence.postgres.draft_store import PostgresDraftStore
+from app.adapters.postgres.identifiers import runtime_schema_identifier
+from app.adapters.persistence.postgres.plan_revision_store import (
     PostgresInterviewPlanRevisionStore,
 )
-from app.services.postgres_prep_plan_store import PostgresPrepPlanStore
-from app.services.prep_plans import PrepPlanError
+from app.adapters.persistence.postgres.prep_plan_store import PostgresPrepPlanStore
+from app.domain.interview.prep_plans import PrepPlanError
 from tests.postgres_support import drop_runtime_tables
 from tests.interview_fixtures import sample_interview_plan
 from tests.unit.test_interview_plan_revision import plan as revision_plan

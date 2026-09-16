@@ -2,14 +2,17 @@ from types import SimpleNamespace
 
 import pytest
 
-from app.services.decision_store import DecisionContract, InMemoryDecisionStore
-from app.services.followup_decision_service import FollowupDecisionExecutionService
-from app.services.followup_prompts import (
+from app.adapters.memory.decision_store import InMemoryDecisionStore
+from app.domain.interview.decision_store import DecisionContract
+from app.application.interview.followup_decision import FollowupDecisionExecutionService
+from app.domain.interview.followup_prompts import (
     FOLLOWUP_DECISION_PROMPT_SHA256,
     FOLLOWUP_DECISION_PROMPT_VERSION,
+)
+from app.adapters.providers.followup_prompts import (
     ProviderModelMismatchError,
 )
-from app.services.followup_diagnostics import stable_followup_fingerprint
+from app.domain.interview.followup_diagnostics import stable_followup_fingerprint
 
 
 def request(**updates):
@@ -114,7 +117,7 @@ def test_adaptive_no_new_information_stops_before_decision_provider():
 
 def test_valid_lease_owned_by_other_worker_returns_accepted():
     store = InMemoryDecisionStore()
-    from app.services.followup_diagnostics import diagnose_followup
+    from app.domain.interview.followup_diagnostics import diagnose_followup
 
     diagnostics = diagnose_followup(request())
     record = store.prepare(
@@ -166,7 +169,7 @@ def test_invalid_output_retries_once_then_persists_safe_next_fallback():
 def test_provider_model_mismatch_is_terminal_and_never_falls_back_or_retries():
     calls = []
     store = InMemoryDecisionStore(max_attempts=3)
-    from app.services.followup_diagnostics import diagnose_followup
+    from app.domain.interview.followup_diagnostics import diagnose_followup
 
     diagnostics = diagnose_followup(request())
     record = store.prepare(

@@ -5,7 +5,7 @@ import json
 from datetime import datetime
 from pathlib import Path
 
-from app.services.independent_review_handoff import export_reviewer_handoff
+from app.evals.independent_review_handoff import export_reviewer_handoff
 
 
 def main() -> int:

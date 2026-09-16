@@ -1,10 +1,10 @@
 """Unit tests for in-memory report task microbatch orchestration."""
 
-from app.services.question_evaluations import question_evaluation_from_feedback
-from app.services.report import InterviewReport
-from app.services.report_microbatch import MicrobatchReportUnavailable
-from app.services.report_tasks import execute_report_generation
-from app.services.session import InterviewSessionStore
+from app.domain.report.question_evaluations import question_evaluation_from_feedback
+from app.domain.report.models import InterviewReport
+from app.runtime.report_microbatch import MicrobatchReportUnavailable
+from app.runtime.report_tasks import execute_report_generation
+from app.adapters.memory.session_store import InterviewSessionStore
 from tests.report_microbatch_fixtures import (
     make_dimension_scores,
     make_feedback,
@@ -77,7 +77,7 @@ class FullSessionReviewer:
 
 
 def test_execute_report_generation_reuses_completed_microbatch_without_full_session_reviewer(monkeypatch):
-    import app.services.report_pipeline as report_pipeline
+    import app.runtime.report_pipeline as report_pipeline
 
     store = InterviewSessionStore()
     turn = start_finished_session(store)
@@ -121,7 +121,7 @@ def test_execute_report_generation_reuses_completed_microbatch_without_full_sess
 
 
 def test_execute_report_generation_falls_back_to_full_session_when_microbatch_unavailable(monkeypatch):
-    import app.services.report_pipeline as report_pipeline
+    import app.runtime.report_pipeline as report_pipeline
 
     store = InterviewSessionStore()
     turn = start_finished_session(store)
@@ -176,8 +176,8 @@ def test_execute_report_generation_records_microbatch_trace(monkeypatch, tmp_pat
 
 
 def test_execute_report_generation_records_fallback_trace_with_microbatch_stats(monkeypatch, tmp_path):
-    import app.services.report_pipeline as report_pipeline
-    from app.services.report_microbatch import ReportMicrobatchStats
+    import app.runtime.report_pipeline as report_pipeline
+    from app.runtime.report_microbatch import ReportMicrobatchStats
 
     store = InterviewSessionStore()
     turn = start_finished_session(store)

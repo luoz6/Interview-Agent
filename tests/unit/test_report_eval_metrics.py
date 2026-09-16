@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from app.services.report_eval_metrics import AttemptResult, calculate_metrics
+from app.evals.report_eval_metrics import AttemptResult, calculate_metrics
 
 def make_attempt(case_id, group_id, quality_level, score, *, run_number=1, answer="answer", observed=None, required_observations=None, forbidden_claims=None, applicable_dimensions=None, expected_applicable_dimensions=None, fallback=False, output_text="", provider_owned=None, backend_owned=None):
     dimensions = applicable_dimensions or ["depth"]

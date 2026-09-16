@@ -5,7 +5,7 @@ from datetime import datetime, timedelta, timezone
 import pytest
 
 from app.adapters.memory.principal_memory import InMemoryPrincipalMemoryFactStore
-from app.services.principal_memory_safe_refs import (
+from app.adapters.memory.principal_memory_safe_refs import (
     InMemoryPrincipalMemorySafeRefStore,
     PrincipalMemorySafeRefInvalid,
     PrincipalMemorySafeRefVersionConflict,

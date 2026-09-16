@@ -1,10 +1,7 @@
 from copy import deepcopy
 import inspect
 
-from app.agents.examiner import (
-    ExaminerAgent,
-    fallback_followup as examiner_fallback_followup,
-)
+from app.agents.examiner import ExaminerAgent
 from app.graphs.interview_state import (
     InterviewState,
     build_initial_state,
@@ -13,14 +10,14 @@ from app.graphs.interview_state import (
     latest_candidate_answer_for_question,
     MemoryPolicyVersion,
 )
-from app.services.llm import InterviewLLM
-from app.services.agent_runtime import (
+from app.ports.llm import InterviewLLM
+from app.domain.agent_execution import (
     AgentExecutionContext,
-    AgentExecutionRunner,
     correlation_id_from_plan,
     evidence_ids_for_question,
 )
-from app.services.knowledge_binding import KnowledgeBindingResolver
+from app.runtime.agent_execution import AgentExecutionRunner
+from app.application.knowledge.binding import KnowledgeBindingResolver
 from app.application.knowledge.followup_gap_service import (
     FollowupGapService,
     append_followup_gap_message,
@@ -28,30 +25,34 @@ from app.application.knowledge.followup_gap_service import (
 from app.adapters.knowledge.pilot_unit_resolver import (
     default_knowledge_unit_resolver,
 )
-from app.services.prep import InterviewPlan
-from app.services.context_budget import (
+from app.domain.interview.prep import InterviewPlan
+from app.domain.context.budget import (
     FOLLOWUP_CONTEXT_POLICY,
-    context_enforcement_enabled,
 )
-from app.services.context_selection import build_interview_context
-from app.services.context_runtime import ContextRuntime, get_context_runtime
-from app.services.session_plan_binding import SessionPlanBinding
-from app.services.decision_store import InMemoryDecisionStore
-from app.services.followup_diagnostics import (
+from app.domain.context.selection import build_interview_context
+from app.runtime.context_runtime import (
+    ContextRuntime,
+    context_enforcement_enabled,
+    get_context_runtime,
+)
+from app.domain.interview.session_plan_binding import SessionPlanBinding
+from app.adapters.memory.decision_store import InMemoryDecisionStore
+from app.domain.interview.followup_diagnostics import (
     FollowupDiagnosticInput,
     FollowupPolicySnapshot,
     is_duplicate_followup_text,
     stable_followup_fingerprint,
 )
-from app.services.followup_decision_service import (
+from app.application.interview.followup_decision import (
     FollowupDecisionExecutionService,
 )
-from app.services.followup_prompts import (
-    build_followup_decision_provider_for_llm,
+from app.adapters.providers.followup_prompts import build_followup_decision_provider_for_llm
+from app.domain.interview.followup_prompts import (
+    fallback_followup,
     generation_context_for_decision,
 )
+from app.domain.interview.transitions import INTERVIEW_FINISHED_MESSAGE
 
-INTERVIEW_FINISHED_MESSAGE = "本次模拟面试已结束。"
 MAX_LEGACY_FOLLOWUP_STREAM_EVENTS = 128
 
 
@@ -72,7 +73,10 @@ class InterviewGraphRunner:
             execution_runner=execution_runner,
         )
         self._knowledge_binding_resolver = (
-            knowledge_binding_resolver or KnowledgeBindingResolver()
+            knowledge_binding_resolver
+            or KnowledgeBindingResolver(
+                repository_provider=_default_knowledge_repository,
+            )
         )
         self._followup_gap_service = followup_gap_service or FollowupGapService(
             default_knowledge_unit_resolver()
@@ -361,10 +365,6 @@ def speaker_node(state: InterviewState) -> InterviewState:
     return state
 
 
-def fallback_followup(focus: str) -> str:
-    return examiner_fallback_followup(focus)
-
-
 def _append_candidate_answer(state: InterviewState, answer: str) -> InterviewState:
     next_state = deepcopy(state)
     next_state["termination_reason_code"] = None
@@ -442,7 +442,9 @@ def _build_followup_context(
 ) -> list[dict[str, str]]:
     question = get_current_question(state)
     question_id = question.id if question is not None else ""
-    resolver = knowledge_binding_resolver or KnowledgeBindingResolver()
+    resolver = knowledge_binding_resolver or KnowledgeBindingResolver(
+        repository_provider=_default_knowledge_repository,
+    )
     resolution = resolver.resolve(state["plan"], question_id)
     evidence_messages = append_followup_gap_message(
         resolution.messages,
@@ -504,6 +506,12 @@ def _examiner_execution_context(
         command_id=effective_command_id,
         evidence_ids=evidence_ids_for_question(state["plan"], question_id),
     )
+
+
+def _default_knowledge_repository():
+    from app.adapters.pgvector.repository import get_knowledge_store
+
+    return get_knowledge_store()
 
 
 def _supports_execution_context(method) -> bool:

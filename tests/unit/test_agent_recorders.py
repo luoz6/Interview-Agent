@@ -1,6 +1,6 @@
 """Unit tests for composite agent run recorder isolation."""
 
-from app.services.agent_recorders import (
+from app.runtime.agent_recorders import (
     CompositeAgentRunRecorder,
 )
 from tests.agent_runtime_fixtures import make_record

@@ -3,8 +3,8 @@ from __future__ import annotations
 import argparse
 import json
 
-from app.services.memory_quality_dataset import load_memory_quality_dataset
-from app.services.memory_quality_eval import evaluate_memory_quality
+from app.evals.memory_quality_dataset import load_memory_quality_dataset
+from app.evals.memory_quality_eval import evaluate_memory_quality
 
 
 def main(argv: list[str] | None = None) -> int:

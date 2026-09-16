@@ -3,7 +3,7 @@ from __future__ import annotations
 import pytest
 from pydantic import ValidationError
 
-from app.services.principal_memory_extractor import (
+from app.application.memory.extraction import (
     StructuredPrincipalMemoryExtractor,
 )
 

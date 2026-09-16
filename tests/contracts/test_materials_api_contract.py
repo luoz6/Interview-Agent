@@ -10,7 +10,7 @@ from app.runtime.config import (
     load_rag_console_runtime_settings,
     load_user_materials_runtime_settings,
 )
-from app.services import runtime
+import app.runtime.composition as runtime
 from tests.vector_store_fixtures import FakeEmbeddingProvider
 
 
@@ -98,7 +98,7 @@ def test_runtime_assembly_is_singleton_in_memory_and_embedder_is_lazy(monkeypatc
         return FakeEmbeddingProvider()
 
     monkeypatch.setattr(
-        "app.services.embedding_providers.build_embedding_provider",
+        "app.adapters.providers.embedding_providers.build_embedding_provider",
         build_fake_embedder,
     )
     monkeypatch.setattr(runtime, "get_runtime_store", lambda: "memory")

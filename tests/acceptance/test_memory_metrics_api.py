@@ -2,8 +2,8 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.main import app
-from app.services import runtime
-from app.services.memory_metrics import get_memory_metric_store
+import app.runtime.composition as runtime
+from app.runtime.memory_metrics import get_memory_metric_store
 
 
 @pytest.fixture
@@ -21,6 +21,10 @@ def test_metrics_endpoint_is_hidden_then_returns_aggregate(
 ):
     metrics = get_memory_metric_store()
     metrics.clear()
+    monkeypatch.setattr(
+        "app.api.runtime.routes.dependencies.get_memory_metric_store",
+        lambda: metrics,
+    )
     client = TestClient(app)
     monkeypatch.delenv("MEMORY_TRUSTED_LOCAL_METRICS_ENABLED", raising=False)
     assert client.get("/api/runtime/memory-metrics").status_code == 404

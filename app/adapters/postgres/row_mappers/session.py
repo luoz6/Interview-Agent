@@ -11,9 +11,9 @@ from app.graphs.interview_state import (
     SUPPORTED_MEMORY_POLICY_VERSIONS,
     default_memory_policy_for_engine,
 )
-from app.services.prep import InterviewPlan
-from app.services.interview_plan_revision import parse_interview_plan
-from app.services.session_plan_binding import (
+from app.domain.interview.prep import InterviewPlan
+from app.domain.interview.plan_revision import parse_interview_plan
+from app.domain.interview.session_plan_binding import (
     SessionPlanBinding,
     legacy_session_plan_binding,
     session_plan_binding_from_state,

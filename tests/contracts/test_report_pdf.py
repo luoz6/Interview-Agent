@@ -3,7 +3,7 @@ from io import BytesIO
 import pdfplumber
 from pypdf import PdfReader
 
-from app.services.report import (
+from app.domain.report.models import (
     DimensionScores,
     FeedbackReference,
     InterviewFeedback,
@@ -14,7 +14,7 @@ from app.services.report import (
     ReportPriorityActionV2,
     ReportTechnicalAppendixV2,
 )
-from app.services.report_pdf import (
+from app.adapters.report.pdf import (
     _build_story,
     _build_styles,
     _dimension_table,

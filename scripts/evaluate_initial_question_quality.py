@@ -14,15 +14,15 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from app.services.followup_provider_preflight import (
+from app.evals.followup_provider_preflight import (
     discover_deepseek_provider,
     estimate_provider_cost,
 )
-from app.services.evaluator_candidate_identity import (
+from app.evals.evaluator_candidate_identity import (
     EvaluatorCandidateIdentity,
     capture_evaluator_candidate_identity,
 )
-from app.services.initial_question_eval import (
+from app.evals.initial_question_eval import (
     InitialQuestionEvalAttempt,
     InitialQuestionFailedGenerationLifecycle,
     InitialQuestionProviderArtifact,
@@ -34,26 +34,26 @@ from app.services.initial_question_eval import (
     render_initial_question_report,
     saved_replay_attempts,
 )
-from app.services.initial_question_provider_preflight import (
+from app.evals.initial_question_provider_preflight import (
     evaluate_initial_question_provider_preflight,
 )
-from app.services.interview_plan_revision import (
+from app.domain.interview.plan_revision import (
     PlanConfigurationSnapshot,
     legacy_plan_to_v2,
     plan_payload_sha256,
 )
-from app.services.interview_quality_dataset import (
+from app.evals.interview_quality_dataset import (
     InitialQuestionCaseInput,
     InterviewQualityDataset,
     load_interview_quality_dataset,
 )
-from app.services.interview_quality_gate import load_gate_config
-from app.services.interview_quality_provider_authorization import (
+from app.evals.interview_quality_gate import load_gate_config
+from app.evals.interview_quality_provider_authorization import (
     ProviderAuthorizationManifest,
     load_provider_authorization,
 )
-from app.services.job_tags import extract_job_tags
-from app.services.llm import (
+from app.domain.knowledge.job_tags import extract_job_tags
+from app.adapters.providers.llm import (
     LLMConfig,
     OpenAIInterviewLLM,
     PLAN_GENERATION_PROMPT_SHA256,
@@ -63,17 +63,17 @@ from app.services.llm import (
     resolve_plan_output_mode,
     verify_plan_generation_prompt_identity,
 )
-from app.services.interview_question_quality import HARD_QUESTION_QUALITY_CODES
-from app.services.prep import attach_prep_context
-from app.services.provider_usage import (
+from app.domain.interview.question_quality import HARD_QUESTION_QUALITY_CODES
+from app.runtime.interview_prep import attach_prep_context
+from app.runtime.provider_usage import (
     consume_provider_context_metadata,
     reset_provider_context_metadata,
 )
-from app.services.report_eval_artifacts import (
+from app.evals.report_eval_artifacts import (
     EvaluationArtifactStore,
     resolve_evaluation_run_dir,
 )
-from app.services.t65_formal_execution_receipt import validate_t65_formal_route
+from app.evals.t65_formal_execution_receipt import validate_t65_formal_route
 
 
 DEFAULT_DATASET = Path(
