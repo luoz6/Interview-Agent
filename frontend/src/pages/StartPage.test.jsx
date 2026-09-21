@@ -279,6 +279,34 @@ describe("StartPage editable plan workflow", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
+  it("marks a PDF with unresolved glyphs as requiring review", async () => {
+    const user = userEvent.setup();
+    fetchMock.mockImplementation((path) => {
+      if (path === "/api/prep/source-imports") {
+        return response({
+          target: "resume_text",
+          filename: "candidate.pdf",
+          media_type: "application/pdf",
+          text: "Backend engineer □□□□.□□",
+          character_count: 22,
+          truncated: false,
+          warning_codes: ["text_quality_degraded"],
+        });
+      }
+      throw new Error(`Unexpected request: ${path}`);
+    });
+    render(<StartPage />);
+    await user.click(screen.getByRole("tab", { name: /候选人经历/ }));
+
+    await user.upload(
+      sourceFileInput("导入当前经历文档"),
+      new File(["%PDF-test"], "candidate.pdf", { type: "application/pdf" }),
+    );
+
+    await screen.findByText("candidate.pdf · 需校对");
+    expect(screen.getByText(/部分字符无法可靠识别/)).toBeInTheDocument();
+  });
+
   it("imports a truncated DOCX resume with the exact resume target", async () => {
     const user = userEvent.setup();
     fetchMock.mockImplementation((path) => {

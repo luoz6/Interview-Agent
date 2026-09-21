@@ -11,6 +11,7 @@ import unicodedata
 from xml.etree import ElementTree
 from zipfile import BadZipFile, LargeZipFile, ZipFile, ZipInfo
 
+import pdfplumber
 from pypdf import PdfReader
 
 
@@ -21,6 +22,7 @@ PREP_SOURCE_MAX_DOCX_ENTRIES = 256
 PREP_SOURCE_MAX_DOCX_UNCOMPRESSED_BYTES = 10 * 1024 * 1024
 PREP_SOURCE_MAX_DOCX_COMPRESSION_RATIO = 100.0
 PREP_SOURCE_WARNING_TEXT_TRUNCATED = "text_truncated"
+PREP_SOURCE_WARNING_TEXT_QUALITY_DEGRADED = "text_quality_degraded"
 PrepSourceImportErrorCode = Literal[
     "unsupported_file_type",
     "file_too_large",
@@ -30,7 +32,7 @@ PrepSourceImportErrorCode = Literal[
     "document_too_complex",
     "no_extractable_text",
 ]
-PrepSourceWarningCode = Literal["text_truncated"]
+PrepSourceWarningCode = Literal["text_truncated", "text_quality_degraded"]
 _ALLOWED_ERROR_CODES = frozenset(get_args(PrepSourceImportErrorCode))
 _DOCX_MEDIA_TYPE = (
     "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
@@ -88,10 +90,11 @@ def extract_prep_source(
         raise PrepSourceImportError("file_too_large")
     _validate_signature(extension, content)
 
+    text_quality_degraded = False
     if extension in {".txt", ".md"}:
         extracted = _extract_utf8_text(content)
     elif extension == ".pdf":
-        extracted = _extract_pdf_text(content)
+        extracted, text_quality_degraded = _extract_pdf_text(content)
     else:
         extracted = _extract_docx_text(content)
 
@@ -101,16 +104,18 @@ def extract_prep_source(
 
     truncated = len(normalized_text) > PREP_SOURCE_MAX_TEXT_CHARS
     returned_text = normalized_text[:PREP_SOURCE_MAX_TEXT_CHARS]
-    warnings: tuple[PrepSourceWarningCode, ...] = (
-        PREP_SOURCE_WARNING_TEXT_TRUNCATED,
-    ) if truncated else ()
+    warnings: list[PrepSourceWarningCode] = []
+    if truncated:
+        warnings.append(PREP_SOURCE_WARNING_TEXT_TRUNCATED)
+    if text_quality_degraded:
+        warnings.append(PREP_SOURCE_WARNING_TEXT_QUALITY_DEGRADED)
     return PrepSourceImportResult(
         filename=public_filename,
         media_type=normalized_media_type,
         text=returned_text,
         character_count=len(returned_text),
         truncated=truncated,
-        warning_codes=warnings,
+        warning_codes=tuple(warnings),
     )
 
 
@@ -162,18 +167,46 @@ def _extract_utf8_text(content: bytes) -> str:
     return text
 
 
-def _extract_pdf_text(content: bytes) -> str:
+def _extract_pdf_text(content: bytes) -> tuple[str, bool]:
     try:
         reader = PdfReader(BytesIO(content), strict=True)
         if reader.is_encrypted:
             raise PrepSourceImportError("malformed_document")
         if len(reader.pages) > PREP_SOURCE_MAX_PDF_PAGES:
             raise PrepSourceImportError("document_too_complex")
-        return "\n".join((page.extract_text() or "").strip() for page in reader.pages)
+        primary = "\n".join(
+            (page.extract_text() or "").strip() for page in reader.pages
+        )
+        selected = primary
+        try:
+            with pdfplumber.open(BytesIO(content)) as document:
+                fallback = "\n".join(
+                    (page.extract_text() or "").strip()
+                    for page in document.pages
+                )
+            if (
+                fallback.strip()
+                and _pdf_text_quality_penalty(fallback)
+                < _pdf_text_quality_penalty(primary)
+            ):
+                selected = fallback
+        except Exception:
+            pass
+        return selected, _pdf_text_quality_penalty(selected) > 0
     except PrepSourceImportError:
         raise
     except Exception as exc:
         raise PrepSourceImportError("malformed_document") from exc
+
+
+def _pdf_text_quality_penalty(text: str) -> int:
+    penalty = len(re.findall(r"\(cid:\d+\)", text, flags=re.IGNORECASE))
+    for character in text:
+        if character in {"\ufffd", "\u25a1"}:
+            penalty += 1
+        elif unicodedata.category(character) == "Co":
+            penalty += 1
+    return penalty
 
 
 def _extract_docx_text(content: bytes) -> str:
@@ -290,7 +323,7 @@ def _parse_safe_xml(payload: bytes) -> ElementTree.Element:
 
 
 def _normalize_text(value: str) -> str:
-    normalized = unicodedata.normalize("NFC", value)
+    normalized = unicodedata.normalize("NFC", sanitize_prep_text(value))
     normalized = normalized.replace("\r\n", "\n").replace("\r", "\n")
     lines = [
         re.sub(r"[^\S\n]+", " ", line, flags=re.UNICODE).strip()
@@ -298,3 +331,14 @@ def _normalize_text(value: str) -> str:
     ]
     normalized = "\n".join(lines).strip()
     return re.sub(r"\n{3,}", "\n\n", normalized)
+
+
+def sanitize_prep_text(value: str) -> str:
+    """Remove control characters that PostgreSQL text/JSONB cannot persist."""
+
+    return "".join(
+        character
+        for character in value
+        if character in {"\n", "\r", "\t"}
+        or unicodedata.category(character) != "Cc"
+    )

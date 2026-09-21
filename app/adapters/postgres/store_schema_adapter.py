@@ -571,10 +571,10 @@ class PostgresRuntimeControlSchemaAdapter:
         indexes = [
             (
                 runtime_schema_identifier(
-                    self.table_prefix, "agent_invocations_status_idx"
+                    self.table_prefix, "agent_invocations_status_lease_idx"
                 ),
                 self.agent_invocations_table,
-                "status, updated_at",
+                "status, updated_at, lease_expires_at",
             ),
             (
                 runtime_schema_identifier(

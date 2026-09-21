@@ -340,6 +340,15 @@ def start_interview(
             )
         except PrepPlanError as exc:
             _raise_prep_plan_error(exc)
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=422,
+                detail={
+                    "code": "INVALID_LAUNCH_REQUEST",
+                    "message": str(exc),
+                    "retryable": False,
+                },
+            ) from exc
 
     if not payload.job_description or not payload.resume_text:
         raise HTTPException(status_code=422, detail="legacy launch input is incomplete")

@@ -1,6 +1,7 @@
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from app.application.materials.prep_source_import import sanitize_prep_text
 from app.domain.interview.plan_revision import PlanConfigurationSnapshot
 
 
@@ -32,9 +33,10 @@ class PrepRequest(BaseModel):
     @field_validator("job_description", "resume_text")
     @classmethod
     def reject_blank_source(cls, value: str) -> str:
-        if not value.strip():
+        sanitized = sanitize_prep_text(value)
+        if not sanitized.strip():
             raise ValueError("must not be blank")
-        return value
+        return sanitized
 
 
 class PrepPlanPatchRequest(BaseModel):

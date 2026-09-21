@@ -50,14 +50,14 @@ from app.adapters.pgvector.repository import PgVectorKnowledgeStore
 from app.adapters.postgres.schema_contract import (
     LATEST_RUNTIME_MIGRATION,
     RUNTIME_MIGRATIONS,
-    RUNTIME_SCHEMA_V32_MANIFEST,
+    RUNTIME_SCHEMA_V33_MANIFEST,
     is_strict_positive_when_present_check,
 )
 from app.domain.workflow_thread_lock import advisory_lock_key
 
 
 RUNTIME_MIGRATION_ID = LATEST_RUNTIME_MIGRATION.migration_id
-RUNTIME_MIGRATION_MANIFEST = RUNTIME_SCHEMA_V32_MANIFEST
+RUNTIME_MIGRATION_MANIFEST = RUNTIME_SCHEMA_V33_MANIFEST
 RUNTIME_MIGRATION_CHECKSUM = LATEST_RUNTIME_MIGRATION.checksum
 
 

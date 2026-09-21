@@ -47,7 +47,7 @@ _RUNTIME_DERIVED_SUFFIXES = (
     "runtime_outbox_correlation_idx", "runtime_outbox_running_lease_idx",
     "runtime_event_receipts_status_available_idx", "runtime_event_receipts_session_idx",
     "agent_runs_session_started_idx", "agent_runs_correlation_started_idx",
-    "agent_invocations_status_idx",
+    "agent_invocations_status_idx", "agent_invocations_status_lease_idx",
     "agent_runs_agent_status_started_idx", "agent_runs_agent_operation_started_idx",
     "generations_session_source_idx", "generations_jit_lineage_check", "generation_chunks_replay_idx",
     "workflow_commands_answer_payload_check", "workflow_commands_status_updated_idx",

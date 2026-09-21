@@ -283,6 +283,8 @@ function SourceEditor({
     : imported
       ? importState.truncated
         ? "已截断"
+        : importState.degraded
+          ? "需校对"
         : "已导入"
       : "";
   const ImportIcon = importing ? SpinnerGap : UploadSimple;
@@ -1231,7 +1233,8 @@ export function StartPage() {
       }
       const truncated = result.truncated === true
         || result.warning_codes?.includes("text_truncated");
-      const readyState = { status: "ready", truncated };
+      const degraded = result.warning_codes?.includes("text_quality_degraded") === true;
+      const readyState = { status: "ready", truncated, degraded };
       request.controller = null;
       request.previousState = readyState;
       if (source === "jd") {
@@ -1252,9 +1255,11 @@ export function StartPage() {
         ? "原面试计划已失效，请重新生成。"
         : "生成计划前仍可继续编辑。";
       setNotice({
-        tone: truncated ? "warning" : "success",
+        tone: truncated || degraded ? "warning" : "success",
         text: truncated
           ? `${result.filename} 已导入并保留前 ${result.character_count.toLocaleString()} 字，后续内容未导入。${nextStep}`
+          : degraded
+            ? `${result.filename} 已导入，但部分字符无法可靠识别，请校对文本后再生成计划。${nextStep}`
           : `${result.filename} 已导入。${nextStep}`,
       });
     } catch (error) {

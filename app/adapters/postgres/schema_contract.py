@@ -1536,6 +1536,25 @@ RUNTIME_SCHEMA_V32_CHECKSUM = hashlib.sha256(
     RUNTIME_SCHEMA_V32_MANIFEST.encode("utf-8")
 ).hexdigest()
 
+# V1-V32 checksums are immutable. V33 repairs the invocation recovery index
+# so the physical schema matches the lease-aware contract introduced in V31.
+RUNTIME_SCHEMA_V33_MANIFEST = json.dumps(
+    {
+        "base_schema_checksum": RUNTIME_SCHEMA_V32_CHECKSUM,
+        "agent_invocation_recovery_index": {
+            "relation_suffix": "_agent_invocations",
+            "columns": ["status", "updated_at", "lease_expires_at"],
+            "migration": "additive-index-v1",
+        },
+        "transaction_mode": "transactional_with_idempotent_checkpointer_phase",
+    },
+    sort_keys=True,
+    separators=(",", ":"),
+)
+RUNTIME_SCHEMA_V33_CHECKSUM = hashlib.sha256(
+    RUNTIME_SCHEMA_V33_MANIFEST.encode("utf-8")
+).hexdigest()
+
 RUNTIME_MIGRATIONS = (
     PostgresMigrationSpec(
         migration_id="stage48_runtime_schema_v1",
@@ -1695,6 +1714,11 @@ RUNTIME_MIGRATIONS = (
     PostgresMigrationSpec(
         migration_id="scheduler_execution_state_v1_v32",
         checksum=RUNTIME_SCHEMA_V32_CHECKSUM,
+        transaction_mode="transactional_with_idempotent_checkpointer_phase",
+    ),
+    PostgresMigrationSpec(
+        migration_id="agent_invocation_lease_index_v1_v33",
+        checksum=RUNTIME_SCHEMA_V33_CHECKSUM,
         transaction_mode="transactional_with_idempotent_checkpointer_phase",
     ),
 )

@@ -246,7 +246,7 @@ def test_v16_context_artifact_identity_contract_requires_versioned_columns():
         "context_compression_failure_state_v1_v28"
     )
     assert LATEST_RUNTIME_MIGRATION.migration_id == (
-        "scheduler_execution_state_v1_v32"
+        "agent_invocation_lease_index_v1_v33"
     )
 
 
@@ -691,8 +691,8 @@ def test_fresh_install_records_full_registry_and_quality_schema(monkeypatch):
         (spec.migration_id, spec.checksum, spec.transaction_mode)
         for spec in RUNTIME_MIGRATIONS
     ]
-    assert len(database.rows) == 32
-    assert len({row[0] for row in database.rows}) == 32
+    assert len(database.rows) == 33
+    assert len({row[0] for row in database.rows}) == 33
     assert {
         "PostgresInterviewPlanRevisionStore",
         "_upgrade_interview_draft_plan_binding",
@@ -865,15 +865,15 @@ def test_v28_failure_state_manifest_is_append_only_and_canonical():
     assert '"relation_suffix":"_context_compression_failure_states"' in (
         RUNTIME_SCHEMA_V28_MANIFEST
     )
-    assert RUNTIME_MIGRATIONS[-6].migration_id == (
+    assert RUNTIME_MIGRATIONS[-7].migration_id == (
         "question_memory_resolved_target_v1_v27"
     )
-    assert RUNTIME_MIGRATIONS[-5].migration_id == (
+    assert RUNTIME_MIGRATIONS[-6].migration_id == (
         "context_compression_failure_state_v1_v28"
     )
-    assert RUNTIME_MIGRATIONS[-5].checksum == RUNTIME_SCHEMA_V28_CHECKSUM
+    assert RUNTIME_MIGRATIONS[-6].checksum == RUNTIME_SCHEMA_V28_CHECKSUM
     assert LATEST_RUNTIME_MIGRATION.migration_id == (
-        "scheduler_execution_state_v1_v32"
+        "agent_invocation_lease_index_v1_v33"
     )
 
 
@@ -1061,6 +1061,31 @@ class ContractProvider:
     @contextmanager
     def connection(self):
         yield SimpleNamespace(cursor=lambda: self.cursor_object)
+
+
+def test_schema_validation_accepts_numeric_check_comparison():
+    table = "test_scheduler_executions"
+    columns = [
+        (table, name)
+        for name in (
+            "execution_id",
+            "plan_json",
+            "state_json",
+            "state_revision",
+            "created_at",
+            "updated_at",
+        )
+    ]
+
+    validate_relations(
+        ContractProvider(
+            ContractCursor(
+                columns=columns,
+                checks=[(table, "CHECK ((state_revision >= 0))")],
+            )
+        ),
+        (table,),
+    )
 
 
 def test_schema_validation_rejects_existing_table_with_missing_fencing_column():

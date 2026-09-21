@@ -119,26 +119,13 @@ def prep_interview(
         knowledge_scope = legacy_interview_knowledge_scope_snapshot()
     else:
         selected_document_ids = payload.knowledge_scope.selected_document_ids
-        if (
-            selected_document_ids
-            and not materials_settings.enabled
-        ):
-            raise_user_materials_hidden()
         identity = principal_resolver.resolve()
-        if identity is None:
-            raise_user_materials_hidden()
-        source_owner_principal_id = identity.principal_id
-        if scope_resolver is None:
-            if selected_document_ids:
+        if selected_document_ids:
+            if not materials_settings.enabled or identity is None:
                 raise_user_materials_hidden()
-            knowledge_scope = build_interview_knowledge_scope_snapshot(
-                include_system_knowledge=(
-                    payload.knowledge_scope.include_system_knowledge
-                ),
-                selected_documents=(),
-                created_at=datetime.now(timezone.utc),
-            )
-        else:
+            source_owner_principal_id = identity.principal_id
+            if scope_resolver is None:
+                raise_user_materials_hidden()
             try:
                 knowledge_scope = scope_resolver.resolve(
                     owner_principal_id=identity.principal_id,
@@ -149,9 +136,29 @@ def prep_interview(
                 )
             except InterviewKnowledgeScopeError as exc:
                 raise_interview_knowledge_scope_error(exc)
+        else:
+            source_owner_principal_id = (
+                identity.principal_id if identity is not None else None
+            )
+            if scope_resolver is not None and identity is not None:
+                knowledge_scope = scope_resolver.resolve(
+                    owner_principal_id=identity.principal_id,
+                    selected_document_ids=(),
+                    include_system_knowledge=(
+                        payload.knowledge_scope.include_system_knowledge
+                    ),
+                )
+            else:
+                knowledge_scope = build_interview_knowledge_scope_snapshot(
+                    include_system_knowledge=(
+                        payload.knowledge_scope.include_system_knowledge
+                    ),
+                    selected_documents=(),
+                    created_at=datetime.now(timezone.utc),
+                )
         knowledge_source_scope = build_knowledge_source_scope(
             knowledge_scope,
-            owner_principal_id=identity.principal_id,
+            owner_principal_id=source_owner_principal_id,
             usage="question",
         )
     try:

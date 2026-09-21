@@ -232,7 +232,7 @@ def validate_relations(
                         re.sub(r"\s+", "", comparison)
                         for comparison in re.findall(
                             r"\b[a-z_][a-z0-9_]*\s*(?:<=|>=|<>|=|~)\s*"
-                            r"[a-z_][a-z0-9_]*\b",
+                            r"(?:[a-z_][a-z0-9_]*|-?\d+(?:\.\d+)?)\b",
                             normalized,
                         )
                     )

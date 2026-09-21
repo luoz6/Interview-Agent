@@ -46,6 +46,8 @@ from app.domain.runtime_events import RoundClosedEvent
 
 
 class PostgresInterviewSessionStore(InterviewSessionStore):
+    durability = "postgres"
+
     def __init__(
         self,
         *,

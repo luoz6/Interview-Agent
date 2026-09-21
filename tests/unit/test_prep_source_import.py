@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from io import BytesIO
+import json
 import random
 from zipfile import ZIP_DEFLATED, ZipFile
 
@@ -14,6 +15,7 @@ from app.application.materials.prep_source_import import (
     PREP_SOURCE_MAX_DOCX_UNCOMPRESSED_BYTES,
     PREP_SOURCE_MAX_PDF_PAGES,
     PREP_SOURCE_MAX_TEXT_CHARS,
+    PREP_SOURCE_WARNING_TEXT_QUALITY_DEGRADED,
     PREP_SOURCE_WARNING_TEXT_TRUNCATED,
     PrepSourceImportError,
     extract_prep_source,
@@ -209,6 +211,135 @@ def test_text_layer_pdf_extracts_pages_and_normalizes_output():
     assert result.text == "Backend role\nDistributed systems"
     assert result.character_count == len(result.text)
     assert result.truncated is False
+
+
+def test_pdf_uses_fallback_when_it_removes_unmapped_glyphs(monkeypatch):
+    class Page:
+        def extract_text(self):
+            return "Backend experience 2024.01-2025.01"
+
+    class Document:
+        pages = [Page()]
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+    monkeypatch.setattr(
+        "app.application.materials.prep_source_import.pdfplumber.open",
+        lambda _stream: Document(),
+    )
+    monkeypatch.setattr(
+        "app.application.materials.prep_source_import.PdfReader",
+        lambda *_args, **_kwargs: type(
+            "Reader",
+            (),
+            {
+                "is_encrypted": False,
+                "pages": [
+                    type("Page", (), {"extract_text": lambda _self: "Backend □□□□.□□"})()
+                ],
+            },
+        )(),
+    )
+
+    result = extract_prep_source(
+        filename="resume.pdf",
+        media_type="application/pdf",
+        content=b"%PDF-test",
+    )
+
+    assert result.text == "Backend experience 2024.01-2025.01"
+    assert result.warning_codes == ()
+
+
+def test_pdf_warns_when_unmapped_glyphs_remain(monkeypatch):
+    class Document:
+        pages = []
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+    monkeypatch.setattr(
+        "app.application.materials.prep_source_import.pdfplumber.open",
+        lambda _stream: Document(),
+    )
+    monkeypatch.setattr(
+        "app.application.materials.prep_source_import.PdfReader",
+        lambda *_args, **_kwargs: type(
+            "Reader",
+            (),
+            {
+                "is_encrypted": False,
+                "pages": [
+                    type("Page", (), {"extract_text": lambda _self: "Backend □□□□.□□"})()
+                ],
+            },
+        )(),
+    )
+
+    result = extract_prep_source(
+        filename="resume.pdf",
+        media_type="application/pdf",
+        content=b"%PDF-test",
+    )
+
+    assert result.text == "Backend □□□□.□□"
+    assert result.warning_codes == (
+        PREP_SOURCE_WARNING_TEXT_QUALITY_DEGRADED,
+    )
+
+
+def test_pdf_control_characters_are_removed_before_persistence(monkeypatch):
+    class Document:
+        pages = []
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+    monkeypatch.setattr(
+        "app.application.materials.prep_source_import.pdfplumber.open",
+        lambda _stream: Document(),
+    )
+    monkeypatch.setattr(
+        "app.application.materials.prep_source_import.PdfReader",
+        lambda *_args, **_kwargs: type(
+            "Reader",
+            (),
+            {
+                "is_encrypted": False,
+                "pages": [
+                    type(
+                        "Page",
+                        (),
+                        {
+                            "extract_text": lambda _self: (
+                                "Wuhan University\x00 Bachelor\x07\nPython\tFastAPI"
+                            )
+                        },
+                    )()
+                ],
+            },
+        )(),
+    )
+
+    result = extract_prep_source(
+        filename="resume.pdf",
+        media_type="application/pdf",
+        content=b"%PDF-test",
+    )
+
+    assert result.text == "Wuhan University Bachelor\nPython FastAPI"
+    assert "\x00" not in result.text
+    assert "\\u0000" not in json.dumps({"text": result.text})
 
 
 def test_pdf_page_limit_encrypted_malformed_and_empty_documents_fail_closed():

@@ -8,3 +8,7 @@ def test_postgres_session_store_reuses_the_canonical_session_base():
         postgres_session.PostgresInterviewSessionStore.__mro__[1]
         is canonical_session.InterviewSessionStore
     )
+
+
+def test_postgres_session_store_selects_postgres_launch_adapters():
+    assert postgres_session.PostgresInterviewSessionStore.durability == "postgres"

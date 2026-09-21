@@ -30,7 +30,10 @@ from app.adapters.memory.plan_revision_store import (
     InMemoryInterviewPlanRevisionStore,
 )
 from app.runtime.interview_prep import bind_prepared_plan_revision, fallback_interview_plan
-from app.adapters.memory.principal_identity import ExplicitPrincipalIdentityResolver
+from app.adapters.memory.principal_identity import (
+    ExplicitPrincipalIdentityResolver,
+    NullPrincipalIdentityResolver,
+)
 from tests.vector_store_fixtures import FakeEmbeddingProvider
 
 
@@ -112,6 +115,23 @@ def test_prep_scope_request_is_frozen_and_preserves_input_for_resolver():
         include_system_knowledge=False,
         selected_document_ids=[],
     ).selected_document_ids == ()
+
+
+def test_prep_request_removes_database_unsafe_control_characters():
+    request = prep_route_module.PrepRequest.model_validate(
+        {
+            "job_description": "Backend\x00 role\nPython",
+            "resume_text": "Built APIs\x07\twith FastAPI",
+        }
+    )
+
+    assert request.job_description == "Backend role\nPython"
+    assert request.resume_text == "Built APIs\twith FastAPI"
+
+    with pytest.raises(ValidationError):
+        prep_route_module.PrepRequest.model_validate(
+            {"job_description": "\x00\x07", "resume_text": "valid"}
+        )
 
 
 def test_resolver_freezes_active_revision_and_canonical_selection_identity():
@@ -482,11 +502,7 @@ def test_prep_api_does_not_construct_materials_resolver_for_empty_scope_when_dis
     monkeypatch,
 ):
     revision_store = InMemoryInterviewPlanRevisionStore()
-    principal = ExplicitPrincipalIdentityResolver(
-        deployment_id="materials-disabled-test",
-        principal_id=OWNER_A,
-        clock=lambda: NOW,
-    )
+    principal = NullPrincipalIdentityResolver()
     generated_scopes = []
     resolver_calls = []
 

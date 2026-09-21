@@ -66,6 +66,49 @@ def test_new_api_uses_authoritative_plan_without_preparing_twice(monkeypatch):
         app.dependency_overrides.clear()
 
 
+def test_new_api_rejects_invalid_command_id_without_server_error(monkeypatch):
+    plans = InMemoryPrepPlanStore()
+    sessions = InterviewSessionStore()
+    launches = InMemoryInterviewLaunchRepository()
+    coordinator = InterviewLaunchCoordinator(
+        prep_plan_store=plans,
+        session_store=sessions,
+        launch_repository=launches,
+    )
+    monkeypatch.setattr(
+        prep_route_module,
+        "prepare_interview",
+        lambda *_args, **_kwargs: sample_interview_plan(),
+    )
+    app.dependency_overrides[api_dependencies.get_prep_plan_store] = lambda: plans
+    app.dependency_overrides[api_dependencies.get_plan_revision_store] = (
+        lambda: InMemoryInterviewPlanRevisionStore()
+    )
+    monkeypatch.setattr(
+        api_dependencies,
+        "get_interview_launch_coordinator",
+        lambda: coordinator,
+    )
+    client = TestClient(app)
+    try:
+        prepared = client.post(
+            "/api/prep",
+            json={"job_description": "Backend role", "resume_text": "Built systems"},
+        ).json()
+        response = client.post(
+            "/api/interviews",
+            json={
+                "plan_id": prepared["plan_id"],
+                "expected_plan_version": prepared["plan_version"],
+                "command_id": "invalid-command-id",
+            },
+        )
+        assert response.status_code == 422
+        assert response.json()["detail"]["code"] == "INVALID_LAUNCH_REQUEST"
+    finally:
+        app.dependency_overrides.clear()
+
+
 def test_launch_dependency_uses_same_overridden_session_store_as_session_routes(
     monkeypatch,
 ):

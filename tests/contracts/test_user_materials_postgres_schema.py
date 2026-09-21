@@ -313,7 +313,7 @@ def test_materials_schema_has_an_independent_frozen_migration_identity():
         migration.migration_id for migration in RUNTIME_MIGRATIONS
     }
     assert LATEST_RUNTIME_MIGRATION.migration_id == (
-        "scheduler_execution_state_v1_v32"
+        "agent_invocation_lease_index_v1_v33"
     )
 
 
