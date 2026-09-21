@@ -5,7 +5,7 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict
 
-from app.a2a.contracts.common import DomainArtifact
+from app.domain.agents.artifacts import DomainArtifact
 
 
 _TRANSPORT_METADATA_FIELDS = {

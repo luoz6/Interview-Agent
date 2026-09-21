@@ -1449,6 +1449,93 @@ RUNTIME_SCHEMA_V30_CHECKSUM = hashlib.sha256(
     RUNTIME_SCHEMA_V30_MANIFEST.encode("utf-8")
 ).hexdigest()
 
+# V1-V30 manifests are immutable. Register the cutover relation only after
+# their checksums have been materialized.
+RUNTIME_REQUIRED_COLUMNS_BY_SUFFIX["_agent_invocations"] = frozenset(
+    {
+        "execution_id",
+        "task_id",
+        "logical_attempt",
+        "status",
+        "request_digest",
+        "fencing_version",
+        "lease_expires_at",
+    }
+)
+RUNTIME_REQUIRED_INDEX_TOKENS_BY_SUFFIX["_agent_invocations"] = (
+    frozenset({"status", "updated_at", "lease_expires_at"}),
+)
+RUNTIME_REQUIRED_COLUMNS_BY_SUFFIX["_execution_path_bindings"] = frozenset(
+    {
+        "execution_id",
+        "orchestration_path",
+        "bound_at",
+        "schema_version",
+    }
+)
+
+RUNTIME_SCHEMA_V31_MANIFEST = json.dumps(
+    {
+        "base_schema_checksum": RUNTIME_SCHEMA_V30_CHECKSUM,
+        "agent_invocation_ledger": {
+            "relation_suffix": "_agent_invocations",
+            "identity": ["execution_id", "task_id", "logical_attempt"],
+            "fencing": "lease-owner-token-version-v1",
+        },
+        "execution_path_binding": {
+            "relation_suffix": "_execution_path_bindings",
+            "identity": ["execution_id"],
+            "paths": ["OLD", "NEW"],
+            "immutability": "insert-once-conflict-fail-closed-v1",
+            "existing_session_backfill": "OLD",
+            "schema_version": "execution-path-binding-v1",
+        },
+        "transaction_mode": "transactional_with_idempotent_checkpointer_phase",
+    },
+    sort_keys=True,
+    separators=(",", ":"),
+)
+RUNTIME_SCHEMA_V31_CHECKSUM = hashlib.sha256(
+    RUNTIME_SCHEMA_V31_MANIFEST.encode("utf-8")
+).hexdigest()
+RUNTIME_REQUIRED_CHECK_TOKENS_BY_SUFFIX["_execution_path_bindings"] = (
+    frozenset({"orchestration_path", "old", "new"}),
+    frozenset({"schema_version", "execution-path-binding-v1"}),
+)
+
+# V1-V31 checksums are immutable. V32 adds the Scheduler's durable plan/state
+# aggregate used by production entry and restart recovery.
+RUNTIME_REQUIRED_COLUMNS_BY_SUFFIX["_scheduler_executions"] = frozenset(
+    {
+        "execution_id",
+        "plan_json",
+        "state_json",
+        "state_revision",
+        "created_at",
+        "updated_at",
+    }
+)
+RUNTIME_REQUIRED_CHECK_TOKENS_BY_SUFFIX["_scheduler_executions"] = (
+    frozenset({"state_revision", "state_revision>=0"}),
+)
+RUNTIME_SCHEMA_V32_MANIFEST = json.dumps(
+    {
+        "base_schema_checksum": RUNTIME_SCHEMA_V31_CHECKSUM,
+        "scheduler_execution": {
+            "relation_suffix": "_scheduler_executions",
+            "identity": ["execution_id"],
+            "definition": "immutable-execution-plan-json-v1",
+            "state": "revision-fenced-execution-state-json-v1",
+        },
+        "transaction_mode": "transactional_with_idempotent_checkpointer_phase",
+    },
+    sort_keys=True,
+    separators=(",", ":"),
+)
+RUNTIME_SCHEMA_V32_CHECKSUM = hashlib.sha256(
+    RUNTIME_SCHEMA_V32_MANIFEST.encode("utf-8")
+).hexdigest()
+
 RUNTIME_MIGRATIONS = (
     PostgresMigrationSpec(
         migration_id="stage48_runtime_schema_v1",
@@ -1598,6 +1685,16 @@ RUNTIME_MIGRATIONS = (
     PostgresMigrationSpec(
         migration_id="interview_jit_main_question_v1_v30",
         checksum=RUNTIME_SCHEMA_V30_CHECKSUM,
+        transaction_mode="transactional_with_idempotent_checkpointer_phase",
+    ),
+    PostgresMigrationSpec(
+        migration_id="execution_path_binding_v1_v31",
+        checksum=RUNTIME_SCHEMA_V31_CHECKSUM,
+        transaction_mode="transactional_with_idempotent_checkpointer_phase",
+    ),
+    PostgresMigrationSpec(
+        migration_id="scheduler_execution_state_v1_v32",
+        checksum=RUNTIME_SCHEMA_V32_CHECKSUM,
         transaction_mode="transactional_with_idempotent_checkpointer_phase",
     ),
 )

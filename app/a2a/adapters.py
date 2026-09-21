@@ -1,14 +1,63 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import Any
+
+from pydantic import ValidationError
 
 from app.a2a.contracts.evaluation import EvaluationArtifactPayload
 from app.a2a.contracts.evaluation_set import EvaluationArtifactSetPayload
+from app.a2a.contracts.errors import A2AAgentError
 from app.a2a.contracts.followup import FollowupArtifactPayload
+from app.a2a.contracts.main_question import MainQuestionArtifactPayload
 from app.a2a.contracts.grounding import GroundingArtifactPayload
 from app.a2a.contracts.plan import InterviewPlanArtifactPayload
 from app.a2a.contracts.report import ReportArtifactPayload
 from app.a2a.server import LocalA2AServer
+from app.domain.interview.scheduling.requests import (
+    AgentRequest,
+    EvaluateAnswerRequest,
+    EvaluateInterviewRequest,
+    GenerateFollowupRequest,
+    GenerateInterviewPlanRequest,
+    GenerateMainQuestionRequest,
+    GenerateReportRequest,
+    REQUEST_CONTRACTS,
+)
+
+
+TypedSkillHandler = Callable[[AgentRequest, Any | None], Any]
+
+
+def _typed_handler(
+    skill: str,
+    handler: TypedSkillHandler,
+) -> Callable[[dict[str, Any], Any | None], Any]:
+    """Deserialize the A2A task payload at the adapter boundary.
+
+    A2A owns the wire-level mapping.  The handler itself receives the
+    canonical typed request and therefore never has to guess field names or
+    perform ad-hoc validation.
+    """
+
+    request_type = REQUEST_CONTRACTS[skill]
+
+    def adapter(request: dict[str, Any], execution_context: Any | None):
+        try:
+            typed_request = request_type.model_validate(request)
+        except ValidationError as exc:
+            raise A2AAgentError(
+                code="invalid_request",
+                retryable=False,
+                terminal=True,
+                fallback_allowed=False,
+                public_message="Agent request is invalid.",
+                internal_reason=str(exc),
+                observability_code="invalid_request",
+            ) from exc
+        return handler(typed_request, execution_context)
+
+    return adapter
 
 
 def register_examiner_adapter(
@@ -17,7 +66,68 @@ def register_examiner_adapter(
     llm=None,
     execution_runner=None,
 ) -> None:
-    def handler(request: dict[str, Any], execution_context):
+    def main_question_handler(
+        request: GenerateMainQuestionRequest,
+        execution_context,
+    ):
+        del execution_context
+        from app.agents.examiner import ExaminerAgent
+        from app.domain.interview.main_question_generation import (
+            deterministic_main_question_fallback,
+            validate_main_question,
+        )
+        from app.domain.interview.question_intent import QuestionIntentV1
+
+        raw_intent = dict(request.intent)
+        fixed_text = raw_intent.pop("fixed_question_text", None)
+        intent = QuestionIntentV1.model_validate(raw_intent)
+        if isinstance(fixed_text, str) and fixed_text.strip():
+            return MainQuestionArtifactPayload(
+                question_id=intent.question_id,
+                question_text=fixed_text.strip(),
+                render_mode="fixed",
+                reason_code="fixed_plan_question",
+            )
+
+        examiner = ExaminerAgent(
+            llm=llm,
+            execution_runner=execution_runner,
+        )
+        try:
+            text = examiner.generate_main_question_attempt(
+                intent=intent,
+                conversation=list(request.conversation),
+                evidence=list(request.evidence),
+                timeout_seconds=request.timeout_seconds,
+            )
+            text = validate_main_question(
+                text,
+                intent,
+                request.conversation,
+            ).text
+            mode = "generated"
+            reason_code = "generated"
+        except Exception as exc:
+            reason_code = getattr(exc, "reason_code", "provider_unavailable")
+            text = deterministic_main_question_fallback(intent, reason_code)
+            mode = "fallback"
+        return MainQuestionArtifactPayload(
+            question_id=intent.question_id,
+            question_text=text,
+            render_mode=mode,
+            reason_code=reason_code,
+        )
+
+    server.register(
+        agent_id="interview-examiner",
+        skill="generate-main-question",
+        handler=_typed_handler("generate-main-question", main_question_handler),
+    )
+
+    def handler(
+        request: GenerateFollowupRequest,
+        execution_context,
+    ):
         from app.agents.examiner import ExaminerAgent
 
         examiner = ExaminerAgent(
@@ -25,21 +135,25 @@ def register_examiner_adapter(
             execution_runner=execution_runner,
         )
         text = examiner.generate_followup(
-            context=request["context"],
-            focus=request.get("focus", ""),
+            context=list(request.context),
+            focus=request.focus,
             execution_context=execution_context,
         )
         return FollowupArtifactPayload(
-            question_id=request["question_id"],
-            gap_id=request.get("gap_id"),
+            question_id=request.question_id,
+            gap_id=request.gap_id,
             followup_text=text,
-            reason_code=request.get("reason_code", "gap"),
-            focus=request.get("focus", ""),
-            policy_version=request.get("policy_version", "adaptive_v1"),
-            evidence_ids=list(request.get("evidence_ids") or []),
+            reason_code=request.reason_code,
+            focus=request.focus,
+            policy_version=request.policy_version,
+            evidence_ids=list(request.evidence_ids),
         )
 
-    server.register(agent_id="interview-examiner", skill="generate-followup", handler=handler)
+    server.register(
+        agent_id="interview-examiner",
+        skill="generate-followup",
+        handler=_typed_handler("generate-followup", handler),
+    )
 
 
 def register_knowledge_adapter(
@@ -48,22 +162,29 @@ def register_knowledge_adapter(
     llm=None,
     vector_store=None,
 ) -> None:
-    def handler(request: dict[str, Any], execution_context):
+    def handler(
+        request: GenerateInterviewPlanRequest,
+        execution_context,
+    ):
         from app.agents.knowledge import KnowledgeAgent
 
         agent = KnowledgeAgent(llm=llm, vector_store=vector_store)
         plan = agent.generate_plan(
-            job_description=request["job_description"],
-            resume_text=request["resume_text"],
-            prep_run_id=request.get("prep_run_id"),
-            configuration=request.get("configuration"),
-            knowledge_source_scope=request.get("knowledge_source_scope"),
+            job_description=request.job_description,
+            resume_text=request.resume_text,
+            prep_run_id=request.prep_run_id,
+            configuration=request.configuration,
+            knowledge_source_scope=request.knowledge_source_scope,
         )
         return InterviewPlanArtifactPayload(
             plan_payload=plan.model_dump(mode="json"),
         )
 
-    server.register(agent_id="knowledge-and-grounding", skill="generate-interview-plan", handler=handler)
+    server.register(
+        agent_id="knowledge-and-grounding",
+        skill="generate-interview-plan",
+        handler=_typed_handler("generate-interview-plan", handler),
+    )
 
 
 def register_reviewer_adapter(
@@ -74,7 +195,10 @@ def register_reviewer_adapter(
     execution_runner=None,
     user_document_store_getter=None,
 ) -> None:
-    def handler(request: dict[str, Any], execution_context):
+    def handler(
+        request: EvaluateAnswerRequest,
+        execution_context,
+    ):
         from app.agents.shadow_reviewer import ShadowReviewerAgent
 
         reviewer_kwargs = {
@@ -88,10 +212,10 @@ def register_reviewer_adapter(
             )
         reviewer = ShadowReviewerAgent(**reviewer_kwargs)
         report = reviewer.evaluate_attempt(
-            request["state"],
+            request.state,
             execution_context=execution_context,
         )
-        question_id = request.get("question_id")
+        question_id = request.question_id
         feedback = next(
             (
                 item
@@ -125,9 +249,16 @@ def register_reviewer_adapter(
             evaluation_status=evaluation_status,
         )
 
-    server.register(agent_id="interview-reviewer", skill="evaluate-answer", handler=handler)
+    server.register(
+        agent_id="interview-reviewer",
+        skill="evaluate-answer",
+        handler=_typed_handler("evaluate-answer", handler),
+    )
 
-    def evaluate_interview_handler(request: dict[str, Any], execution_context):
+    def evaluate_interview_handler(
+        request: EvaluateInterviewRequest,
+        execution_context,
+    ):
         from app.agents.shadow_reviewer import ShadowReviewerAgent
 
         reviewer_kwargs = {
@@ -141,7 +272,7 @@ def register_reviewer_adapter(
             )
         reviewer = ShadowReviewerAgent(**reviewer_kwargs)
         report = reviewer.evaluate_attempt(
-            request["state"],
+            request.state,
             execution_context=execution_context,
         )
         evaluations = [
@@ -168,7 +299,7 @@ def register_reviewer_adapter(
     server.register(
         agent_id="interview-reviewer",
         skill="evaluate-interview",
-        handler=evaluate_interview_handler,
+        handler=_typed_handler("evaluate-interview", evaluate_interview_handler),
     )
 
 
@@ -178,7 +309,10 @@ def register_report_coach_adapter(
     llm=None,
     execution_runner=None,
 ) -> None:
-    def handler(request: dict[str, Any], execution_context):
+    def handler(
+        request: GenerateReportRequest,
+        execution_context,
+    ):
         from app.agents.report_coach import ReportCoachAgent
         from app.a2a.contracts.evaluation import EvaluationArtifactPayload
 
@@ -186,23 +320,23 @@ def register_report_coach_adapter(
             llm=llm,
             execution_runner=execution_runner,
         )
-        evaluation_items = request.get("evaluation_items")
-        evaluation_artifacts = request.get("evaluation_artifacts")
+        evaluation_items = request.evaluation_items
+        evaluation_artifacts = request.evaluation_artifacts
         if evaluation_artifacts:
             evaluation_items = _evaluation_items_from_artifacts(
                 evaluation_artifacts,
-                question_text_by_id=request.get("question_text_by_id") or {},
+                question_text_by_id=request.question_text_by_id,
             )
         if evaluation_items is None:
             raise ValueError("evaluation_items or evaluation_artifacts is required")
         report = coach.generate_report(
-            plan=request["plan"],
+            plan=request.plan,
             evaluation_items=evaluation_items,
-            session_id=request["session_id"],
+            session_id=request.session_id,
             execution_context=execution_context,
         )
         return ReportArtifactPayload(
-            session_id=request["session_id"],
+            session_id=request.session_id,
             summary=report.summary,
             dimension_scores=report.overall_dimension_scores.model_dump(),
             strengths=list(report.strengths or []),
@@ -214,7 +348,11 @@ def register_report_coach_adapter(
             report_payload=report.model_dump(mode="json"),
         )
 
-    server.register(agent_id="report-coach", skill="generate-report", handler=handler)
+    server.register(
+        agent_id="report-coach",
+        skill="generate-report",
+        handler=_typed_handler("generate-report", handler),
+    )
 
 
 def _evaluation_items_from_artifacts(

@@ -81,6 +81,10 @@ def test_worker_purge_is_replay_safe_and_returns_only_safe_counts():
         "failure_state_rows": 0,
         "principal_memory_rows": 0,
         "principal_memory_control_rows": 0,
+        "scheduler_execution_states": 0,
+        "agent_session_rows": 0,
+        "agent_invocation_rows": 0,
+        "agent_private_memory_rows": 0,
         "business_sessions": 1,
     }
     assert worker.run_once() is None

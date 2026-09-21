@@ -4,7 +4,7 @@ from typing import Literal
 
 from pydantic import Field
 
-from app.a2a.contracts.common import DomainArtifact
+from app.domain.agents.artifacts import DomainArtifact
 
 
 class FollowupArtifactPayload(DomainArtifact):

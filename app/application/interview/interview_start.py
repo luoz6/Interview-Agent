@@ -16,24 +16,20 @@ class InterviewPlanNotLaunchable(ValueError):
 
 
 class InterviewStartService:
-    """Prepare and start the legacy-compatible interview entry flow."""
+    """Prepare an interview plan and start it through the Scheduler."""
 
     def __init__(
         self,
         *,
         store: InterviewSessionRepository,
-        workflow_service_factory: Callable[[], Any],
         execution_runner_factory: Callable[[], Any],
-        runtime_store_factory: Callable[[], str],
-        rollout_percent_factory: Callable[[], int],
         plan_factory: Callable[..., Any],
+        scheduler_entry_factory: Callable[[], Any],
     ) -> None:
         self.store = store
-        self.workflow_service_factory = workflow_service_factory
         self.execution_runner_factory = execution_runner_factory
-        self.runtime_store_factory = runtime_store_factory
-        self.rollout_percent_factory = rollout_percent_factory
         self.plan_factory = prepare_interview or plan_factory
+        self.scheduler_entry_factory = scheduler_entry_factory
 
     def start(
         self,
@@ -52,17 +48,7 @@ class InterviewStartService:
         except ValueError as exc:
             raise InterviewPlanNotLaunchable(str(exc)) from exc
         job_tags = extract_job_tags(job_description)
-        if (
-            self.runtime_store_factory() == "postgres"
-            and self.rollout_percent_factory() > 0
-        ):
-            return self.workflow_service_factory().start(
-                plan,
-                job_description=job_description,
-                resume_text=resume_text,
-                job_tags=job_tags,
-            )
-        return self.store.start(
+        return self.scheduler_entry_factory().start(
             plan,
             job_description=job_description,
             resume_text=resume_text,

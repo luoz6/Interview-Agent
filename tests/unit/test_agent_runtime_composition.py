@@ -730,6 +730,7 @@ def test_interview_composition_uses_one_effective_snapshot_and_injects_selection
     )
     monkeypatch.setattr(runtime, "get_question_memory_index_store", lambda: object())
     monkeypatch.setattr(runtime, "get_workflow_thread_lock", lambda: object())
+    monkeypatch.setattr(runtime, "get_execution_path_router", lambda: object())
     monkeypatch.setattr(
         "app.runtime.context_runtime.get_context_runtime",
         get_context_runtime,
@@ -1094,6 +1095,7 @@ def test_review_composition_uses_one_effective_snapshot_for_gates_and_policy(
     )
     monkeypatch.setattr(runtime, "get_report_job_store", FakeJobStore)
     monkeypatch.setattr(runtime, "get_workflow_thread_lock", lambda: object())
+    monkeypatch.setattr(runtime, "get_execution_path_router", lambda: object())
     monkeypatch.setattr(
         runtime,
         "get_report_langgraph_max_parallel_question_reviews",

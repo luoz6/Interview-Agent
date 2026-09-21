@@ -1,7 +1,6 @@
 __all__ = [
     "ExaminerAgent",
     "KnowledgeAgent",
-    "OrchestratorAgent",
     "ReportCoachAgent",
     "ShadowReviewerAgent",
 ]
@@ -16,10 +15,6 @@ def __getattr__(name: str):
         from app.agents.knowledge import KnowledgeAgent
 
         return KnowledgeAgent
-    if name == "OrchestratorAgent":
-        from app.agents.orchestrator import OrchestratorAgent
-
-        return OrchestratorAgent
     if name == "ReportCoachAgent":
         from app.agents.report_coach import ReportCoachAgent
 

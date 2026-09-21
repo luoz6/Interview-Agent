@@ -29,6 +29,7 @@ from app.domain.report.models import (
 )
 from app.adapters.memory.session_store import InterviewSessionStore
 from app.domain.knowledge.models import KnowledgeChunk
+from app.runtime.composition import build_scheduler_production_entry
 
 
 _ORIGINAL_GET_REPORT_JOB_STORE = api_dependencies.get_report_job_store
@@ -364,6 +365,97 @@ def answer_all_questions(client: TestClient, session_id: str):
             )
         )
     return responses
+
+
+def test_ma8_normal_interview_e2e_completes_on_single_scheduler_path(monkeypatch):
+    published = []
+
+    class RecordingPublisher:
+        def publish(self, event):
+            published.append(event)
+
+    app.dependency_overrides[api_dependencies.get_event_publisher] = (
+        lambda: RecordingPublisher()
+    )
+
+    def old_workflow_must_not_run():
+        raise AssertionError("normal NEW interview reached the OLD workflow")
+
+    monkeypatch.setattr(
+        api_dependencies,
+        "get_interview_workflow_service",
+        old_workflow_must_not_run,
+    )
+    client, store, llm, job_store = make_client()
+
+    session_id = start_interview(client)
+    entry = build_scheduler_production_entry(session_store=store)
+    initial = client.get(f"/api/interviews/{session_id}")
+
+    assert initial.status_code == 200
+    assert initial.json()["orchestration_path"] == "NEW"
+    assert initial.json()["status"] == "active"
+    assert entry.execution_path_router.binding_store.get(session_id).path == "NEW"
+    assert entry.execution_repository.load(session_id).execution_status == "WAITING"
+    assert any(
+        item["skill"] == "generate-main-question"
+        and item["status"] == "completed"
+        and item["output_artifact_type"] == "main-question-artifact"
+        for item in store._scheduler_a2a_runtime.observability.snapshot()
+    )
+
+    scheduler_revisions = [initial.json()["scheduler_revision"]]
+    for question_index in range(3):
+        for answer_index, answer in enumerate(
+            (
+                f"Initial answer {question_index + 1}.",
+                f"Detailed follow-up answer {question_index + 1}.",
+            )
+        ):
+            response = client.post(
+                f"/api/interviews/{session_id}/answer",
+                json={
+                    "answer": answer,
+                    "command_id": (
+                        f"normal-{question_index + 1}-{answer_index + 1}"
+                    ),
+                },
+            )
+            assert response.status_code == 200
+            snapshot = client.get(f"/api/interviews/{session_id}")
+            assert snapshot.status_code == 200
+            assert snapshot.json()["orchestration_path"] == "NEW"
+            scheduler_revisions.append(snapshot.json()["scheduler_revision"])
+
+    final = client.get(f"/api/interviews/{session_id}")
+    scheduler_state = entry.execution_repository.load(session_id)
+    report = client.get(f"/api/interviews/{session_id}/report")
+
+    assert scheduler_revisions == sorted(scheduler_revisions)
+    assert len(scheduler_revisions) == len(set(scheduler_revisions))
+    assert final.json()["status"] == "finished"
+    assert final.json()["current_question"] is None
+    assert final.json()["completed_questions"] == 3
+    assert final.json()["answered_questions"] == 3
+    assert scheduler_state.execution_status == "COMPLETED"
+    assert scheduler_state.current_wait_handle is None
+    assert all(
+        task.status in {"COMPLETED", "SKIPPED"}
+        for task in scheduler_state.task_states
+    )
+    assert [event.question_id for event in published] == [
+        question["id"] for question in final.json()["questions"]
+    ]
+    assert [event.answer_state for event in published] == [
+        "answered",
+        "answered",
+        "answered",
+    ]
+    assert job_store.enqueue_calls == [session_id]
+    assert llm.report_calls == 0
+    assert store.get_report_record(session_id).status == "processing"
+    assert report.status_code == 202
+    assert report.json()["status"] == "processing"
 
 
 def test_report_endpoint_returns_404_for_unknown_session():

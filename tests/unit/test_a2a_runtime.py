@@ -79,6 +79,11 @@ def test_registered_server_skills_match_agent_card():
     artifact = make_followup_artifact()
     server.register(
         agent_id="interview-examiner",
+        skill="generate-main-question",
+        handler=lambda request, execution_context: artifact,
+    )
+    server.register(
+        agent_id="interview-examiner",
         skill="generate-followup",
         handler=lambda request, execution_context: artifact,
     )
@@ -230,6 +235,7 @@ def test_official_cards_match_registered_agent_ids():
 
 def test_official_agent_cards_expose_independent_skills():
     assert [skill.name for skill in EXAMINER_AGENT_CARD.skills] == [
+        "generate-main-question",
         "generate-followup"
     ]
     assert [skill.name for skill in KNOWLEDGE_AGENT_CARD.skills] == [

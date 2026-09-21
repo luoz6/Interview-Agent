@@ -9,6 +9,15 @@ from typing import Any
 from app.adapters.postgres.runtime_outbox_repository import (
     PostgresRuntimeOutboxRepository,
 )
+from app.adapters.persistence.postgres.agent_invocation_ledger import (
+    PostgresAgentInvocationLedgerAdapter,
+)
+from app.adapters.persistence.postgres.execution_path_binding import (
+    PostgresExecutionPathBindingStore,
+)
+from app.adapters.persistence.postgres.scheduler_execution import (
+    PostgresSchedulerExecutionRepository,
+)
 from app.adapters.postgres.runtime_receipt_repository import (
     PostgresRuntimeReceiptRepository,
 )
@@ -56,6 +65,11 @@ class PostgresRuntimeControlStore:
         self.outbox_table = f"{table_prefix}_runtime_outbox"
         self.receipts_table = f"{table_prefix}_runtime_event_receipts"
         self.agent_runs_table = f"{table_prefix}_agent_runs"
+        self.agent_invocations_table = f"{table_prefix}_agent_invocations"
+        self.execution_path_bindings_table = (
+            f"{table_prefix}_execution_path_bindings"
+        )
+        self.scheduler_executions_table = f"{table_prefix}_scheduler_executions"
         self.schema_mode = resolve_schema_mode(
             schema_mode, provider_is_owned=self._provider_is_owned
         )
@@ -67,6 +81,11 @@ class PostgresRuntimeControlStore:
                 outbox_table=self.outbox_table,
                 receipts_table=self.receipts_table,
                 agent_runs_table=self.agent_runs_table,
+                agent_invocations_table=self.agent_invocations_table,
+                execution_path_bindings_table=(
+                    self.execution_path_bindings_table
+                ),
+                scheduler_executions_table=self.scheduler_executions_table,
             ).ensure_schema()
         else:
             validate_relations(
@@ -75,6 +94,9 @@ class PostgresRuntimeControlStore:
                     self.outbox_table,
                     self.receipts_table,
                     self.agent_runs_table,
+                    self.agent_invocations_table,
+                    self.execution_path_bindings_table,
+                    self.scheduler_executions_table,
                     f"{table_prefix}_schema_migrations",
                 ),
             )
@@ -89,6 +111,34 @@ class PostgresRuntimeControlStore:
             outbox_table=self.outbox_table,
             receipt_repository=self._receipt_repository,
         )
+        self._agent_invocation_ledger = PostgresAgentInvocationLedgerAdapter(
+            self._connection_provider,
+            table_name=self.agent_invocations_table,
+        )
+        self._execution_path_binding_store = PostgresExecutionPathBindingStore(
+            self._connection_provider,
+            table_name=self.execution_path_bindings_table,
+        )
+        self._scheduler_execution_repository = PostgresSchedulerExecutionRepository(
+            self._connection_provider,
+            table_name=self.scheduler_executions_table,
+        )
+
+    @property
+    def agent_invocation_ledger(self) -> PostgresAgentInvocationLedgerAdapter:
+        """Expose the invocation ledger through the existing runtime store."""
+
+        return self._agent_invocation_ledger
+
+    @property
+    def execution_path_binding_store(self) -> PostgresExecutionPathBindingStore:
+        """Expose durable cutover ownership through the runtime store."""
+
+        return self._execution_path_binding_store
+
+    @property
+    def scheduler_execution_repository(self) -> PostgresSchedulerExecutionRepository:
+        return self._scheduler_execution_repository
 
     @contextmanager
     def connection(self) -> Iterator[Any]:

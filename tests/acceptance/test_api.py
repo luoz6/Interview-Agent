@@ -268,8 +268,23 @@ class DurableV2WorkflowSpy:
 
 def make_durable_v2_api_session(monkeypatch):
     client = make_client()
-    session_id = start_runtime_api_session(client)
     store = app.dependency_overrides[get_session_store]()
+    plan = FakeApiLLM().generate_plan(
+        "Backend role using Redis.",
+        "Built Redis-backed APIs.",
+    )
+    from app.runtime.composition import build_scheduler_production_entry
+
+    turn = store.start(
+        plan,
+        job_description="Backend role using Redis.",
+        resume_text="Built Redis-backed APIs.",
+        job_tags=["redis"],
+    )
+    session_id = turn.session_id
+    build_scheduler_production_entry(
+        session_store=store
+    ).execution_path_router.claim_execution(session_id, "OLD")
     state = store.get(session_id)
     state["workflow_engine"] = "langgraph-v2"
     state["graph_schema_version"] = "langgraph-v2"

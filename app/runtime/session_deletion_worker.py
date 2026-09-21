@@ -23,6 +23,10 @@ class SessionDeletionWorker:
         failure_state_deployment_scope=None,
         principal_memory_store=None,
         principal_memory_control_store=None,
+        execution_state_store=None,
+        agent_session_store=None,
+        agent_invocation_ledger=None,
+        agent_memory_store=None,
         fault_injector=None,
         worker_id="session-deletion-worker",
         lease_seconds=60,
@@ -39,6 +43,10 @@ class SessionDeletionWorker:
         self.failure_state_deployment_scope = failure_state_deployment_scope
         self.principal_memory_store = principal_memory_store
         self.principal_memory_control_store = principal_memory_control_store
+        self.execution_state_store = execution_state_store
+        self.agent_session_store = agent_session_store
+        self.agent_invocation_ledger = agent_invocation_ledger
+        self.agent_memory_store = agent_memory_store
         self.fault_injector = fault_injector
         self.worker_id = worker_id
         self.lease_seconds = lease_seconds
@@ -60,6 +68,10 @@ class SessionDeletionWorker:
             "business_sessions": 0,
             "principal_memory_rows": 0,
             "principal_memory_control_rows": 0,
+            "scheduler_execution_states": 0,
+            "agent_session_rows": 0,
+            "agent_invocation_rows": 0,
+            "agent_private_memory_rows": 0,
         }
         try:
             report_job = None
@@ -88,6 +100,27 @@ class SessionDeletionWorker:
                 if isinstance(workflow_counts, dict):
                     counts["workflow_rows"] = sum(workflow_counts.values())
             self._inject("after_workflow_purge", job)
+            if self.execution_state_store is not None:
+                counts["scheduler_execution_states"] = (
+                    self.execution_state_store.delete(job.session_id)
+                )
+            if self.agent_session_store is not None:
+                counts["agent_session_rows"] = (
+                    self.agent_session_store.delete_session_history(
+                        job.session_id
+                    )
+                )
+            if self.agent_invocation_ledger is not None:
+                counts["agent_invocation_rows"] = (
+                    self.agent_invocation_ledger.delete_execution(
+                        job.session_id
+                    )
+                )
+            if self.agent_memory_store is not None:
+                counts["agent_private_memory_rows"] = (
+                    self.agent_memory_store.delete_session(job.session_id)
+                )
+            self._inject("after_scheduler_runtime_purge", job)
             if self.question_memory_index is not None:
                 counts["question_memory_rows"] = (
                     self.question_memory_index.delete_session(job.session_id)

@@ -1,8 +1,8 @@
 {
   "metadata": {
     "generated_by": "tools/architecture/scan_duplicate_implementations.py",
-    "files_scanned": 470,
-    "definitions_scanned": 2754,
+    "files_scanned": 513,
+    "definitions_scanned": 2918,
     "parse_error_count": 0,
     "classification_rule": "Only normalized AST body matches are confirmed_exact; all family, shape, name, wiring, and version matches are review candidates."
   },
@@ -53,6 +53,29 @@
   ],
   "categories": {
     "exact_implementations": [
+      {
+        "key": "0dbb003e708f45196b1e1e78c0b80a31c3439c9a3587bd9d67150269fe4b9b33",
+        "status": "confirmed_exact",
+        "disposition": "consolidation_candidate",
+        "review_priority": "medium",
+        "review_note": "Exact body match; verify ownership and dependency direction.",
+        "members": [
+          {
+            "module": "app.domain.interview.prep",
+            "name": "PlanGenerationValidationError",
+            "kind": "class",
+            "file": "app/domain/interview/prep.py",
+            "line": 184
+          },
+          {
+            "module": "app.domain.interview.scheduling.decisions",
+            "name": "SchedulingDecisionValidationError",
+            "kind": "class",
+            "file": "app/domain/interview/scheduling/decisions.py",
+            "line": 90
+          }
+        ]
+      },
       {
         "key": "13956140e03dc61b4f55e1bcb99827b066a3bd54a7c3c9e6f1e8d0cbea21b605",
         "status": "confirmed_exact",
@@ -245,6 +268,29 @@
         ]
       },
       {
+        "key": "440aa0fd9becb3ca496d98cf3121f131a777f93e913439bcb284e34fd20ed045",
+        "status": "confirmed_exact",
+        "disposition": "consolidation_candidate",
+        "review_priority": "medium",
+        "review_note": "Exact body match; verify ownership and dependency direction.",
+        "members": [
+          {
+            "module": "app.domain.execution_lease",
+            "name": "_require_aware_datetime",
+            "kind": "function",
+            "file": "app/domain/execution_lease.py",
+            "line": 90
+          },
+          {
+            "module": "app.runtime.reliability",
+            "name": "_require_aware_datetime",
+            "kind": "function",
+            "file": "app/runtime/reliability.py",
+            "line": 131
+          }
+        ]
+      },
+      {
         "key": "4b4a0fb387f954afd14734f9e8ddd28a70b91bc69ef838cc6f66196049a398cb",
         "status": "confirmed_exact",
         "disposition": "consolidation_candidate",
@@ -264,6 +310,29 @@
             "kind": "function",
             "file": "app/ports/plan_revision_store.py",
             "line": 177
+          }
+        ]
+      },
+      {
+        "key": "4b639c2daaecd8055fce17b4dd481145717f50643ed4b2ef3b544a61701d6c3c",
+        "status": "confirmed_exact",
+        "disposition": "consolidation_candidate",
+        "review_priority": "medium",
+        "review_note": "Exact body match; verify ownership and dependency direction.",
+        "members": [
+          {
+            "module": "app.domain.execution_lease",
+            "name": "_require_non_empty",
+            "kind": "function",
+            "file": "app/domain/execution_lease.py",
+            "line": 85
+          },
+          {
+            "module": "app.runtime.reliability",
+            "name": "_require_non_empty",
+            "kind": "function",
+            "file": "app/runtime/reliability.py",
+            "line": 126
           }
         ]
       },
@@ -427,13 +496,6 @@
         "review_note": "Exact body match; verify ownership and dependency direction.",
         "members": [
           {
-            "module": "app.a2a.contracts.common",
-            "name": "_utc_now_iso",
-            "kind": "function",
-            "file": "app/a2a/contracts/common.py",
-            "line": 9
-          },
-          {
             "module": "app.a2a.observability",
             "name": "_utc_now_iso",
             "kind": "function",
@@ -446,6 +508,13 @@
             "kind": "function",
             "file": "app/a2a/protocol.py",
             "line": 12
+          },
+          {
+            "module": "app.domain.agents.artifacts",
+            "name": "_utc_now_iso",
+            "kind": "function",
+            "file": "app/domain/agents/artifacts.py",
+            "line": 9
           },
           {
             "module": "app.domain.interview.state",
@@ -770,6 +839,29 @@
         ]
       },
       {
+        "key": "executionpathbindingstore",
+        "status": "candidate",
+        "disposition": "expected_polymorphic_family",
+        "review_priority": "low",
+        "review_note": "Port and adapter variants are expected unless reachability says otherwise.",
+        "members": [
+          {
+            "module": "app.adapters.memory.execution_path_binding",
+            "name": "InMemoryExecutionPathBindingStore",
+            "kind": "class",
+            "file": "app/adapters/memory/execution_path_binding.py",
+            "line": 16
+          },
+          {
+            "module": "app.adapters.persistence.postgres.execution_path_binding",
+            "name": "PostgresExecutionPathBindingStore",
+            "kind": "class",
+            "file": "app/adapters/persistence/postgres/execution_path_binding.py",
+            "line": 16
+          }
+        ]
+      },
+      {
         "key": "interviewlaunchrepository",
         "status": "candidate",
         "disposition": "overlapping_port_contracts",
@@ -871,7 +963,7 @@
             "name": "InterviewSessionStore",
             "kind": "class",
             "file": "app/adapters/memory/session_store.py",
-            "line": 65
+            "line": 64
           },
           {
             "module": "app.adapters.persistence.postgres.session_store",
@@ -1240,6 +1332,36 @@
         ]
       },
       {
+        "key": "schedulerexecutionrepository",
+        "status": "candidate",
+        "disposition": "expected_polymorphic_family",
+        "review_priority": "low",
+        "review_note": "Port and adapter variants are expected unless reachability says otherwise.",
+        "members": [
+          {
+            "module": "app.adapters.memory.scheduler_execution",
+            "name": "InMemorySchedulerExecutionRepository",
+            "kind": "class",
+            "file": "app/adapters/memory/scheduler_execution.py",
+            "line": 12
+          },
+          {
+            "module": "app.adapters.persistence.postgres.scheduler_execution",
+            "name": "PostgresSchedulerExecutionRepository",
+            "kind": "class",
+            "file": "app/adapters/persistence/postgres/scheduler_execution.py",
+            "line": 14
+          },
+          {
+            "module": "app.ports.scheduler_execution",
+            "name": "SchedulerExecutionRepository",
+            "kind": "class",
+            "file": "app/ports/scheduler_execution.py",
+            "line": 9
+          }
+        ]
+      },
+      {
         "key": "sessiondeletionjobstore",
         "status": "candidate",
         "disposition": "expected_polymorphic_family",
@@ -1430,7 +1552,7 @@
             "name": "_build_followup_diagnostic_input",
             "kind": "function",
             "file": "app/graphs/interview_graph.py",
-            "line": 393
+            "line": 406
           }
         ]
       },
@@ -1833,7 +1955,7 @@
             "name": "consume_round_review_event",
             "kind": "function",
             "file": "app/runtime/composition.py",
-            "line": 2415
+            "line": 2712
           },
           {
             "module": "app.runtime.runtime_event_consumer",
@@ -1856,7 +1978,7 @@
             "name": "consume_round_review_event_payload",
             "kind": "function",
             "file": "app/runtime/composition.py",
-            "line": 2388
+            "line": 2685
           },
           {
             "module": "app.runtime.runtime_event_consumer",

@@ -246,7 +246,7 @@ def test_v16_context_artifact_identity_contract_requires_versioned_columns():
         "context_compression_failure_state_v1_v28"
     )
     assert LATEST_RUNTIME_MIGRATION.migration_id == (
-        "interview_jit_main_question_v1_v30"
+        "scheduler_execution_state_v1_v32"
     )
 
 
@@ -691,8 +691,8 @@ def test_fresh_install_records_full_registry_and_quality_schema(monkeypatch):
         (spec.migration_id, spec.checksum, spec.transaction_mode)
         for spec in RUNTIME_MIGRATIONS
     ]
-    assert len(database.rows) == 30
-    assert len({row[0] for row in database.rows}) == 30
+    assert len(database.rows) == 32
+    assert len({row[0] for row in database.rows}) == 32
     assert {
         "PostgresInterviewPlanRevisionStore",
         "_upgrade_interview_draft_plan_binding",
@@ -865,15 +865,15 @@ def test_v28_failure_state_manifest_is_append_only_and_canonical():
     assert '"relation_suffix":"_context_compression_failure_states"' in (
         RUNTIME_SCHEMA_V28_MANIFEST
     )
-    assert RUNTIME_MIGRATIONS[-4].migration_id == (
+    assert RUNTIME_MIGRATIONS[-6].migration_id == (
         "question_memory_resolved_target_v1_v27"
     )
-    assert RUNTIME_MIGRATIONS[-3].migration_id == (
+    assert RUNTIME_MIGRATIONS[-5].migration_id == (
         "context_compression_failure_state_v1_v28"
     )
-    assert RUNTIME_MIGRATIONS[-3].checksum == RUNTIME_SCHEMA_V28_CHECKSUM
+    assert RUNTIME_MIGRATIONS[-5].checksum == RUNTIME_SCHEMA_V28_CHECKSUM
     assert LATEST_RUNTIME_MIGRATION.migration_id == (
-        "interview_jit_main_question_v1_v30"
+        "scheduler_execution_state_v1_v32"
     )
 
 

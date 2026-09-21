@@ -5,7 +5,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from app.a2a.contracts.common import DomainArtifact
+from app.domain.agents.artifacts import DomainArtifact
 from app.a2a.contracts.errors import A2AError
 
 

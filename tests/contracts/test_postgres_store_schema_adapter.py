@@ -97,4 +97,7 @@ def test_runtime_control_schema_adapter_owns_runtime_schema_and_indexes():
     assert "test_schema_runtime_outbox" in rendered
     assert "test_schema_runtime_event_receipts" in rendered
     assert "test_schema_agent_runs" in rendered
+    assert "test_schema_execution_path_bindings" in rendered
+    assert "execution-path-binding-v1" in rendered
+    assert "SELECT session_id, 'OLD'" in rendered
     assert "test_schema_runtime_outbox_running_lease_idx" in rendered

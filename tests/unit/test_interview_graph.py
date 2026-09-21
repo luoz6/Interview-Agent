@@ -577,6 +577,9 @@ def test_runner_finishes_after_last_question_followup_answer():
         state = runner.submit_answer(state, answer)
 
     assert state["status"] == "finished"
+    assert state["phase"] == "review"
+    assert state["phase_status"] == "active"
+    assert state["review_status"] == "processing"
     assert state["current_index"] == 3
     assert state["decision"]["action"] == "finish"
     assert state["pending_output"] == INTERVIEW_FINISHED_MESSAGE

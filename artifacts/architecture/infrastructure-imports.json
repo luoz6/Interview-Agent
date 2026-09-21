@@ -1,9 +1,9 @@
 {
   "metadata": {
     "repo_root": "F:\\agent\\Interview-Agent",
-    "files_scanned": 470,
-    "external_edge_count": 2419,
-    "infrastructure_match_count": 229,
+    "files_scanned": 513,
+    "external_edge_count": 2640,
+    "infrastructure_match_count": 232,
     "mandated_targets": [
       "anthropic",
       "celery",
@@ -994,7 +994,7 @@
       "source_layer": "adapters",
       "target_module": "psycopg2",
       "import_type": "import",
-      "line": 699,
+      "line": 749,
       "package": "psycopg2",
       "category": "database",
       "classification": "合法技术依赖",
@@ -1006,7 +1006,7 @@
       "source_layer": "adapters",
       "target_module": "psycopg2",
       "import_type": "from",
-      "line": 700,
+      "line": 750,
       "package": "psycopg2",
       "category": "database",
       "classification": "合法技术依赖",
@@ -2621,36 +2621,48 @@
       "reason": "graphs 层当前承载 LangGraph workflow wiring，直接依赖 langgraph 符合其当前职责。"
     },
     {
-      "source_file": "app/graphs/orchestrator_graph.py",
-      "source_module": "app.graphs.orchestrator_graph",
+      "source_file": "app/graphs/scheduler_graph.py",
+      "source_module": "app.graphs.scheduler_graph",
       "source_layer": "graphs",
       "target_module": "langgraph.graph",
       "import_type": "from",
-      "line": 4,
+      "line": 14,
       "package": "langgraph",
       "category": "workflow",
       "classification": "合法技术依赖",
       "reason": "graphs 层当前承载 LangGraph workflow wiring，直接依赖 langgraph 符合其当前职责。"
     },
     {
-      "source_file": "app/graphs/orchestrator_graph.py",
-      "source_module": "app.graphs.orchestrator_graph",
+      "source_file": "app/graphs/scheduler_graph.py",
+      "source_module": "app.graphs.scheduler_graph",
       "source_layer": "graphs",
       "target_module": "langgraph.graph",
       "import_type": "from",
-      "line": 4,
+      "line": 14,
       "package": "langgraph",
       "category": "workflow",
       "classification": "合法技术依赖",
       "reason": "graphs 层当前承载 LangGraph workflow wiring，直接依赖 langgraph 符合其当前职责。"
     },
     {
-      "source_file": "app/graphs/orchestrator_graph.py",
-      "source_module": "app.graphs.orchestrator_graph",
+      "source_file": "app/graphs/scheduler_graph.py",
+      "source_module": "app.graphs.scheduler_graph",
       "source_layer": "graphs",
       "target_module": "langgraph.graph",
       "import_type": "from",
-      "line": 4,
+      "line": 14,
+      "package": "langgraph",
+      "category": "workflow",
+      "classification": "合法技术依赖",
+      "reason": "graphs 层当前承载 LangGraph workflow wiring，直接依赖 langgraph 符合其当前职责。"
+    },
+    {
+      "source_file": "app/graphs/scheduler_graph.py",
+      "source_module": "app.graphs.scheduler_graph",
+      "source_layer": "graphs",
+      "target_module": "langgraph.types",
+      "import_type": "from",
+      "line": 15,
       "package": "langgraph",
       "category": "workflow",
       "classification": "合法技术依赖",
@@ -2705,12 +2717,24 @@
       "reason": "runtime 是 composition root，可合法选择并构造具体基础设施实现。"
     },
     {
-      "source_file": "app/runtime/interview_workflow.py",
-      "source_module": "app.runtime.interview_workflow",
+      "source_file": "app/runtime/composition.py",
+      "source_module": "app.runtime.composition",
       "source_layer": "runtime",
-      "target_module": "langgraph.types",
+      "target_module": "langgraph.checkpoint.memory",
       "import_type": "from",
-      "line": 295,
+      "line": 887,
+      "package": "langgraph",
+      "category": "workflow",
+      "classification": "合法技术依赖",
+      "reason": "runtime 是 composition root，可合法选择并构造具体基础设施实现。"
+    },
+    {
+      "source_file": "app/runtime/composition.py",
+      "source_module": "app.runtime.composition",
+      "source_layer": "runtime",
+      "target_module": "langgraph.checkpoint.memory",
+      "import_type": "from",
+      "line": 970,
       "package": "langgraph",
       "category": "workflow",
       "classification": "合法技术依赖",
@@ -2722,7 +2746,19 @@
       "source_layer": "runtime",
       "target_module": "langgraph.types",
       "import_type": "from",
-      "line": 316,
+      "line": 306,
+      "package": "langgraph",
+      "category": "workflow",
+      "classification": "合法技术依赖",
+      "reason": "runtime 是 composition root，可合法选择并构造具体基础设施实现。"
+    },
+    {
+      "source_file": "app/runtime/interview_workflow.py",
+      "source_module": "app.runtime.interview_workflow",
+      "source_layer": "runtime",
+      "target_module": "langgraph.types",
+      "import_type": "from",
+      "line": 327,
       "package": "langgraph",
       "category": "workflow",
       "classification": "合法技术依赖",
@@ -2852,8 +2888,8 @@
       "package": "langgraph",
       "category": "workflow",
       "mandated": true,
-      "edges": 18,
-      "source_files": 8,
+      "edges": 21,
+      "source_files": 9,
       "source_layers": [
         "adapters",
         "graphs",
@@ -3032,7 +3068,7 @@
     {
       "source_layer": "graphs",
       "classification": "合法技术依赖",
-      "edges": 12
+      "edges": 13
     },
     {
       "source_layer": "graphs",
@@ -3092,7 +3128,7 @@
     {
       "source_layer": "runtime",
       "classification": "合法技术依赖",
-      "edges": 6
+      "edges": 8
     },
     {
       "source_layer": "runtime",
@@ -3213,7 +3249,7 @@
     }
   ],
   "classification_counts": {
-    "合法技术依赖": 229,
+    "合法技术依赖": 232,
     "潜在违规": 0,
     "明确违规": 0,
     "暂时无法判断": 0

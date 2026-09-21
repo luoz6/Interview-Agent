@@ -1,9 +1,9 @@
 {
   "metadata": {
     "generated_by": "tools/architecture/scan_legacy_versions.py",
-    "app_files_scanned": 470,
+    "app_files_scanned": 513,
     "script_files_scanned": 48,
-    "test_files_scanned": 409,
+    "test_files_scanned": 466,
     "parse_error_count": 0,
     "version_family_count": 3,
     "legacy_module_count": 4,
@@ -292,7 +292,7 @@
           {
             "file": "tests/unit/test_durable_interview_graph.py",
             "module": "tests.unit.test_durable_interview_graph",
-            "line": 33,
+            "line": 34,
             "reason": "from_import"
           },
           {
@@ -343,7 +343,7 @@
           {
             "file": "app/runtime/composition.py",
             "module": "app.runtime.composition",
-            "line": 1581,
+            "line": 1877,
             "reason": "from_import"
           },
           {
@@ -357,7 +357,7 @@
           {
             "file": "app/runtime/composition.py",
             "module": "app.runtime.composition",
-            "line": 1581,
+            "line": 1877,
             "reason": "from_import"
           },
           {
@@ -377,7 +377,7 @@
           {
             "file": "tests/unit/test_durable_interview_graph.py",
             "module": "tests.unit.test_durable_interview_graph",
-            "line": 34,
+            "line": 35,
             "reason": "from_import"
           },
           {

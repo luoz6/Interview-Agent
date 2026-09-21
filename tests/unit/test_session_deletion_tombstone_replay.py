@@ -29,6 +29,7 @@ from tests.session_fixtures import make_deletion_session_store
 
 FAULT_BOUNDARIES = (
     "after_workflow_purge",
+    "after_scheduler_runtime_purge",
     "after_question_memory_purge",
     "after_artifact_ref_purge",
     "after_report_history_purge",

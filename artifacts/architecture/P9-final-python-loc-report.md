@@ -16,27 +16,27 @@ Status: P9-T04 COMPLETE - architecture closure measurement evidence
 
 | metric | P0 | P9 | delta |
 | --- | ---: | ---: | ---: |
-| App Python files | 418 | 470 | +52 |
-| App physical LOC | 118,413 | 120,151 | +1,738 |
-| App non-empty LOC | 108,150 | 109,519 | +1,369 |
+| App Python files | 418 | 513 | +95 |
+| App physical LOC | 118,413 | 128,014 | +9,601 |
+| App non-empty LOC | 108,150 | 116,352 | +8,202 |
 | Services Python files | 220 | 0 | -220 |
 | Services non-empty LOC | 75,970 | 0 | -75,970 |
 | Cross-layer violation pairs | 19 | 0 | -19 |
 | Dependency cycle groups | 2 | 4 | +2 |
 | Modules in dependency cycles | 123 | 8 | -115 |
-| Exact duplicate implementation groups | 19 | 25 | +6 |
-| Largest module physical LOC | 2,459 | 2,585 | +126 |
+| Exact duplicate implementation groups | 19 | 28 | +9 |
+| Largest module physical LOC | 2,459 | 2,882 | +423 |
 
 Largest modules:
 
 - P0: `app.services.runtime` (2,459 LOC from pinned commit).
-- P9: `app.runtime.composition` (2,585 LOC).
+- P9: `app.runtime.composition` (2,882 LOC).
 
 ## God-Module Owners
 
 | responsibility | P0 owner | P0 LOC | P9 owner | P9 LOC | delta |
 | --- | --- | ---: | --- | ---: | ---: |
-| Runtime composition | `app.services.runtime` | 2,459 | `app.runtime.composition` | 2,585 | +126 |
+| Runtime composition | `app.services.runtime` | 2,459 | `app.runtime.composition` | 2,882 | +423 |
 | Durable interview graph | `app.graphs.durable_interview_graph` | 2,296 | `app.graphs.durable_interview_graph` | 2,303 | +7 |
 | LLM provider | `app.services.llm` | 1,507 | `app.adapters.providers.llm` | 1,404 | -103 |
 

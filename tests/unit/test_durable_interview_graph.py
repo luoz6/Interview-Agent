@@ -23,6 +23,7 @@ from app.graphs.durable_interview_graph import (
     generate_followup,
     prepare_or_load_decision,
     project_state_node,
+    validate_command,
     _is_duplicate_followup_text,
     _followup_guard_updates,
     MAX_FOLLOWUP_NODE_STEPS_PER_COMMAND,
@@ -1645,6 +1646,50 @@ def test_graph_initializes_then_waits_for_answer():
     snapshot = graph.get_state(config)
     assert snapshot.next == ("wait_for_answer",)
     assert snapshot.tasks[0].interrupts
+
+
+def test_wait_for_answer_interrupt_freezes_version_only_fence_payload():
+    graph, config, _ = make_graph()
+
+    graph.invoke(make_initial_input(), config=config)
+
+    interrupt_payload = graph.get_state(config).tasks[0].interrupts[0].value
+    assert interrupt_payload == {
+        "kind": "answer_command",
+        "session_id": "s1",
+        "state_version": 1,
+    }
+    assert "wait_id" not in interrupt_payload
+    assert "question_id" not in interrupt_payload
+
+
+def test_command_validation_uses_state_version_without_wait_or_question_fence():
+    store = FakeWorkflowStore()
+    store.commands["cmd-version-only"] = FakeCommand(
+        "cmd-version-only",
+        "pending",
+        expected_version=4,
+    )
+    state = make_initial_input()
+    state.update(
+        {
+            "active_command_id": "cmd-version-only",
+            "state_version": 4,
+        }
+    )
+
+    result = validate_command(
+        state,
+        DurableInterviewGraphDependencies(workflow_store=store),
+    )
+
+    assert result == {
+        "command_type": "answer",
+        "command_outcome": "accepted",
+        "termination_reason_code": None,
+        "termination_diagnostic": None,
+    }
+    assert store.marked_conflicts == []
 
 
 def test_answer_resume_stores_only_command_identity():

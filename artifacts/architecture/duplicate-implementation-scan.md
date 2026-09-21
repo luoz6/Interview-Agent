@@ -4,8 +4,8 @@ Status: P9-T01 COMPLETE - observational scan only
 
 ## Method
 
-- Python files scanned: 470
-- Top-level definitions scanned: 2754
+- Python files scanned: 513
+- Top-level definitions scanned: 2918
 - Parse errors: 0
 - Exact matches use normalized AST bodies with docstrings removed.
 - Repository, DTO, evaluator, runtime-wiring, and version-family matches are candidates, not deletion decisions.
@@ -15,8 +15,8 @@ Status: P9-T01 COMPLETE - observational scan only
 
 | category | groups | disposition |
 | --- | ---: | --- |
-| Exact normalized AST implementations | 25 | exact clone review |
-| Repository / store families | 25 | manual review required |
+| Exact normalized AST implementations | 28 | exact clone review |
+| Repository / store families | 27 | manual review required |
 | DTO field-shape matches | 2 | manual review required |
 | Evaluation-related name matches (broad heuristic) | 20 | manual review required |
 | Runtime wiring call fingerprints | 0 | manual review required |
@@ -39,6 +39,7 @@ Status: P9-T01 COMPLETE - observational scan only
 
 | status | priority | disposition | key | members |
 | --- | --- | --- | --- | --- |
+| confirmed_exact | medium | `consolidation_candidate` | `0dbb003e708f45196b1e1e78c0b80a31c3439c9a3587bd9d67150269fe4b9b33` | app.domain.interview.prep:PlanGenerationValidationError<br>app.domain.interview.scheduling.decisions:SchedulingDecisionValidationError |
 | confirmed_exact | medium | `consolidation_candidate` | `13956140e03dc61b4f55e1bcb99827b066a3bd54a7c3c9e6f1e8d0cbea21b605` | app.evals.report_calibration_dataset:calibration_dataset_sha256<br>app.evals.report_semantic_review:semantic_review_dataset_sha256 |
 | confirmed_exact | medium | `consolidation_candidate` | `1a49aa6dc4cbc3e2e39c466cbc1e6e501a327eb1537962fdeb7399a08ba425a3` | app.application.interview.context_artifacts:InterviewArtifactContext<br>app.runtime.evidence_context_artifacts:EvidenceArtifactContext |
 | confirmed_exact | medium | `consolidation_candidate` | `1da934895a2add05cd84ecce2d3a5a15a80c088a2a6f1662cda9535ff13f49f0` | app.application.knowledge.grounding:_dedupe<br>app.domain.knowledge.profile:_dedupe |
@@ -47,14 +48,16 @@ Status: P9-T01 COMPLETE - observational scan only
 | confirmed_exact | medium | `consolidation_candidate` | `36f37fb9ce5f8cdbf30106ca01c4456a841da78702d7da0db9e5a97d932ee44a` | app.adapters.memory.plan_revision_store:_default_revision_audit<br>app.ports.plan_revision_store:_default_revision_audit |
 | confirmed_exact | medium | `consolidation_candidate` | `4282e592adc07f7cb6518cc6259e3cbb6046c068df151905e0751e99a0e74399` | app.domain.interview.plan_generation:interview_plan_from_intent_draft<br>app.runtime.interview_prep:interview_plan_from_intent_draft |
 | confirmed_exact | medium | `consolidation_candidate` | `43836edfa5fbe00e606565d8a1293fd265215e27059842eaf6cffaa58d364d0d` | app.adapters.memory.interview_entry:MemoryClock<br>app.adapters.persistence.postgres.interview_entry:PostgresClock |
+| confirmed_exact | medium | `consolidation_candidate` | `440aa0fd9becb3ca496d98cf3121f131a777f93e913439bcb284e34fd20ed045` | app.domain.execution_lease:_require_aware_datetime<br>app.runtime.reliability:_require_aware_datetime |
 | confirmed_exact | medium | `consolidation_candidate` | `4b4a0fb387f954afd14734f9e8ddd28a70b91bc69ef838cc6f66196049a398cb` | app.adapters.memory.plan_revision_store:_validate_request_identity<br>app.ports.plan_revision_store:_validate_request_identity |
+| confirmed_exact | medium | `consolidation_candidate` | `4b639c2daaecd8055fce17b4dd481145717f50643ed4b2ef3b544a61701d6c3c` | app.domain.execution_lease:_require_non_empty<br>app.runtime.reliability:_require_non_empty |
 | confirmed_exact | medium | `consolidation_candidate` | `5351193f98239ac4d0e694a6b8451e183c31618b4efa98ad53a123d447dc5b68` | app.domain.interview.plan_revision:canonical_sha256<br>app.evals.interview_quality_dataset:sha256_canonical_json |
 | confirmed_exact | medium | `consolidation_candidate` | `5743ff83e2e09837830263d0c2bc00cc0e55d682a295b2f3c9f8e7e470859d27` | app.evals.cross_question_report_diagnostics:canonical_sha256<br>app.evals.synthetic_session_diagnostics:canonical_sha256 |
 | confirmed_exact | medium | `consolidation_candidate` | `5c4f7031599b541071a871c4b717802a8da050644208b0da9c750cbd31062581` | app.application.report.knowledge_citations:_document_safe_ref<br>app.domain.knowledge.citations:_document_safe_ref |
 | confirmed_exact | medium | `consolidation_candidate` | `6311a5c38367d0d73568600006359534eff4ad1a8eed824ef35356c5e8083dde` | app.evals.t65_production_capture:_path_has_reparse_component<br>app.evals.t65_provider_evidence:_path_has_reparse_component |
 | confirmed_exact | medium | `consolidation_candidate` | `70df523dc9ba0e175e2f3e2937235abee759a9cf087b3def3da52f87f5ac8de5` | app.application.knowledge.scope:InterviewKnowledgeScopeError<br>app.application.materials.service:UserMaterialsError |
 | confirmed_exact | medium | `consolidation_candidate` | `7ad0c6fe5949d4034b9f27f21504dcd5123e0a232a4bc127ab1dc2e14fd701ef` | app.domain.interview.followup_prompts:_sha256<br>app.domain.report.runtime_quality:_sha256_text<br>app.evals.report_semantic_review:text_sha256<br>app.graphs.durable_review_state:_text_sha256 |
-| confirmed_exact | medium | `consolidation_candidate` | `7dbcae191cf96bbccbb74132ec4c18a6883e8d713b5fb5b034a36080cc5c9387` | app.a2a.contracts.common:_utc_now_iso<br>app.a2a.observability:_utc_now_iso<br>app.a2a.protocol:_utc_now_iso<br>app.domain.interview.state:utc_now_iso<br>app.domain.report.models:utc_now_iso<br>app.domain.report.question_evaluations:_utc_now_iso<br>app.domain.runtime_events:utc_now_iso |
+| confirmed_exact | medium | `consolidation_candidate` | `7dbcae191cf96bbccbb74132ec4c18a6883e8d713b5fb5b034a36080cc5c9387` | app.a2a.observability:_utc_now_iso<br>app.a2a.protocol:_utc_now_iso<br>app.domain.agents.artifacts:_utc_now_iso<br>app.domain.interview.state:utc_now_iso<br>app.domain.report.models:utc_now_iso<br>app.domain.report.question_evaluations:_utc_now_iso<br>app.domain.runtime_events:utc_now_iso |
 | confirmed_exact | medium | `consolidation_candidate` | `7fe7d8f433ca02589c80e65a471ea04a3bd943e53ed36c096d9a95fa42192390` | app.evals.followup_provider_preflight:_sha256_file<br>app.evals.independent_review_handoff:file_sha256<br>app.evals.initial_question_provider_preflight:_sha256_file<br>app.evals.t65_provider_evidence:_sha256_file |
 | confirmed_exact | medium | `consolidation_candidate` | `a6f28f2664bab2573524875b2fd176c9c4654848e16e39bb1db0e92514cace78` | app.evals.t65_formal_execution_receipt:_canonical_bytes<br>app.evals.t65_production_capture:_canonical_json_bytes |
 | confirmed_exact | medium | `consolidation_candidate` | `ac064ee23f1b1fae193808ff107073448f5dc2c8820904c293c8b372b0217f64` | app.domain.interview.plan_generation:enforce_generated_interview_question_quality<br>app.runtime.interview_prep:enforce_generated_interview_question_quality |
@@ -72,6 +75,7 @@ Status: P9-T01 COMPLETE - observational scan only
 | candidate | low | `expected_polymorphic_family` | `contextcompressionfailurestore` | app.adapters.memory.context_compression_failure_store:InMemoryContextCompressionFailureStore<br>app.adapters.persistence.postgres.context_compression_failure_store:PostgresContextCompressionFailureStore |
 | candidate | low | `expected_polymorphic_family` | `decisionstore` | app.adapters.memory.decision_store:InMemoryDecisionStore<br>app.adapters.persistence.postgres.decision_store:PostgresDecisionStore |
 | candidate | low | `expected_polymorphic_family` | `draftstore` | app.adapters.memory.draft_store:InMemoryDraftStore<br>app.adapters.persistence.postgres.draft_store:PostgresDraftStore |
+| candidate | low | `expected_polymorphic_family` | `executionpathbindingstore` | app.adapters.memory.execution_path_binding:InMemoryExecutionPathBindingStore<br>app.adapters.persistence.postgres.execution_path_binding:PostgresExecutionPathBindingStore |
 | candidate | high | `overlapping_port_contracts` | `interviewlaunchrepository` | app.adapters.memory.interview_launch_repository:InMemoryInterviewLaunchRepository<br>app.adapters.persistence.postgres.interview_launch_repository:PostgresInterviewLaunchRepository<br>app.ports.interview_entry:InterviewLaunchRepository<br>app.ports.interview_launch:InterviewLaunchRepository |
 | candidate | low | `expected_polymorphic_family` | `interviewplanrevisionstore` | app.adapters.memory.plan_revision_store:InMemoryInterviewPlanRevisionStore<br>app.adapters.persistence.postgres.plan_revision_store:PostgresInterviewPlanRevisionStore<br>app.ports.plan_revision_store:InterviewPlanRevisionStore |
 | candidate | high | `overlapping_port_contracts` | `interviewsessionrepository` | app.ports.interview_entry:InterviewSessionRepository<br>app.ports.runtime:InterviewSessionRepository |
@@ -90,6 +94,7 @@ Status: P9-T01 COMPLETE - observational scan only
 | candidate | low | `expected_polymorphic_family` | `reportartifactstore` | app.adapters.memory.report_artifact_store:InMemoryReportArtifactStore<br>app.adapters.persistence.postgres.report_artifact_store:PostgresReportArtifactStore<br>app.ports.report_artifacts:ReportArtifactStore |
 | candidate | low | `expected_polymorphic_family` | `reportjobstore` | app.adapters.memory.report_job_store:InMemoryReportJobStore<br>app.adapters.persistence.postgres.report_job_store:PostgresReportJobStore |
 | candidate | low | `expected_polymorphic_family` | `reportrepository` | app.adapters.postgres.report_repository:PostgresReportRepository<br>app.ports.runtime:ReportRepository |
+| candidate | low | `expected_polymorphic_family` | `schedulerexecutionrepository` | app.adapters.memory.scheduler_execution:InMemorySchedulerExecutionRepository<br>app.adapters.persistence.postgres.scheduler_execution:PostgresSchedulerExecutionRepository<br>app.ports.scheduler_execution:SchedulerExecutionRepository |
 | candidate | low | `expected_polymorphic_family` | `sessiondeletionjobstore` | app.adapters.memory.session_deletion:InMemorySessionDeletionJobStore<br>app.adapters.persistence.postgres.session_deletion:PostgresSessionDeletionJobStore |
 | candidate | low | `expected_polymorphic_family` | `sessiondeletiontombstonestore` | app.adapters.memory.session_deletion_tombstones:InMemorySessionDeletionTombstoneStore<br>app.adapters.persistence.postgres.session_deletion_tombstones:PostgresSessionDeletionTombstoneStore |
 | candidate | low | `expected_polymorphic_family` | `userdocumentchunkrepository` | app.adapters.memory.user_documents:InMemoryUserDocumentChunkRepository<br>app.adapters.pgvector.user_document_repository:PgVectorUserDocumentChunkRepository |

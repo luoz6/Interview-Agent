@@ -332,9 +332,10 @@ class PostgresInterviewSessionStore(InterviewSessionStore):
         _ensure_expected_version(state, expected_version)
         before_state = deepcopy(state)
         previous_version = state["state_version"]
-        new_state = self._orchestrator.apply_command(
+        new_state = self._runner.submit_answer(
             state,
-            {"kind": "answer", "answer": answer, "command_id": command_id},
+            answer,
+            command_id=command_id,
         )
         new_state = _advance_state_metadata(new_state, command_id=command_id)
         event = round_closed_event_from_transition(before_state, new_state)
@@ -358,10 +359,7 @@ class PostgresInterviewSessionStore(InterviewSessionStore):
         _ensure_expected_version(state, expected_version)
         before_state = deepcopy(state)
         previous_version = state["state_version"]
-        finished_state = self._orchestrator.apply_command(
-            state,
-            {"kind": "finish", "command_id": command_id},
-        )
+        finished_state = self._runner.finish(state)
         finished_state = _advance_state_metadata(
             finished_state,
             command_id=command_id,
@@ -393,10 +391,7 @@ class PostgresInterviewSessionStore(InterviewSessionStore):
         _ensure_expected_version(state, expected_version)
         before_state = deepcopy(state)
         previous_version = state["state_version"]
-        skipped_state = self._orchestrator.apply_command(
-            state,
-            {"kind": "skip", "command_id": command_id},
-        )
+        skipped_state = self._runner.skip(state)
         skipped_state = _advance_state_metadata(
             skipped_state,
             command_id=command_id,
@@ -433,13 +428,10 @@ class PostgresInterviewSessionStore(InterviewSessionStore):
             )
         _ensure_expected_version(state, expected_version)
         previous_version = state["state_version"]
-        prepared_state = self._orchestrator.apply_command(
+        prepared_state = self._runner.prepare_answer(
             state,
-            {
-                "kind": "prepare_stream",
-                "answer": answer,
-                "command_id": command_id,
-            },
+            answer,
+            command_id=command_id,
         )
         prepared_state = _advance_state_metadata(
             prepared_state,
@@ -465,13 +457,9 @@ class PostgresInterviewSessionStore(InterviewSessionStore):
         _ensure_expected_version(prepared_state, expected_version)
         before_state = deepcopy(prepared_state)
         previous_version = prepared_state["state_version"]
-        finalized_state = self._orchestrator.apply_command(
+        finalized_state = self._runner.finalize_prepared_answer(
             prepared_state,
-            {
-                "kind": "complete_stream",
-                "follow_up_text": follow_up_text,
-                "command_id": command_id,
-            },
+            follow_up=follow_up_text,
         )
         finalized_state = _advance_state_metadata(
             finalized_state,

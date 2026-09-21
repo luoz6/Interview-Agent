@@ -51,7 +51,12 @@ from app.domain.interview.followup_prompts import (
     fallback_followup,
     generation_context_for_decision,
 )
-from app.domain.interview.transitions import INTERVIEW_FINISHED_MESSAGE
+from app.domain.interview.transitions import (
+    INTERVIEW_FINISHED_MESSAGE,
+    begin_review_if_finished,
+    finish_interview_state,
+    skip_interview_question_state,
+)
 
 MAX_LEGACY_FOLLOWUP_STREAM_EVENTS = 128
 
@@ -140,7 +145,7 @@ class InterviewGraphRunner:
             command_id=command_id,
             decision_service=self._decision_service,
         )
-        return speaker_node(next_state)
+        return begin_review_if_finished(speaker_node(next_state))
 
     def prepare_answer(
         self,
@@ -171,7 +176,15 @@ class InterviewGraphRunner:
         next_state = deepcopy(state)
         if follow_up is not None and next_state["decision"] is not None:
             next_state["decision"]["follow_up"] = follow_up
-        return speaker_node(next_state)
+        return begin_review_if_finished(speaker_node(next_state))
+
+    def skip(self, state: InterviewState) -> InterviewState:
+        return begin_review_if_finished(
+            skip_interview_question_state(deepcopy(state))
+        )
+
+    def finish(self, state: InterviewState) -> InterviewState:
+        return begin_review_if_finished(finish_interview_state(deepcopy(state)))
 
     def stream_followup(self, state: InterviewState):
         question = get_current_question(state)

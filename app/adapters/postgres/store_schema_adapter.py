@@ -325,6 +325,9 @@ class PostgresRuntimeControlSchemaAdapter:
         outbox_table: str,
         receipts_table: str,
         agent_runs_table: str,
+        agent_invocations_table: str | None = None,
+        execution_path_bindings_table: str | None = None,
+        scheduler_executions_table: str | None = None,
     ) -> None:
         self._connection_provider = connection_provider
         self.table_prefix = table_prefix
@@ -332,6 +335,17 @@ class PostgresRuntimeControlSchemaAdapter:
         self.outbox_table = outbox_table
         self.receipts_table = receipts_table
         self.agent_runs_table = agent_runs_table
+        self.agent_invocations_table = (
+            agent_invocations_table or f"{table_prefix}_agent_invocations"
+        )
+        self.execution_path_bindings_table = (
+            execution_path_bindings_table
+            or f"{table_prefix}_execution_path_bindings"
+        )
+        self.scheduler_executions_table = (
+            scheduler_executions_table
+            or f"{table_prefix}_scheduler_executions"
+        )
 
     def ensure_schema(self) -> None:
         sql = postgres_sql()
@@ -373,6 +387,25 @@ class PostgresRuntimeControlSchemaAdapter:
                     ).format(
                         outbox=sql.Identifier(self.outbox_table),
                         sessions=sql.Identifier(self.sessions_table),
+                    )
+                )
+                cursor.execute(
+                    sql.SQL(
+                        """
+                        CREATE TABLE IF NOT EXISTS {scheduler_executions} (
+                            execution_id TEXT PRIMARY KEY,
+                            plan_json JSONB NOT NULL,
+                            state_json JSONB NOT NULL,
+                            state_revision INTEGER NOT NULL DEFAULT 0
+                                CHECK (state_revision >= 0),
+                            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                            updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+                        )
+                        """
+                    ).format(
+                        scheduler_executions=sql.Identifier(
+                            self.scheduler_executions_table
+                        )
                     )
                 )
                 cursor.execute(
@@ -461,6 +494,72 @@ class PostgresRuntimeControlSchemaAdapter:
                 )
                 cursor.execute(
                     sql.SQL(
+                        """
+                        CREATE TABLE IF NOT EXISTS {agent_invocations} (
+                            execution_id TEXT NOT NULL,
+                            task_id TEXT NOT NULL,
+                            logical_attempt INTEGER NOT NULL CHECK (logical_attempt > 0),
+                            status TEXT NOT NULL CHECK (status IN (
+                                'PREPARED', 'RUNNING', 'COMPLETED', 'FAILED'
+                            )),
+                            agent_id TEXT NOT NULL,
+                            skill TEXT NOT NULL,
+                            request_digest TEXT NOT NULL,
+                            artifact_ref TEXT,
+                            error_result JSONB,
+                            lease_owner TEXT,
+                            lease_token TEXT,
+                            lease_expires_at TIMESTAMPTZ,
+                            fencing_version INTEGER NOT NULL DEFAULT 0
+                                CHECK (fencing_version >= 0),
+                            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                            updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                            started_at TIMESTAMPTZ,
+                            finished_at TIMESTAMPTZ,
+                            PRIMARY KEY (execution_id, task_id, logical_attempt),
+                            CHECK (status <> 'COMPLETED' OR artifact_ref IS NOT NULL),
+                            CHECK (status <> 'FAILED' OR error_result IS NOT NULL),
+                            CHECK (status <> 'RUNNING' OR lease_owner IS NOT NULL)
+                        )
+                        """
+                    ).format(
+                        agent_invocations=sql.Identifier(self.agent_invocations_table)
+                    )
+                )
+                cursor.execute(
+                    sql.SQL(
+                        """
+                        CREATE TABLE IF NOT EXISTS {execution_path_bindings} (
+                            execution_id TEXT PRIMARY KEY,
+                            orchestration_path TEXT NOT NULL
+                                CHECK (orchestration_path IN ('OLD', 'NEW')),
+                            bound_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                            schema_version TEXT NOT NULL
+                                DEFAULT 'execution-path-binding-v1'
+                                CHECK (schema_version = 'execution-path-binding-v1')
+                        )
+                        """
+                    ).format(
+                        execution_path_bindings=sql.Identifier(
+                            self.execution_path_bindings_table
+                        )
+                    )
+                )
+                cursor.execute(
+                    sql.SQL(
+                        "INSERT INTO {execution_path_bindings} ("
+                        "execution_id, orchestration_path) "
+                        "SELECT session_id, 'OLD' FROM {sessions} "
+                        "ON CONFLICT (execution_id) DO NOTHING"
+                    ).format(
+                        execution_path_bindings=sql.Identifier(
+                            self.execution_path_bindings_table
+                        ),
+                        sessions=sql.Identifier(self.sessions_table),
+                    )
+                )
+                cursor.execute(
+                    sql.SQL(
                         "ALTER TABLE {agent_runs} ADD COLUMN IF NOT EXISTS parent_run_id TEXT"
                     ).format(
                         agent_runs=sql.Identifier(self.agent_runs_table)
@@ -470,6 +569,13 @@ class PostgresRuntimeControlSchemaAdapter:
 
     def _ensure_indexes(self, cursor, sql) -> None:
         indexes = [
+            (
+                runtime_schema_identifier(
+                    self.table_prefix, "agent_invocations_status_idx"
+                ),
+                self.agent_invocations_table,
+                "status, updated_at",
+            ),
             (
                 runtime_schema_identifier(
                     self.table_prefix, "runtime_outbox_status_available_idx"

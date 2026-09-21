@@ -83,7 +83,7 @@ def test_latest_migration_contract_preserves_deletion_and_adds_row_versions():
     )
     assert (
         LATEST_RUNTIME_MIGRATION.migration_id
-        == "interview_jit_main_question_v1_v30"
+        == "scheduler_execution_state_v1_v32"
     )
     assert LATEST_RUNTIME_MIGRATION == RUNTIME_MIGRATIONS[-1]
     columns = required_columns_for_relation(

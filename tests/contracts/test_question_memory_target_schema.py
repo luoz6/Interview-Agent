@@ -103,7 +103,7 @@ def test_question_memory_target_is_a_required_nullable_positive_column():
     )
 
 
-def test_v30_migration_is_append_only_and_preserves_v1_to_v29_checksums():
+def test_v32_migration_is_append_only_and_preserves_v1_to_v31_checksums():
     specs = schema_contract.RUNTIME_MIGRATIONS
 
     assert tuple(spec.migration_id for spec in specs[:29]) == (
@@ -112,13 +112,17 @@ def test_v30_migration_is_append_only_and_preserves_v1_to_v29_checksums():
     assert tuple(spec.checksum for spec in specs[:29]) == (
         _V1_TO_V26_CHECKSUMS + _V27_TO_V29_CHECKSUMS
     )
-    assert len(specs) == 30
+    assert len(specs) == 32
     assert specs[26].migration_id == "question_memory_resolved_target_v1_v27"
     assert specs[27].migration_id == "context_compression_failure_state_v1_v28"
     assert specs[28].migration_id == "row_serialization_versions_v1_v29"
     assert specs[29].migration_id == "interview_jit_main_question_v1_v30"
     assert specs[29].checksum == schema_contract.RUNTIME_SCHEMA_V30_CHECKSUM
-    assert schema_contract.LATEST_RUNTIME_MIGRATION is specs[29]
+    assert specs[30].migration_id == "execution_path_binding_v1_v31"
+    assert specs[31].migration_id == "scheduler_execution_state_v1_v32"
+    assert specs[30].checksum == schema_contract.RUNTIME_SCHEMA_V31_CHECKSUM
+    assert specs[31].checksum == schema_contract.RUNTIME_SCHEMA_V32_CHECKSUM
+    assert schema_contract.LATEST_RUNTIME_MIGRATION is specs[31]
 
     manifest = getattr(schema_contract, "RUNTIME_SCHEMA_V27_MANIFEST", None)
     checksum = getattr(schema_contract, "RUNTIME_SCHEMA_V27_CHECKSUM", None)
@@ -149,13 +153,19 @@ def test_v27_target_migration_precedes_v28_runtime_and_runs_target_upgrade():
     latest = schema_contract.LATEST_RUNTIME_MIGRATION
     assert migrations.RUNTIME_MIGRATION_ID == latest.migration_id
     assert migrations.RUNTIME_MIGRATION_MANIFEST == (
-        schema_contract.RUNTIME_SCHEMA_V30_MANIFEST
+        schema_contract.RUNTIME_SCHEMA_V32_MANIFEST
     )
     assert migrations.RUNTIME_MIGRATION_CHECKSUM == latest.checksum
-    assert latest.migration_id == "interview_jit_main_question_v1_v30"
+    assert latest.migration_id == "scheduler_execution_state_v1_v32"
     assert latest.checksum == hashlib.sha256(
-        schema_contract.RUNTIME_SCHEMA_V30_MANIFEST.encode("utf-8")
+        schema_contract.RUNTIME_SCHEMA_V32_MANIFEST.encode("utf-8")
     ).hexdigest()
+    assert json.loads(schema_contract.RUNTIME_SCHEMA_V32_MANIFEST)[
+        "base_schema_checksum"
+    ] == schema_contract.RUNTIME_SCHEMA_V31_CHECKSUM
+    assert json.loads(schema_contract.RUNTIME_SCHEMA_V31_MANIFEST)[
+        "base_schema_checksum"
+    ] == schema_contract.RUNTIME_SCHEMA_V30_CHECKSUM
     assert json.loads(schema_contract.RUNTIME_SCHEMA_V30_MANIFEST)[
         "base_schema_checksum"
     ] == _V27_TO_V29_CHECKSUMS[-1]

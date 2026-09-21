@@ -767,6 +767,295 @@ def get_question_memory_index_store():
     return store
 
 
+def get_agent_memory_store():
+    store = _runtime_container.get("agent_memory_store")
+    if store is None:
+        from app.adapters.memory.agent_memory import InMemoryAgentMemoryStore
+
+        store = InMemoryAgentMemoryStore()
+        _runtime_container.set("agent_memory_store", store)
+    return store
+
+
+def get_execution_path_binding_store():
+    store = _runtime_container.get("execution_path_binding_store")
+    if store is not None:
+        return store
+    if get_runtime_store() == "postgres":
+        control_store = get_runtime_control_store()
+        if control_store is None:
+            raise RuntimeError("cutover path binding requires runtime control")
+        store = control_store.execution_path_binding_store
+    else:
+        from app.adapters.memory.execution_path_binding import (
+            InMemoryExecutionPathBindingStore,
+        )
+
+        store = InMemoryExecutionPathBindingStore()
+    _runtime_container.set("execution_path_binding_store", store)
+    return store
+
+
+def get_execution_path_router():
+    def build_router():
+        from app.application.interview.orchestration_cutover import (
+            ExecutionPathRouter,
+        )
+
+        return ExecutionPathRouter(
+            binding_store=get_execution_path_binding_store(),
+        )
+
+    return _runtime_container.get_or_create(
+        "execution_path_router",
+        build_router,
+    )
+
+
+def build_a2a_runtime():
+    """Assemble professional Agent adapters behind one local A2A runtime."""
+
+    from app.a2a.runtime import build_local_a2a_runtime
+
+    session_store = get_session_store()
+    return build_local_a2a_runtime(
+        llm=resolve_runtime_llm(session_store),
+        vector_store=get_runtime_knowledge_repository(),
+        execution_runner=get_agent_execution_runner(),
+        user_document_store_getter=get_user_document_store,
+    )
+
+
+def get_a2a_runtime():
+    return _runtime_container.get_or_create("a2a_runtime", build_a2a_runtime)
+
+
+def get_scheduler_invocation_ledger():
+    ledger = _runtime_container.get("scheduler_invocation_ledger")
+    if ledger is not None:
+        return ledger
+    if get_runtime_store() == "postgres":
+        control_store = get_runtime_control_store()
+        if control_store is None:
+            raise RuntimeError("Scheduler durable ledger requires runtime control")
+        ledger = control_store.agent_invocation_ledger
+    else:
+        from app.adapters.memory.agent_invocation_ledger import (
+            InMemoryAgentInvocationLedger,
+        )
+
+        ledger = InMemoryAgentInvocationLedger()
+    _runtime_container.set("scheduler_invocation_ledger", ledger)
+    return ledger
+
+
+def get_scheduler_execution_state_store():
+    return get_scheduler_execution_repository()
+
+
+def get_scheduler_execution_repository():
+    repository = _runtime_container.get("scheduler_execution_repository")
+    if repository is not None:
+        return repository
+    if get_runtime_store() == "postgres":
+        control_store = get_runtime_control_store()
+        if control_store is None:
+            raise RuntimeError("Scheduler execution repository requires runtime control")
+        repository = control_store.scheduler_execution_repository
+    else:
+        from app.adapters.memory.scheduler_execution import (
+            InMemorySchedulerExecutionRepository,
+        )
+
+        repository = InMemorySchedulerExecutionRepository()
+    _runtime_container.set("scheduler_execution_repository", repository)
+    return repository
+
+
+def build_scheduler_production_entry(*, session_store=None):
+    from app.application.interview.scheduler_production_entry import (
+        SchedulerProductionEntry,
+    )
+
+    resolved_session_store = session_store or get_session_store()
+    if getattr(resolved_session_store, "durability", None) == "postgres":
+        repository = get_scheduler_execution_repository()
+        router = get_execution_path_router()
+        composer = compose_scheduler_runtime
+    else:
+        from functools import partial
+        from langgraph.checkpoint.memory import InMemorySaver
+        from app.a2a.runtime import build_local_a2a_runtime
+        from app.adapters.memory.agent_invocation_ledger import (
+            InMemoryAgentInvocationLedger,
+        )
+        from app.adapters.memory.execution_path_binding import (
+            InMemoryExecutionPathBindingStore,
+        )
+        from app.adapters.memory.scheduler_execution import (
+            InMemorySchedulerExecutionRepository,
+        )
+        from app.application.interview.orchestration_cutover import (
+            ExecutionPathRouter,
+        )
+
+        repository = getattr(
+            resolved_session_store,
+            "_scheduler_execution_repository",
+            None,
+        )
+        if repository is None:
+            repository = InMemorySchedulerExecutionRepository()
+            setattr(
+                resolved_session_store,
+                "_scheduler_execution_repository",
+                repository,
+            )
+        router = getattr(resolved_session_store, "_execution_path_router", None)
+        if router is None:
+            router = ExecutionPathRouter(InMemoryExecutionPathBindingStore())
+            setattr(resolved_session_store, "_execution_path_router", router)
+        a2a_runtime = getattr(resolved_session_store, "_scheduler_a2a_runtime", None)
+        if a2a_runtime is None:
+            a2a_runtime = build_local_a2a_runtime(
+                llm=resolve_runtime_llm(resolved_session_store),
+            )
+            setattr(resolved_session_store, "_scheduler_a2a_runtime", a2a_runtime)
+        ledger = getattr(resolved_session_store, "_scheduler_invocation_ledger", None)
+        if ledger is None:
+            ledger = InMemoryAgentInvocationLedger()
+            setattr(resolved_session_store, "_scheduler_invocation_ledger", ledger)
+        command_store = getattr(resolved_session_store, "_scheduler_command_store", None)
+        if command_store is None:
+            from app.application.scheduling import InMemoryUserCommandStore
+
+            command_store = InMemoryUserCommandStore()
+            setattr(resolved_session_store, "_scheduler_command_store", command_store)
+        checkpointer = getattr(resolved_session_store, "_scheduler_checkpointer", None)
+        if checkpointer is None:
+            checkpointer = InMemorySaver()
+            setattr(resolved_session_store, "_scheduler_checkpointer", checkpointer)
+        composer = partial(
+            compose_scheduler_runtime,
+            a2a_runtime=a2a_runtime,
+            invocation_ledger=ledger,
+            command_store=command_store,
+            checkpointer=checkpointer,
+            execution_path_router=router,
+        )
+    return SchedulerProductionEntry(
+        session_store=resolved_session_store,
+        execution_repository=repository,
+        execution_path_router=router,
+        scheduler_composer=composer,
+    )
+
+
+def get_scheduler_production_entry():
+    def build_entry():
+        return build_scheduler_production_entry()
+
+    return _runtime_container.get_or_create(
+        "scheduler_production_entry",
+        build_entry,
+    )
+
+
+def get_scheduler_checkpointer():
+    checkpointer = _runtime_container.get("scheduler_checkpointer")
+    if checkpointer is not None:
+        return checkpointer
+    runtime = get_langgraph_checkpointer_runtime(interview_runtime_enabled=True)
+    if runtime is None:
+        from langgraph.checkpoint.memory import InMemorySaver
+
+        checkpointer = InMemorySaver()
+    else:
+        checkpointer = runtime.start() if runtime.state == "new" else runtime.saver
+    _runtime_container.set("scheduler_checkpointer", checkpointer)
+    return checkpointer
+
+
+def compose_scheduler_runtime(
+    *,
+    plan,
+    initial_state,
+    execution_context=None,
+    a2a_runtime=None,
+    execution_state_store=None,
+    invocation_ledger=None,
+    memory_store=None,
+    checkpointer=None,
+    execution_path_router=None,
+    command_store=None,
+):
+    """Compose one plan-scoped Scheduler from container-owned dependencies."""
+
+    from app.application.scheduling import SchedulerApplicationCapability
+    from app.domain.interview.scheduling import ExecutionPlan, ExecutionState
+    from app.graphs.scheduler_graph import (
+        build_scheduler_graph,
+        scheduler_application_dependencies,
+    )
+    from app.runtime.scheduler_composition import SchedulerRuntimeComposition
+
+    if not isinstance(plan, ExecutionPlan):
+        raise TypeError("plan must be an ExecutionPlan")
+    if not isinstance(initial_state, ExecutionState):
+        raise TypeError("initial_state must be an ExecutionState")
+    if plan.execution_id != initial_state.execution_id:
+        raise ValueError("plan and initial state execution identities differ")
+
+    path_router = execution_path_router or get_execution_path_router()
+    path_router.claim_execution(initial_state.execution_id, "NEW")
+
+    resolved_a2a = a2a_runtime or get_a2a_runtime()
+    state_store = execution_state_store or get_scheduler_execution_state_store()
+    try:
+        existing_state = state_store.load(initial_state.execution_id)
+    except KeyError:
+        creator = getattr(state_store, "create", None)
+        if callable(creator):
+            creator(plan, initial_state)
+        else:
+            state_store.save(initial_state)
+    else:
+        if existing_state != initial_state:
+            raise RuntimeError("Scheduler execution is already composed with other state")
+    ledger = invocation_ledger or get_scheduler_invocation_ledger()
+    resolved_memory = memory_store or get_agent_memory_store()
+    resolved_checkpointer = checkpointer or get_scheduler_checkpointer()
+    scheduler = SchedulerApplicationCapability(
+        state_store=state_store,
+        plan=plan,
+        capability_port=resolved_a2a.registry,
+        invocation_port=resolved_a2a.invoker,
+        invocation_ledger=ledger,
+        command_store=command_store,
+        worker_id=_runtime_worker_id("scheduler"),
+    )
+    graph = build_scheduler_graph(
+        scheduler_application_dependencies(
+            scheduler,
+            plan,
+            execution_context=execution_context,
+        ),
+        checkpointer=resolved_checkpointer,
+    )
+    return SchedulerRuntimeComposition(
+        scheduler=scheduler,
+        graph=graph,
+        a2a_runtime=resolved_a2a,
+        capability_adapter=resolved_a2a.registry,
+        invocation_adapter=resolved_a2a.invoker,
+        durable_ledger=ledger,
+        memory_store=resolved_memory,
+        execution_state_store=state_store,
+        checkpointer=resolved_checkpointer,
+        execution_path_binding_store=path_router.binding_store,
+    )
+
+
 def get_session_deletion_service():
     service = _runtime_container.get("session_deletion_service")
     if service is None:
@@ -838,6 +1127,7 @@ def get_session_deletion_worker():
 
         service = get_session_deletion_service()
         memory_config = load_effective_memory_config()
+        a2a_runtime = _runtime_container.get("a2a_runtime")
         worker = SessionDeletionWorker(
             job_store=service.job_store,
             session_store=get_session_store(),
@@ -861,6 +1151,12 @@ def get_session_deletion_worker():
             ),
             principal_memory_store=get_principal_memory_fact_store(),
             principal_memory_control_store=get_principal_memory_control_store(),
+            execution_state_store=get_scheduler_execution_state_store(),
+            agent_session_store=(
+                a2a_runtime.server if a2a_runtime is not None else None
+            ),
+            agent_invocation_ledger=get_scheduler_invocation_ledger(),
+            agent_memory_store=get_agent_memory_store(),
         )
         _runtime_container.set("session_deletion_worker", worker)
     return worker
@@ -1829,6 +2125,7 @@ def build_interview_workflow_service():
         thread_lock=get_workflow_thread_lock(),
         memory_policy_resolver=memory_policy_for_engine,
         checkpointer_runtime_getter=get_langgraph_checkpointer_runtime,
+        execution_path_router=get_execution_path_router(),
     )
 
 

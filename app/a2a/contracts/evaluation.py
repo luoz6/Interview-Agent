@@ -5,7 +5,7 @@ from typing import Any, Literal
 from pydantic import Field
 from pydantic import model_validator
 
-from app.a2a.contracts.common import DomainArtifact
+from app.domain.agents.artifacts import DomainArtifact
 
 
 class EvaluationArtifactPayload(DomainArtifact):

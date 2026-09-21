@@ -8,6 +8,13 @@ from app.domain.agent_execution import AgentExecutionContext
 
 
 class InvocationContext(BaseModel):
+    """A2A adapter input, not a core execution context.
+
+    A2A task/context and idempotency metadata are transport concerns. The
+    adapter converts this shape to :class:`AgentExecutionContext` before a
+    handler runs; neutral Ports must depend on the latter instead.
+    """
+
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     context_id: str | None = None

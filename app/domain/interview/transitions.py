@@ -11,6 +11,15 @@ from app.domain.interview.state import (
 INTERVIEW_FINISHED_MESSAGE = "本次模拟面试已结束。"
 
 
+def begin_review_if_finished(state: InterviewState) -> InterviewState:
+    if state["status"] != "finished":
+        return state
+    state["phase"] = "review"
+    state["phase_status"] = "active"
+    state["review_status"] = "processing"
+    return state
+
+
 def finish_interview_state(state: InterviewState) -> InterviewState:
     if state["status"] == "finished":
         return state

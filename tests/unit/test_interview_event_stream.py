@@ -90,6 +90,30 @@ def test_reset_event_precedes_replacement_chunks():
     ]
 
 
+def test_invalid_or_foreign_replay_cursor_restarts_current_generation():
+    for cursor in ("not-a-cursor", "other-generation:2:1"):
+        generation_store = FakeGenerationStore()
+        service = InterviewEventStreamService(
+            workflow_store=object(),
+            generation_store=generation_store,
+        )
+
+        events = list(
+            service.iter_command_events(
+                "s1",
+                "cmd-1",
+                after_event_id=cursor,
+            )
+        )
+
+        assert [event.delta for event in events if event.event == "chunk"] == [
+            "old",
+            "partial",
+            "replacement",
+        ]
+        assert generation_store.calls[0][:3] == ("gen-1", 0, -1)
+
+
 class FakeClock:
     def __init__(self):
         self.now = 0.0

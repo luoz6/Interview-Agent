@@ -12,17 +12,17 @@ Status: P9-T02 COMPLETE - evidence scan only; no deletion performed
 
 ## Summary
 
-- App files scanned: 470
+- App files scanned: 513
 - Script files scanned: 48
-- Test files scanned: 409
-- Top-level symbols scanned: 2754
+- Test files scanned: 466
+- Top-level symbols scanned: 2918
 - Parse errors: 0
 - Dynamic import sites reviewed: 7
 - Unresolved dynamic import calls: 2
 - Triple-zero modules: 3
-- Triple-zero symbols: 30 (10 private)
+- Triple-zero symbols: 31 (11 private)
 - Additional symbols covered by triple-zero modules: 12
-- Test-only modules: 10
+- Test-only modules: 12
 - Test-only symbols: 50
 
 ## Reviewed Disposition
@@ -30,9 +30,9 @@ Status: P9-T02 COMPLETE - evidence scan only; no deletion performed
 | category | count | disposition | finding |
 | --- | ---: | --- | --- |
 | triple_zero_modules | 3 | `dedicated_cleanup_candidate` | The module candidates are legacy T63/T65 evaluation implementations. Their former one-off scripts/tests are absent and no current Python consumer or runtime wiring remains. |
-| private_symbols | 10 | `higher_confidence_cleanup_candidate` | Private triple-zero helpers have no detected production, runtime, or test reachability; remove only in a dedicated change with regression tests. |
+| private_symbols | 11 | `higher_confidence_cleanup_candidate` | Private triple-zero helpers have no detected production, runtime, or test reachability; remove only in a dedicated change with regression tests. |
 | public_symbols | 20 | `external_contract_review_required` | Public triple-zero symbols may still have external import consumers; zero repository reachability alone is insufficient for deletion. |
-| test_only | 60 | `retain` | Test-only modules and symbols have explicit test reachability and do not satisfy the triple-zero rule. |
+| test_only | 62 | `retain` | Test-only modules and symbols have explicit test reachability and do not satisfy the triple-zero rule. |
 | unresolved_dynamic_imports | 2 | `reviewed_no_candidate_target` | Unresolved calls are test helpers whose call sites supply literal Runtime module names; exact string scanning records those targets separately. |
 
 ## Triple-Zero Module Candidates
@@ -58,6 +58,7 @@ Status: P9-T02 COMPLETE - evidence scan only; no deletion performed
 | `app.domain.context.selection:_fit_messages_to_remaining` | function | private | 0 | 0 | 0 | `higher_private_symbol` |
 | `app.domain.context.source_identity:build_conversation_source_identity` | function | public | 0 | 0 | 0 | `review_public_contract` |
 | `app.domain.context.source_identity:build_evidence_source_identity` | function | public | 0 | 0 | 0 | `review_public_contract` |
+| `app.domain.interview.scheduling.decisions:_require_step_budget` | function | private | 0 | 0 | 0 | `higher_private_symbol` |
 | `app.domain.report.scoring:_dimension_applies` | function | private | 0 | 0 | 0 | `higher_private_symbol` |
 | `app.domain.report.scoring:resolve_report_scoring_rubric` | function | public | 0 | 0 | 0 | `review_public_contract` |
 | `app.domain.report.view:_identity_payload` | function | private | 0 | 0 | 0 | `higher_private_symbol` |
@@ -84,7 +85,9 @@ These are retained: test reachability means they do not satisfy the deletion rul
 
 | module | static | runtime | tests | decision |
 | --- | ---: | ---: | ---: | --- |
+| `app.a2a.contracts.common` | 0 | 0 | 1 | `test_only` |
 | `app.a2a.official_cards` | 0 | 0 | 1 | `test_only` |
+| `app.adapters.persistence.postgres.scheduler_commands` | 0 | 0 | 1 | `test_only` |
 | `app.application.interview.plan_generation_policy` | 0 | 0 | 1 | `test_only` |
 | `app.application.report.evaluator` | 0 | 0 | 5 | `test_only` |
 | `app.evals.report_calibration_runner` | 0 | 0 | 1 | `test_only` |

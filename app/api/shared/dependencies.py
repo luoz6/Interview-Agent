@@ -14,14 +14,11 @@ from app.application.interview.session_commands import (
 from app.application.interview.interview_start import InterviewStartService
 from app.api.shared.models import PrepRequest, StartInterviewRequest
 from app.runtime.interview_launch import InterviewLaunchCoordinator
-from app.runtime.config.compatibility import (
-    get_interview_langgraph_rollout_percent,
-    get_runtime_store,
-)
 from app.application.interview.prep_question_regeneration import (
     PrepQuestionRegenerator,
 )
 from app.runtime.composition import (
+    build_scheduler_production_entry,
     get_agent_execution_runner,
     get_draft_store,
     get_event_publisher,
@@ -180,11 +177,14 @@ def get_interview_application_service(
     store=Depends(get_session_store),
     publisher=Depends(get_event_publisher),
 ) -> InterviewApplicationService:
+    scheduler_entry = build_scheduler_production_entry(session_store=store)
     return InterviewApplicationService(
         store=store,
         workflow_service_factory=get_interview_workflow_service,
         publisher=publisher,
         report_job_store_factory=get_report_job_store,
+        execution_path_router=scheduler_entry.execution_path_router,
+        scheduler_entry_factory=lambda: scheduler_entry,
     )
 
 
@@ -211,13 +211,12 @@ def get_legacy_interview_start_service(
         return None
     from app.runtime.interview_prep import prepare_interview
 
+    scheduler_entry = build_scheduler_production_entry(session_store=store)
     return InterviewStartService(
         store=store,
-        workflow_service_factory=get_interview_workflow_service,
         execution_runner_factory=get_agent_execution_runner,
-        runtime_store_factory=get_runtime_store,
-        rollout_percent_factory=get_interview_langgraph_rollout_percent,
         plan_factory=prepare_interview,
+        scheduler_entry_factory=lambda: scheduler_entry,
     )
 
 
@@ -234,19 +233,32 @@ def get_request_interview_launch_coordinator(
     plan_override = request.app.dependency_overrides.get(get_prep_plan_store)
     if session_override is None and plan_override is None:
         return coordinator
-    return InterviewLaunchCoordinator(
-        prep_plan_store=(
+    resolved_plan_store = (
             plan_override()
             if plan_override is not None
             else coordinator.prep_plan_store
-        ),
-        session_store=(
+        )
+    resolved_session_store = (
             session_override()
             if session_override is not None
             else coordinator.session_store
+        )
+    from app.runtime.interview_entry import build_launch_prepared_interview
+
+    launcher = build_launch_prepared_interview(
+        prep_plan_store=resolved_plan_store,
+        session_repository=resolved_session_store,
+        launch_repository=coordinator.launch_repository,
+        scheduler_entry=build_scheduler_production_entry(
+            session_store=resolved_session_store
         ),
+    )
+    return InterviewLaunchCoordinator(
+        prep_plan_store=resolved_plan_store,
+        session_store=resolved_session_store,
         launch_repository=coordinator.launch_repository,
         workflow_service=coordinator.workflow_service,
+        canonical_launcher=launcher.launch,
     )
 
 

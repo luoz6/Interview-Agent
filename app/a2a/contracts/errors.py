@@ -4,6 +4,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict
 
+from app.domain.agents.errors import AgentError, AgentFailure
 
 A2AErrorCode = Literal[
     "protocol_error",
@@ -33,8 +34,20 @@ class A2AError(BaseModel):
     internal_reason: str
     observability_code: str
 
+    def to_neutral_error(self) -> AgentError:
+        """Convert the wire error into the core Agent error contract."""
 
-class A2AAgentError(RuntimeError):
+        return AgentError(
+            error_code=self.code,
+            retryable=self.retryable,
+            terminal=self.terminal,
+            fallback_allowed=self.fallback_allowed,
+            public_message=self.public_message,
+            internal_reason=self.internal_reason,
+        )
+
+
+class A2AAgentError(AgentFailure):
     """Runtime exception carrying a stable A2A error code."""
 
     def __init__(
@@ -48,13 +61,15 @@ class A2AAgentError(RuntimeError):
         internal_reason: str,
         observability_code: str | None = None,
     ) -> None:
-        super().__init__(public_message)
+        super().__init__(
+            error_code=code,
+            retryable=retryable,
+            terminal=terminal,
+            fallback_allowed=fallback_allowed,
+            public_message=public_message,
+            internal_reason=internal_reason,
+        )
         self.code = code
-        self.retryable = retryable
-        self.terminal = terminal
-        self.fallback_allowed = fallback_allowed
-        self.public_message = public_message
-        self.internal_reason = internal_reason
         self.observability_code = observability_code or code
 
     def to_artifact(self) -> A2AError:
@@ -67,3 +82,12 @@ class A2AAgentError(RuntimeError):
             internal_reason=self.internal_reason,
             observability_code=self.observability_code,
         )
+
+    def to_neutral_error(self) -> AgentError:
+        return self.to_error()
+
+
+def to_neutral_error(error: A2AError | A2AAgentError) -> AgentError:
+    """Adapter boundary from A2A errors to the neutral core contract."""
+
+    return error.to_neutral_error()

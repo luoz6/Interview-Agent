@@ -30,6 +30,10 @@ _EXPORTS = {
         "app.adapters.postgres.runtime_receipt_repository",
         "PostgresRuntimeReceiptRepository",
     ),
+    "PostgresAgentInvocationLedgerAdapter": (
+        "app.adapters.persistence.postgres.agent_invocation_ledger",
+        "PostgresAgentInvocationLedgerAdapter",
+    ),
     "PostgresSessionRepository": (
         "app.adapters.postgres.session_repository",
         "PostgresSessionRepository",

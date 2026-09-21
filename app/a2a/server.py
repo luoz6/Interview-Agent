@@ -3,7 +3,9 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import Any
 
-from app.a2a.contracts.common import DomainArtifact
+from pydantic import ValidationError
+
+from app.domain.agents.artifacts import DomainArtifact
 from app.a2a.contracts.errors import A2AAgentError, A2AError
 from app.a2a.observability import AgentTaskLog
 from app.a2a.protocol import A2ATask, A2AResult, _utc_now_iso
@@ -74,6 +76,23 @@ class LocalA2AServer:
             artifact = handler(working.input, execution_context)
         except A2AAgentError as exc:
             failed = self._with_error(working, exc.to_artifact())
+            self._tasks[working.task_id] = failed
+            result = A2AResult(task=failed)
+            self.observability.record(result.task)
+            return result
+        except ValidationError as exc:
+            failed = self._with_error(
+                working,
+                A2AError(
+                    code="invalid_request",
+                    retryable=False,
+                    terminal=True,
+                    fallback_allowed=False,
+                    public_message="Agent request is invalid.",
+                    internal_reason=str(exc),
+                    observability_code="invalid_request",
+                ),
+            )
             self._tasks[working.task_id] = failed
             result = A2AResult(task=failed)
             self.observability.record(result.task)
@@ -159,6 +178,18 @@ class LocalA2AServer:
         self._tasks[task_id] = task
         self.observability.record(task)
         return A2AResult(task=task)
+
+    def delete_session_history(self, session_id: str) -> int:
+        """Delete process-local Agent task state for one session/context."""
+
+        selected = [
+            task_id
+            for task_id, task in self._tasks.items()
+            if task.context_id == session_id
+        ]
+        for task_id in selected:
+            self._tasks.pop(task_id, None)
+        return len(selected)
 
     def _find_idempotent_task(self, task: A2ATask) -> A2ATask | None:
         key = task.idempotency_key

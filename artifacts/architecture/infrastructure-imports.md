@@ -19,7 +19,7 @@
 | langchain | model_sdk | no | 0 | 0 | - |
 | langchain_core | model_sdk | no | 0 | 0 | - |
 | langchain_openai | model_sdk | no | 2 | 2 | adapters |
-| langgraph | workflow | yes | 18 | 8 | adapters, graphs, runtime |
+| langgraph | workflow | yes | 21 | 9 | adapters, graphs, runtime |
 | openai | model_sdk | yes | 1 | 1 | adapters |
 | psycopg | database | yes | 1 | 1 | runtime |
 | psycopg2 | database | yes | 139 | 34 | adapters, evals |
@@ -54,7 +54,7 @@
 | evals | 明确违规 | 0 |
 | evals | 暂时无法判断 | 0 |
 | evals | 潜在违规 | 0 |
-| graphs | 合法技术依赖 | 12 |
+| graphs | 合法技术依赖 | 13 |
 | graphs | 明确违规 | 0 |
 | graphs | 暂时无法判断 | 0 |
 | graphs | 潜在违规 | 0 |
@@ -66,7 +66,7 @@
 | ports | 明确违规 | 0 |
 | ports | 暂时无法判断 | 0 |
 | ports | 潜在违规 | 0 |
-| runtime | 合法技术依赖 | 6 |
+| runtime | 合法技术依赖 | 8 |
 | runtime | 明确违规 | 0 |
 | runtime | 暂时无法判断 | 0 |
 | runtime | 潜在违规 | 0 |
@@ -102,7 +102,7 @@
 
 ## Classification Counts
 
-- 合法技术依赖: 229
+- 合法技术依赖: 232
 - 潜在违规: 0
 - 明确违规: 0
 - 暂时无法判断: 0

@@ -1,8 +1,14 @@
 """Stable A2A-V1 domain artifact contracts."""
 
-from app.a2a.contracts.common import DomainArtifact
-from app.a2a.contracts.errors import A2AAgentError, A2AError, A2AErrorCode
+from app.domain.agents.artifacts import DomainArtifact
+from app.a2a.contracts.errors import (
+    A2AAgentError,
+    A2AError,
+    A2AErrorCode,
+    to_neutral_error,
+)
 from app.a2a.contracts.followup import FollowupArtifactPayload
+from app.a2a.contracts.main_question import MainQuestionArtifactPayload
 from app.a2a.contracts.grounding import GroundingArtifactPayload
 from app.a2a.contracts.evaluation import EvaluationArtifactPayload
 from app.a2a.contracts.report import ReportArtifactPayload
@@ -17,7 +23,9 @@ __all__ = [
     "EvaluationArtifactPayload",
     "EvaluationArtifactSetPayload",
     "FollowupArtifactPayload",
+    "MainQuestionArtifactPayload",
     "GroundingArtifactPayload",
     "InterviewPlanArtifactPayload",
     "ReportArtifactPayload",
+    "to_neutral_error",
 ]

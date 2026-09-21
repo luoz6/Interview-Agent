@@ -455,7 +455,7 @@ def test_submit_answer_persists_candidate_and_followup_messages():
     assert state["messages"][2]["content"] == answered.follow_up
 
 
-def test_submit_answer_passes_current_command_id_to_orchestrator(monkeypatch):
+def test_submit_answer_passes_current_command_id_to_legacy_drain_runner(monkeypatch):
     dsn = require_dsn()
     store = PostgresInterviewSessionStore(
         dsn=dsn,
@@ -468,13 +468,15 @@ def test_submit_answer_passes_current_command_id_to_orchestrator(monkeypatch):
         job_tags=["python", "fastapi"],
     )
     captured_commands = []
-    apply_command = store._orchestrator.apply_command
+    submit_answer = store._runner.submit_answer
 
-    def capture_command(state, command):
-        captured_commands.append(command.copy())
-        return apply_command(state, command)
+    def capture_command(state, answer, *, command_id=None):
+        captured_commands.append(
+            {"answer": answer, "command_id": command_id}
+        )
+        return submit_answer(state, answer, command_id=command_id)
 
-    monkeypatch.setattr(store._orchestrator, "apply_command", capture_command)
+    monkeypatch.setattr(store._runner, "submit_answer", capture_command)
 
     store.submit_answer(
         turn.session_id,
@@ -485,7 +487,6 @@ def test_submit_answer_passes_current_command_id_to_orchestrator(monkeypatch):
 
     assert captured_commands == [
         {
-            "kind": "answer",
             "answer": "I built a FastAPI API.",
             "command_id": "cmd-current",
         }

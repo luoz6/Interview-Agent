@@ -6,7 +6,6 @@ from threading import RLock
 from typing import Any, Callable, Dict, Iterator
 from uuid import uuid4
 
-from app.agents.orchestrator import OrchestratorAgent
 from app.application.interview.session_snapshot import (
     SessionSnapshotProjector,
     interview_assistance_metadata,
@@ -100,11 +99,6 @@ class InterviewSessionStore:
             ),
             execution_runner=execution_runner,
             examiner=examiner,
-        )
-        self._orchestrator = OrchestratorAgent(
-            llm=llm,
-            interview_runner=self._runner,
-            execution_runner=execution_runner,
         )
 
     @property
@@ -233,9 +227,10 @@ class InterviewSessionStore:
         if _is_duplicate_command(state, command_id):
             return self._to_turn(state, follow_up=_extract_follow_up(state))
         _ensure_expected_version(state, expected_version)
-        new_state = self._orchestrator.apply_command(
+        new_state = self._runner.submit_answer(
             state,
-            {"kind": "answer", "answer": answer, "command_id": command_id},
+            answer,
+            command_id=command_id,
         )
         new_state = _advance_state_metadata(new_state, command_id=command_id)
         self._sessions[session_id] = new_state
@@ -252,10 +247,7 @@ class InterviewSessionStore:
         if _is_duplicate_command(state, command_id):
             return self._to_turn(state, follow_up=_extract_follow_up(state))
         _ensure_expected_version(state, expected_version)
-        finished_state = self._orchestrator.apply_command(
-            state,
-            {"kind": "finish", "command_id": command_id},
-        )
+        finished_state = self._runner.finish(state)
         finished_state = _advance_state_metadata(finished_state, command_id=command_id)
         self._sessions[session_id] = finished_state
         return self._to_turn(finished_state, follow_up=_extract_follow_up(finished_state))
@@ -271,10 +263,7 @@ class InterviewSessionStore:
         if _is_duplicate_command(state, command_id):
             return self._to_turn(state, follow_up=_extract_follow_up(state))
         _ensure_expected_version(state, expected_version)
-        skipped_state = self._orchestrator.apply_command(
-            state,
-            {"kind": "skip", "command_id": command_id},
-        )
+        skipped_state = self._runner.skip(state)
         skipped_state = _advance_state_metadata(skipped_state, command_id=command_id)
         self._sessions[session_id] = skipped_state
         return self._to_turn(skipped_state, follow_up=_extract_follow_up(skipped_state))
@@ -297,13 +286,10 @@ class InterviewSessionStore:
                 stream_follow_up=_should_stream_follow_up(state),
             )
         _ensure_expected_version(state, expected_version)
-        prepared_state = self._orchestrator.apply_command(
+        prepared_state = self._runner.prepare_answer(
             state,
-            {
-                "kind": "prepare_stream",
-                "answer": answer,
-                "command_id": command_id,
-            },
+            answer,
+            command_id=command_id,
         )
         prepared_state = _advance_state_metadata(prepared_state, command_id=command_id)
         should_stream = _should_stream_follow_up(prepared_state)
@@ -322,13 +308,9 @@ class InterviewSessionStore:
         if _already_finalized_streaming_answer(prepared_state):
             return prepared_state
         _ensure_expected_version(prepared_state, expected_version)
-        finalized_state = self._orchestrator.apply_command(
+        finalized_state = self._runner.finalize_prepared_answer(
             prepared_state,
-            {
-                "kind": "complete_stream",
-                "follow_up_text": follow_up_text,
-                "command_id": command_id,
-            },
+            follow_up=follow_up_text,
         )
         finalized_state = _advance_state_metadata(
             finalized_state,

@@ -3,10 +3,13 @@ from __future__ import annotations
 from app.application.interview.launch_prepared_interview import (
     LaunchPreparedInterview,
 )
-from app.runtime.config.compatibility import get_runtime_store
-
-
-def build_launch_prepared_interview() -> LaunchPreparedInterview:
+def build_launch_prepared_interview(
+    *,
+    session_repository=None,
+    prep_plan_store=None,
+    launch_repository=None,
+    scheduler_entry=None,
+) -> LaunchPreparedInterview:
     from app.adapters.memory.interview_entry import (
         MemoryClock,
         MemoryDurableExecutionAdapter,
@@ -28,16 +31,18 @@ def build_launch_prepared_interview() -> LaunchPreparedInterview:
         get_interview_workflow_service,
         get_prep_plan_store,
         get_session_store,
+        get_scheduler_production_entry,
     )
 
-    runtime_store = get_runtime_store()
-    session_repository = get_session_store()
-    prep_plan_store = get_prep_plan_store()
-    launch_repository = get_interview_launch_repository()
+    session_repository = session_repository or get_session_store()
+    prep_plan_store = prep_plan_store or get_prep_plan_store()
+    launch_repository = launch_repository or get_interview_launch_repository()
+    scheduler_entry = scheduler_entry or get_scheduler_production_entry()
 
-    if runtime_store == "postgres":
+    if getattr(session_repository, "durability", None) == "postgres":
         session_adapter = PostgresInterviewSessionRepositoryAdapter(
-            session_repository
+            session_repository,
+            scheduler_entry=scheduler_entry,
         )
         return LaunchPreparedInterview(
             prep_plan_repository=PostgresPrepPlanRepositoryAdapter(
@@ -56,7 +61,8 @@ def build_launch_prepared_interview() -> LaunchPreparedInterview:
         )
 
     session_adapter = MemoryInterviewSessionRepositoryAdapter(
-        session_repository
+        session_repository,
+        scheduler_entry=scheduler_entry,
     )
     return LaunchPreparedInterview(
         prep_plan_repository=MemoryPrepPlanRepositoryAdapter(prep_plan_store),

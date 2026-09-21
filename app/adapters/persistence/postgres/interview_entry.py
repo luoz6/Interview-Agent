@@ -136,8 +136,9 @@ class PostgresInterviewLaunchRepositoryAdapter:
 
 
 class PostgresInterviewSessionRepositoryAdapter:
-    def __init__(self, store: PostgresInterviewSessionStore) -> None:
+    def __init__(self, store: PostgresInterviewSessionStore, scheduler_entry=None) -> None:
         self._store = store
+        self._scheduler_entry = scheduler_entry
 
     def start(
         self,
@@ -148,13 +149,22 @@ class PostgresInterviewSessionRepositoryAdapter:
         job_tags: list[str],
         session_id: str,
     ) -> dict[str, Any]:
-        self._store.start(
-            plan,
-            job_description=job_description,
-            resume_text=resume_text,
-            job_tags=job_tags,
-            session_id=session_id,
-        )
+        if self._scheduler_entry is not None:
+            self._scheduler_entry.start(
+                plan,
+                job_description=job_description,
+                resume_text=resume_text,
+                job_tags=job_tags,
+                session_id=session_id,
+            )
+        else:
+            self._store.start(
+                plan,
+                job_description=job_description,
+                resume_text=resume_text,
+                job_tags=job_tags,
+                session_id=session_id,
+            )
         return {"session_id": session_id}
 
     def get(self, session_id: str) -> dict[str, Any]:

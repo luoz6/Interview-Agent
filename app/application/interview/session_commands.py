@@ -61,11 +61,15 @@ class SessionCommandService:
         workflow_service_factory: Callable[[], Any],
         publisher: RuntimeEventPublisher,
         report_job_store_factory: Callable[[], ReportJobQueue],
+        execution_path_router: Any | None = None,
+        scheduler_entry_factory: Callable[[], Any] | None = None,
     ) -> None:
         self.store = store
         self.workflow_service_factory = workflow_service_factory
         self.publisher = publisher
         self.report_job_store_factory = report_job_store_factory
+        self.execution_path_router = execution_path_router
+        self.scheduler_entry_factory = scheduler_entry_factory
 
     def workflow_service(self):
         return self.workflow_service_factory()
@@ -78,6 +82,17 @@ class SessionCommandService:
 
     def execute(self, command: SessionCommand) -> SessionCommandResult:
         state = self.require_active_state(command.session_id)
+        if self._is_scheduler_execution(command.session_id):
+            before_state = deepcopy(state)
+            turn = self.scheduler_entry_factory().execute(command)
+            after_state = deepcopy(self.store.get(command.session_id))
+            self.complete_legacy_transition(
+                command.session_id,
+                before_state=before_state,
+                after_state=after_state,
+                turn=turn,
+            )
+            return SessionCommandResult(kind="legacy", turn=turn)
         if is_durable_interview_version(state.get("workflow_engine")):
             accepted = self.workflow_service().submit_command(
                 command.session_id,
@@ -113,6 +128,12 @@ class SessionCommandService:
         )
         return SessionCommandResult(kind="legacy", turn=turn)
 
+    def _is_scheduler_execution(self, session_id: str) -> bool:
+        if self.execution_path_router is None or self.scheduler_entry_factory is None:
+            return False
+        binding = self.execution_path_router.binding_store.get(session_id)
+        return binding is not None and binding.path == "NEW"
+
     def complete_legacy_transition(
         self,
         session_id: str,
@@ -140,11 +161,14 @@ class InterviewApplicationService(SessionCommandService):
 
     def snapshot(self, session_id: str) -> dict[str, Any]:
         state = self.require_active_state(session_id)
-        snapshot = (
-            self.workflow_service().snapshot(session_id)
-            if is_durable_interview_version(state.get("workflow_engine"))
-            else self.store.snapshot(session_id)
-        )
+        if self._is_scheduler_execution(session_id):
+            snapshot = self.scheduler_entry_factory().snapshot(session_id)
+        else:
+            snapshot = (
+                self.workflow_service().snapshot(session_id)
+                if is_durable_interview_version(state.get("workflow_engine"))
+                else self.store.snapshot(session_id)
+            )
         public_plan = public_interview_plan_payload(state["plan"])
         snapshot["prep_context"] = public_plan.get("prep_context")
         return snapshot
@@ -159,7 +183,14 @@ class StreamingTurnService:
         command: SessionCommand,
     ) -> DurableSessionStream | LegacySessionStream:
         state = self.application.require_active_state(command.session_id)
-        if is_durable_interview_version(state.get("workflow_engine")):
+        scheduler_entry = None
+        scheduler_context = None
+        if self.application._is_scheduler_execution(command.session_id):
+            scheduler_entry = self.application.scheduler_entry_factory()
+            scheduler_context = scheduler_entry.accept_answer(command)
+        if scheduler_entry is None and is_durable_interview_version(
+            state.get("workflow_engine")
+        ):
             workflow = self.application.workflow_service()
             accepted = workflow.submit_command(
                 command.session_id,
@@ -218,6 +249,14 @@ class StreamingTurnService:
                     after_state=after_state,
                     turn=turn,
                 )
+                if scheduler_entry is not None and scheduler_context is not None:
+                    plan, _accepted_state, wait = scheduler_context
+                    scheduler_entry.complete_projected_turn(
+                        command.session_id,
+                        plan=plan,
+                        wait=wait,
+                        turn=turn,
+                    )
                 yield InterviewStreamDoneEvent(turn=turn_to_dict(turn))
             except Exception as exc:  # pragma: no cover - stream boundary
                 yield InterviewStreamErrorEvent(detail=str(exc))

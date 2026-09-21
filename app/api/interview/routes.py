@@ -312,6 +312,12 @@ def start_interview(
                     scope_principal_identity_resolver
                 ),
                 materials_settings=materials_settings,
+                scheduler_entry=(
+                    start_service.scheduler_entry_factory()
+                    if getattr(start_service, "scheduler_entry_factory", None)
+                    is not None
+                    else None
+                ),
             )
 
     if payload.plan_id is not None:
@@ -361,6 +367,7 @@ def _start_interview_locked(
     scope_resolver_factory=None,
     scope_principal_identity_resolver=None,
     materials_settings=None,
+    scheduler_entry=None,
 ):
     choice_binder = PrincipalMemorySessionChoiceBinder(
         identity_resolver=principal_identity_resolver,
@@ -386,13 +393,15 @@ def _start_interview_locked(
             plan_sha256=payload.plan_sha256,
         )
         if turn is not None:
+            if scheduler_entry is not None:
+                scheduler_entry.ensure_bootstrapped(turn.session_id)
             revision_store.add_source_reference(
                 revision.source_id,
                 owner_type="session",
                 owner_id=turn.session_id,
             )
             if isinstance(revision.plan, InterviewPlanV3):
-                return _v3_start_response(turn.session_id)
+                return _v3_start_response(turn.session_id, scheduler_entry)
             return _turn_to_dict(turn)
         latest = revision_store.get_latest(revision.plan_family_id)
         if latest.plan_revision_id != revision.plan_revision_id:
@@ -467,7 +476,17 @@ def _start_interview_locked(
                 session_id=session_id,
                 mode=payload.principal_memory_mode,
             )
-            if is_v3 or (
+            if scheduler_entry is not None:
+                turn = scheduler_entry.start(
+                    plan,
+                    job_description=source_payload.job_description,
+                    resume_text=source_payload.resume_text,
+                    job_tags=list(source_payload.job_tags),
+                    plan_binding=plan_binding,
+                    session_id=session_id,
+                    bootstrap=True,
+                )
+            elif is_v3 or (
                 get_runtime_store() == "postgres"
                 and get_interview_langgraph_rollout_percent() > 0
             ):
@@ -522,12 +541,16 @@ def _start_interview_locked(
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     if is_v3:
-        return _v3_start_response(session_id)
+        return _v3_start_response(session_id, scheduler_entry)
     return _turn_to_dict(turn)
 
 
-def _v3_start_response(session_id: str) -> JSONResponse:
-    snapshot = dependencies.get_interview_workflow_service().snapshot(session_id)
+def _v3_start_response(session_id: str, scheduler_entry=None) -> JSONResponse:
+    snapshot = (
+        scheduler_entry.snapshot(session_id)
+        if scheduler_entry is not None
+        else dependencies.get_interview_workflow_service().snapshot(session_id)
+    )
     return JSONResponse(
         status_code=202,
         content={
@@ -535,7 +558,9 @@ def _v3_start_response(session_id: str) -> JSONResponse:
             "status": snapshot.get("status", "preparing_first_question"),
             "stream_url": f"/api/interviews/{session_id}/bootstrap/stream",
             "status_url": f"/api/interviews/{session_id}",
-            "workflow_engine": "langgraph-v3",
+            "workflow_engine": (
+                "scheduler-v1" if scheduler_entry is not None else "langgraph-v3"
+            ),
             "current_question": snapshot.get("current_question"),
         },
     )

@@ -21,6 +21,14 @@ T = TypeVar("T")
 
 
 class AgentExecutionContext(BaseModel):
+    """Neutral execution identity and invocation context.
+
+    ``run_id`` is the persisted/runtime identifier used by the existing
+    recorder schema. ``execution_id`` is its neutral vocabulary alias for
+    Scheduler and Port contracts; exposing it as a property avoids creating a
+    second identity field or breaking the agent-runtime-v1 wire shape.
+    """
+
     model_config = ConfigDict(extra="forbid")
 
     schema_version: Literal["agent-runtime-v1"] = "agent-runtime-v1"
@@ -37,6 +45,12 @@ class AgentExecutionContext(BaseModel):
     command_id: str | None = None
     evidence_ids: list[str] = Field(default_factory=list)
     attempt_number: int = Field(default=1, ge=1)
+
+    @property
+    def execution_id(self) -> str:
+        """Return the canonical execution identity for neutral callers."""
+
+        return self.run_id
 
     @field_validator("evidence_ids")
     @classmethod

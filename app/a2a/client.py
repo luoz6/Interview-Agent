@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Any
 from uuid import uuid4
 
-from app.a2a.contracts.common import DomainArtifact
+from app.domain.agents.artifacts import DomainArtifact
 from app.a2a.contracts.errors import A2AAgentError
 from app.a2a.protocol import A2ATask
 from app.a2a.server import LocalA2AServer

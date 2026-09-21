@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import Any
 
-from app.a2a.contracts.common import DomainArtifact
+from app.domain.agents.artifacts import DomainArtifact
 from app.a2a.contracts.errors import A2AAgentError
 from app.a2a.invocation.context import InvocationContext
 from app.a2a.invocation.execution_context import build_agent_execution_context

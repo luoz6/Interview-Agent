@@ -67,7 +67,7 @@ Blocked by: production_import, runtime_wiring, integration_dependency, migration
 - `integration_dependency`: `tests/integration/postgres/test_durable_interview_graph.py:16` (from_import)
 - `integration_dependency`: `tests/integration/postgres/test_interview_workflow_store.py:15` (from_import)
 - `integration_dependency`: `tests/integration/postgres/test_langgraph_recovery_postgres.py:15` (from_import)
-- `integration_dependency`: `tests/unit/test_durable_interview_graph.py:33` (from_import)
+- `integration_dependency`: `tests/unit/test_durable_interview_graph.py:34` (from_import)
 - `integration_dependency`: `tests/unit/test_durable_interview_state.py:7` (from_import)
 - `integration_dependency`: `tests/unit/test_principal_memory_consume_graph.py:5` (from_import)
 - `migration_dependency`: `app/graphs/durable_interview_state_v2.py:5` (from_import)
@@ -76,12 +76,12 @@ Blocked by: production_import, runtime_wiring, integration_dependency, migration
 
 Blocked by: production_import, runtime_wiring, integration_dependency.
 
-- `production_import`: `app/runtime/composition.py:1581` (from_import)
+- `production_import`: `app/runtime/composition.py:1877` (from_import)
 - `production_import`: `app/runtime/interview_workflow.py:11` (from_import)
-- `runtime_wiring`: `app/runtime/composition.py:1581` (from_import)
+- `runtime_wiring`: `app/runtime/composition.py:1877` (from_import)
 - `runtime_wiring`: `app/runtime/interview_workflow.py:11` (from_import)
 - `integration_dependency`: `tests/unit/test_dual_langgraph_rollout.py:13` (from_import)
-- `integration_dependency`: `tests/unit/test_durable_interview_graph.py:34` (from_import)
+- `integration_dependency`: `tests/unit/test_durable_interview_graph.py:35` (from_import)
 - `integration_dependency`: `tests/unit/test_durable_interview_state.py:8` (from_import)
 
 ## Decision

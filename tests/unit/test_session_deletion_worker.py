@@ -84,6 +84,10 @@ def test_worker_purges_interview_and_associated_review_failure_states():
         "failure_state_rows",
         "principal_memory_rows",
         "principal_memory_control_rows",
+        "scheduler_execution_states",
+        "agent_session_rows",
+        "agent_invocation_rows",
+        "agent_private_memory_rows",
         "business_sessions",
     }
     assert "PRIVATE_SESSION_CANARY" not in repr(completed.safe_counts)

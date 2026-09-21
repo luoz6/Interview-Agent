@@ -150,17 +150,46 @@ def test_submit_answer_is_idempotent_for_duplicate_command_id():
     assert snapshot["last_command_id"] == "cmd-1"
 
 
-def test_submit_answer_passes_current_command_id_to_orchestrator(monkeypatch):
+def test_legacy_duplicate_command_replays_before_version_or_payload_validation():
+    store = InterviewSessionStore(llm=FakeInterviewLLM())
+    session = start_session(store)
+
+    first = store.submit_answer(
+        session.session_id,
+        "I used Redis.",
+        expected_version=1,
+        command_id="cmd-legacy-replay",
+    )
+    replay = store.submit_answer(
+        session.session_id,
+        "This different payload is ignored by legacy replay.",
+        expected_version=999,
+        command_id="cmd-legacy-replay",
+    )
+    snapshot = store.snapshot(session.session_id)
+
+    assert replay == first
+    assert snapshot["state_version"] == 2
+    assert [
+        message["content"]
+        for message in snapshot["messages"]
+        if message["role"] == "candidate"
+    ] == ["I used Redis."]
+
+
+def test_submit_answer_passes_current_command_id_to_legacy_drain_runner(monkeypatch):
     store = InterviewSessionStore(llm=FakeInterviewLLM())
     session = start_session(store)
     captured_commands = []
-    apply_command = store._orchestrator.apply_command
+    submit_answer = store._runner.submit_answer
 
-    def capture_command(state, command):
-        captured_commands.append(command.copy())
-        return apply_command(state, command)
+    def capture_command(state, answer, *, command_id=None):
+        captured_commands.append(
+            {"answer": answer, "command_id": command_id}
+        )
+        return submit_answer(state, answer, command_id=command_id)
 
-    monkeypatch.setattr(store._orchestrator, "apply_command", capture_command)
+    monkeypatch.setattr(store._runner, "submit_answer", capture_command)
 
     store.submit_answer(
         session.session_id,
@@ -171,7 +200,6 @@ def test_submit_answer_passes_current_command_id_to_orchestrator(monkeypatch):
 
     assert captured_commands == [
         {
-            "kind": "answer",
             "answer": "I used Redis.",
             "command_id": "cmd-current",
         }
@@ -504,6 +532,9 @@ def test_finish_without_answer_marks_remaining_questions_unanswered():
 
     snapshot = store.snapshot(session.session_id)
     assert snapshot["status"] == "finished"
+    assert snapshot["phase"] == "review"
+    assert snapshot["phase_status"] == "active"
+    assert snapshot["review_status"] == "processing"
     assert snapshot["completed_questions"] == 0
     assert snapshot["answered_questions"] == 0
     assert snapshot["skipped_questions"] == 0
@@ -528,6 +559,9 @@ def test_skip_last_question_finishes_session():
     assert final_turn.follow_up == INTERVIEW_FINISHED_MESSAGE
     snapshot = store.snapshot(session.session_id)
     assert snapshot["status"] == "finished"
+    assert snapshot["phase"] == "review"
+    assert snapshot["phase_status"] == "active"
+    assert snapshot["review_status"] == "processing"
     assert snapshot["current_question"] is None
     assert snapshot["messages"][-1]["content"] == INTERVIEW_FINISHED_MESSAGE
 

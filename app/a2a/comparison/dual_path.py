@@ -7,7 +7,7 @@ from app.a2a.comparison.comparator import (
     ComparisonResult,
     DeterministicArtifactComparator,
 )
-from app.a2a.contracts.common import DomainArtifact
+from app.domain.agents.artifacts import DomainArtifact
 from app.a2a.invocation.a2a import A2AAgentInvoker
 from app.a2a.invocation.local import LocalAgentInvoker
 

@@ -20,6 +20,10 @@ from app.application.interview.events import AcceptedInterviewCommand
 from app.domain.interview.session_plan_binding import session_plan_binding_from_state
 from app.adapters.workflows.workflow_thread_lock import NoopWorkflowThreadLock
 from app.domain.workflow_thread_lock import interview_thread_identity
+from app.application.interview.orchestration_cutover import ExecutionPathRouter
+from app.adapters.memory.execution_path_binding import (
+    InMemoryExecutionPathBindingStore,
+)
 
 
 PENDING_ACTION_BY_NODE = {
@@ -62,6 +66,7 @@ class InterviewWorkflowService:
         thread_lock=None,
         memory_policy_resolver=None,
         checkpointer_runtime_getter: Callable[[], object | None] | None = None,
+        execution_path_router: ExecutionPathRouter | None = None,
     ) -> None:
         self.legacy_store = legacy_store
         self.workflow_store = workflow_store
@@ -76,6 +81,9 @@ class InterviewWorkflowService:
         )
         self.checkpointer_runtime_getter = checkpointer_runtime_getter
         self.thread_lock = thread_lock or NoopWorkflowThreadLock()
+        self.execution_path_router = execution_path_router or ExecutionPathRouter(
+            InMemoryExecutionPathBindingStore()
+        )
         self.event_stream = InterviewEventStreamService(
             workflow_store, generation_store
         )
@@ -92,6 +100,7 @@ class InterviewWorkflowService:
         bootstrap: bool = True,
     ):
         session_id = session_id or str(uuid4())
+        self.execution_path_router.claim_execution(session_id, "OLD")
         is_v3 = getattr(plan, "schema_version", None) == "interview-plan-v3"
         if is_v3:
             if (
@@ -196,6 +205,7 @@ class InterviewWorkflowService:
         graph=None,
         validate_snapshot=None,
     ):
+        self.execution_path_router.claim_execution(session_id, "OLD")
         with self.thread_lock.hold(
             interview_thread_identity(session_id),
             workflow_type="interview",
@@ -212,6 +222,7 @@ class InterviewWorkflowService:
             return result
 
     def ensure_interview_bootstrapped(self, session_id: str, *, plan=None):
+        self.execution_path_router.claim_execution(session_id, "OLD")
         with self.thread_lock.hold(
             interview_thread_identity(session_id),
             workflow_type="interview",
@@ -347,6 +358,7 @@ class InterviewWorkflowService:
         command_id: str | None,
         answer_text: str | None = None,
     ):
+        self.execution_path_router.claim_execution(session_id, "OLD")
         state = self.legacy_store.get(session_id)
         if not is_durable_interview_version(state.get("workflow_engine")):
             kwargs = {
