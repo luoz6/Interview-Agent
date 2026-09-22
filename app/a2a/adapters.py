@@ -5,7 +5,11 @@ from typing import Any
 
 from pydantic import ValidationError
 
-from app.a2a.contracts.evaluation import EvaluationArtifactPayload
+from app.a2a.contracts.evaluation import (
+    EvaluationArtifactPayload,
+    EvaluationArtifactV2,
+    EvaluationGapPayload,
+)
 from app.a2a.contracts.evaluation_set import EvaluationArtifactSetPayload
 from app.a2a.contracts.errors import A2AAgentError
 from app.a2a.contracts.followup import FollowupArtifactPayload
@@ -224,6 +228,42 @@ def register_reviewer_adapter(
             ),
             report.feedbacks[0] if report.feedbacks else None,
         )
+        if request.answer_artifact_ref and request.question_artifact_ref:
+            if feedback is None or feedback.score is None:
+                reason = (
+                    feedback.critique
+                    if feedback is not None and feedback.critique
+                    else "Reviewer requires more answer evidence."
+                )
+                return EvaluationArtifactV2(
+                    question_id=question_id or "unknown-question",
+                    answer_artifact_ref=request.answer_artifact_ref,
+                    question_artifact_ref=request.question_artifact_ref,
+                    evaluation_status="EVALUATED",
+                    evidence_status="INSUFFICIENT",
+                    gap=EvaluationGapPayload(
+                        gap_id=f"gap:{question_id or 'unknown-question'}",
+                        type="answer_evidence",
+                        focus=question_id or "answer",
+                        reason=reason,
+                    ),
+                    evidence_refs=tuple(
+                        ref.chunk_id for ref in feedback.references
+                    ) if feedback is not None else (),
+                    summary=reason,
+                    evaluation_policy_version="review-policy-v2",
+                )
+            return EvaluationArtifactV2(
+                question_id=feedback.question_id,
+                answer_artifact_ref=request.answer_artifact_ref,
+                question_artifact_ref=request.question_artifact_ref,
+                evaluation_status="EVALUATED",
+                evidence_status="SUFFICIENT",
+                score=feedback.score,
+                evidence_refs=tuple(ref.chunk_id for ref in feedback.references),
+                summary=feedback.critique or "Answer evidence is sufficient.",
+                evaluation_policy_version="review-policy-v2",
+            )
         if feedback is None:
             return EvaluationArtifactPayload(
                 question_id=question_id or "",

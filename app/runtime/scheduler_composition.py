@@ -23,6 +23,7 @@ class SchedulerRuntimeComposition:
     capability_adapter: Any
     invocation_adapter: Any
     durable_ledger: Any
+    artifact_store: Any
     memory_store: Any
     execution_state_store: Any
     checkpointer: Any

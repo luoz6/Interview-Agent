@@ -4,8 +4,8 @@ Status: P9-T01 COMPLETE - observational scan only
 
 ## Method
 
-- Python files scanned: 513
-- Top-level definitions scanned: 2918
+- Python files scanned: 521
+- Top-level definitions scanned: 2948
 - Parse errors: 0
 - Exact matches use normalized AST bodies with docstrings removed.
 - Repository, DTO, evaluator, runtime-wiring, and version-family matches are candidates, not deletion decisions.
@@ -16,8 +16,8 @@ Status: P9-T01 COMPLETE - observational scan only
 | category | groups | disposition |
 | --- | ---: | --- |
 | Exact normalized AST implementations | 28 | exact clone review |
-| Repository / store families | 27 | manual review required |
-| DTO field-shape matches | 2 | manual review required |
+| Repository / store families | 28 | manual review required |
+| DTO field-shape matches | 3 | manual review required |
 | Evaluation-related name matches (broad heuristic) | 20 | manual review required |
 | Runtime wiring call fingerprints | 0 | manual review required |
 | Version module families | 3 | manual review required |
@@ -75,6 +75,7 @@ Status: P9-T01 COMPLETE - observational scan only
 | candidate | low | `expected_polymorphic_family` | `contextcompressionfailurestore` | app.adapters.memory.context_compression_failure_store:InMemoryContextCompressionFailureStore<br>app.adapters.persistence.postgres.context_compression_failure_store:PostgresContextCompressionFailureStore |
 | candidate | low | `expected_polymorphic_family` | `decisionstore` | app.adapters.memory.decision_store:InMemoryDecisionStore<br>app.adapters.persistence.postgres.decision_store:PostgresDecisionStore |
 | candidate | low | `expected_polymorphic_family` | `draftstore` | app.adapters.memory.draft_store:InMemoryDraftStore<br>app.adapters.persistence.postgres.draft_store:PostgresDraftStore |
+| candidate | low | `expected_polymorphic_family` | `executionartifactstore` | app.adapters.memory.execution_artifacts:InMemoryExecutionArtifactStore<br>app.adapters.persistence.postgres.execution_artifacts:PostgresExecutionArtifactStore<br>app.ports.execution_artifacts:ExecutionArtifactStore |
 | candidate | low | `expected_polymorphic_family` | `executionpathbindingstore` | app.adapters.memory.execution_path_binding:InMemoryExecutionPathBindingStore<br>app.adapters.persistence.postgres.execution_path_binding:PostgresExecutionPathBindingStore |
 | candidate | high | `overlapping_port_contracts` | `interviewlaunchrepository` | app.adapters.memory.interview_launch_repository:InMemoryInterviewLaunchRepository<br>app.adapters.persistence.postgres.interview_launch_repository:PostgresInterviewLaunchRepository<br>app.ports.interview_entry:InterviewLaunchRepository<br>app.ports.interview_launch:InterviewLaunchRepository |
 | candidate | low | `expected_polymorphic_family` | `interviewplanrevisionstore` | app.adapters.memory.plan_revision_store:InMemoryInterviewPlanRevisionStore<br>app.adapters.persistence.postgres.plan_revision_store:PostgresInterviewPlanRevisionStore<br>app.ports.plan_revision_store:InterviewPlanRevisionStore |
@@ -105,6 +106,7 @@ Status: P9-T01 COMPLETE - observational scan only
 | status | priority | disposition | key | members |
 | --- | --- | --- | --- | --- |
 | candidate | high | `shared_contract_candidate` | `[["context_messages","list[dict[str, str]]"],["artifact_ref","str \| None"],["artifact_sha256","str \| None"],["artifact_type","str \| None"],["policy_version","str \| None"],["route","str"]]` | app.application.interview.context_artifacts:InterviewArtifactContext<br>app.runtime.evidence_context_artifacts:EvidenceArtifactContext |
+| candidate | low | `compatible_shape_only` | `[["execution_id","str"],["task_id","str"],["logical_attempt","int"],["agent_id","str"],["skill","str"],["question_id","str \| None"]]` | app.application.interview.scheduler_production_entry:SchedulerQuestionBoundary<br>app.domain.agent_streaming:AgentStreamIdentity |
 | candidate | low | `compatible_shape_only` | `[["id","str"],["kind","Literal['project', 'technical', 'system-design', 'behavioral']"],["prompt","str"],["focus","str"]]` | app.domain.interview.prep:InterviewQuestion<br>app.domain.interview.session_plan_binding:_LegacyQuestionSnapshot<br>app.evals.synthetic_session_diagnostics:SyntheticQuestion |
 
 ## Evaluation-related name matches (broad heuristic)

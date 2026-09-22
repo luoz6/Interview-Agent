@@ -83,7 +83,7 @@ def test_latest_migration_contract_preserves_deletion_and_adds_row_versions():
     )
     assert (
         LATEST_RUNTIME_MIGRATION.migration_id
-        == "agent_invocation_lease_index_v1_v33"
+        == "execution_artifact_store_v1_v34"
     )
     assert LATEST_RUNTIME_MIGRATION == RUNTIME_MIGRATIONS[-1]
     columns = required_columns_for_relation(

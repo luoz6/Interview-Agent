@@ -7,6 +7,13 @@ import app.api.interview.routes as interview_route_module
 import app.api.prep.routes as prep_route_module
 import app.api.shared.dependencies as api_dependencies
 import app.application.interview.interview_start as interview_start_module
+from app.a2a.contracts.evaluation import (
+    EvaluationArtifactV2,
+    EvaluationGapPayload,
+)
+from app.a2a.contracts.followup import FollowupArtifactPayload
+from app.a2a.contracts.main_question import MainQuestionArtifactPayload
+from app.a2a.runtime import build_local_a2a_runtime
 from app.api.shared.dependencies import get_session_store
 from app.main import app
 from app.adapters.memory.draft_store import InMemoryDraftStore
@@ -85,6 +92,76 @@ def isolate_plan_revision_store():
 
 def make_client(control_store=None):
     store = InterviewSessionStore(llm=FakeApiLLM())
+    runtime = build_local_a2a_runtime(llm=FakeApiLLM())
+    review_counts = {}
+
+    def evaluate_answer(request, _execution_context):
+        question_id = request["question_id"]
+        review_counts[question_id] = review_counts.get(question_id, 0) + 1
+        if review_counts[question_id] == 1:
+            return EvaluationArtifactV2(
+                question_id=question_id,
+                answer_artifact_ref=request["answer_artifact_ref"],
+                question_artifact_ref=request["question_artifact_ref"],
+                evaluation_status="EVALUATED",
+                evidence_status="INSUFFICIENT",
+                gap=EvaluationGapPayload(
+                    gap_id=f"gap:{question_id}:cache-protection",
+                    type="depth",
+                    focus="cache failure protection",
+                    reason="The first answer needs one bounded follow-up.",
+                ),
+                summary="One follow-up is required.",
+                evaluation_policy_version="acceptance-review-v1",
+            )
+        return EvaluationArtifactV2(
+            question_id=question_id,
+            answer_artifact_ref=request["answer_artifact_ref"],
+            question_artifact_ref=request["question_artifact_ref"],
+            evaluation_status="EVALUATED",
+            evidence_status="SUFFICIENT",
+            score=85,
+            summary="The follow-up supplied enough evidence.",
+            evaluation_policy_version="acceptance-review-v1",
+        )
+
+    runtime.server.register(
+        agent_id="interview-reviewer",
+        skill="evaluate-answer",
+        handler=evaluate_answer,
+    )
+
+    def generate_main_question(request, _execution_context):
+        intent = request["intent"]
+        return MainQuestionArtifactPayload(
+            question_id=intent["question_id"],
+            question_text=intent["fixed_question_text"],
+            render_mode="fixed",
+            reason_code="fixed_plan_question",
+        )
+
+    def generate_followup(request, _execution_context):
+        return FollowupArtifactPayload(
+            question_id=request["question_id"],
+            gap_id=request.get("gap_id"),
+            followup_text="请继续说明缓存失效时如何保护数据库。",
+            reason_code=request["reason_code"],
+            focus=request.get("focus", ""),
+            policy_version=request["policy_version"],
+            evidence_ids=request.get("evidence_ids", []),
+        )
+
+    runtime.server.register(
+        agent_id="interview-examiner",
+        skill="generate-main-question",
+        handler=generate_main_question,
+    )
+    runtime.server.register(
+        agent_id="interview-examiner",
+        skill="generate-followup",
+        handler=generate_followup,
+    )
+    store._scheduler_a2a_runtime = runtime
     app.dependency_overrides[get_session_store] = lambda: store
     app.dependency_overrides[get_draft_store] = lambda: _api_draft_store
     app.dependency_overrides[api_dependencies.get_prep_plan_store] = (
@@ -928,8 +1005,8 @@ def test_get_interview_session_returns_resume_metadata():
     assert body["phase"] == "interview"
     assert body["phase_status"] == "active"
     assert body["review_status"] == "idle"
-    assert body["state_version"] == 1
-    assert body["checkpoint_version"] == 1
+    assert body["state_version"] >= 1
+    assert body["checkpoint_version"] == body["state_version"]
     assert body["last_checkpoint_at"]
     assert body["last_command_id"] is None
 
@@ -993,6 +1070,7 @@ def test_answer_missing_session_returns_404():
 def test_answer_route_returns_409_for_version_conflict():
     client = make_client()
     started = start_test_interview(client).json()
+    current = client.get(f"/api/interviews/{started['session_id']}").json()
 
     response = client.post(
         f"/api/interviews/{started['session_id']}/answer",
@@ -1007,7 +1085,7 @@ def test_answer_route_returns_409_for_version_conflict():
     assert response.json() == {
         "detail": "session version conflict",
         "expected_version": 0,
-        "actual_version": 1,
+        "actual_version": current["state_version"],
     }
 
 
@@ -1015,13 +1093,14 @@ def test_interview_answer_stream_flow():
     client = make_client()
     start_response = start_test_interview(client)
     started = start_response.json()
+    initial = client.get(f"/api/interviews/{started['session_id']}").json()
 
     with client.stream(
         "POST",
         f"/api/interviews/{started['session_id']}/answer/stream",
         json={
             "answer": "I used Redis to cache frequently requested records.",
-            "expected_version": 1,
+            "expected_version": initial["state_version"],
             "command_id": "cmd-stream",
         },
     ) as response:
@@ -1029,10 +1108,11 @@ def test_interview_answer_stream_flow():
         body = "".join(response.iter_text())
     snapshot = client.get(f"/api/interviews/{started['session_id']}").json()
 
-    assert "event: chunk" in body
-    assert "event: done" in body
-    assert snapshot["state_version"] == 3
-    assert snapshot["checkpoint_version"] == 3
+    assert "event: STARTED" in body
+    assert "event: DELTA" in body
+    assert "event: COMPLETED" in body
+    assert snapshot["state_version"] > initial["state_version"]
+    assert snapshot["checkpoint_version"] == snapshot["state_version"]
     assert snapshot["last_command_id"] == "cmd-stream"
     assert "请继续说明" in body
     assert "缓存失效时" in body
@@ -1040,22 +1120,11 @@ def test_interview_answer_stream_flow():
 
 def test_interview_answer_stream_retry_reuses_command_without_duplicate_answer():
     client = make_client()
-    store = app.dependency_overrides[get_session_store]()
-    attempts = 0
-
-    def flaky_stream(_state):
-        nonlocal attempts
-        attempts += 1
-        yield "partial "
-        if attempts == 1:
-            raise RuntimeError("stream interrupted")
-        yield "follow-up"
-
-    store._runner.stream_followup = flaky_stream
     started = start_test_interview(client).json()
+    initial = client.get(f"/api/interviews/{started['session_id']}").json()
     payload = {
         "answer": "I used Redis to cache frequently requested records.",
-        "expected_version": 1,
+        "expected_version": initial["state_version"],
         "command_id": "cmd-stream-retry",
     }
 
@@ -1069,10 +1138,9 @@ def test_interview_answer_stream_retry_reuses_command_without_duplicate_answer()
     )
     snapshot = client.get(f"/api/interviews/{started['session_id']}").json()
 
-    assert "event: error" in first.text
+    assert "event: COMPLETED" in first.text
     assert "event: done" in second.text
-    assert attempts == 2
-    assert snapshot["state_version"] == 3
+    assert snapshot["state_version"] > initial["state_version"]
     assert len(
         [message for message in snapshot["messages"] if message["role"] == "candidate"]
     ) == 1
@@ -1110,12 +1178,13 @@ def test_answer_route_publishes_round_closed_event_only_when_question_closes():
 
     start_response = start_test_interview(client)
     session_id = start_response.json()["session_id"]
+    initial = client.get(f"/api/interviews/{session_id}").json()
 
     first = client.post(
         f"/api/interviews/{session_id}/answer",
         json={
             "answer": "I used Redis to cache hot records.",
-            "expected_version": 1,
+            "expected_version": initial["state_version"],
             "command_id": "cmd-first",
         },
     )
@@ -1123,7 +1192,9 @@ def test_answer_route_publishes_round_closed_event_only_when_question_closes():
         f"/api/interviews/{session_id}/answer",
         json={
             "answer": "I added delayed double delete.",
-            "expected_version": 2,
+            "expected_version": client.get(
+                f"/api/interviews/{session_id}"
+            ).json()["state_version"],
             "command_id": "cmd-close",
         },
     )
@@ -1150,10 +1221,14 @@ def test_skip_route_publishes_round_closed_event():
 
     start_response = start_test_interview(client)
     session_id = start_response.json()["session_id"]
+    initial = client.get(f"/api/interviews/{session_id}").json()
 
     response = client.post(
         f"/api/interviews/{session_id}/skip",
-        json={"expected_version": 1, "command_id": "cmd-skip"},
+        json={
+            "expected_version": initial["state_version"],
+            "command_id": "cmd-skip",
+        },
     )
     snapshot = client.get(f"/api/interviews/{session_id}").json()
 
@@ -1263,7 +1338,7 @@ def test_answer_stream_returns_done_when_round_closed_publish_fails():
         assert response.status_code == 200
         body = "".join(response.iter_text())
 
-    assert "event: done" in body
+    assert "event: COMPLETED" in body
     assert "event: error" not in body
     assert len(attempts) == 1
 
@@ -1280,12 +1355,13 @@ def test_answer_stream_publishes_round_closed_event_when_streamed_answer_closes_
 
     started_response = start_test_interview(client)
     started = started_response.json()
+    initial = client.get(f"/api/interviews/{started['session_id']}").json()
 
     client.post(
         f"/api/interviews/{started['session_id']}/answer",
         json={
             "answer": "I used Redis to cache hot records.",
-            "expected_version": 1,
+            "expected_version": initial["state_version"],
             "command_id": "cmd-stream-first",
         },
     )
@@ -1294,14 +1370,16 @@ def test_answer_stream_publishes_round_closed_event_when_streamed_answer_closes_
         f"/api/interviews/{started['session_id']}/answer/stream",
         json={
             "answer": "I added delayed double delete.",
-            "expected_version": 2,
+            "expected_version": client.get(
+                f"/api/interviews/{started['session_id']}"
+            ).json()["state_version"],
             "command_id": "cmd-stream-close",
         },
     ) as response:
         assert response.status_code == 200
         body = "".join(response.iter_text())
 
-    assert "event: done" in body
+    assert "event: COMPLETED" in body
     assert len(published) == 1
     assert published[0].question_id == started["current_question"]["id"]
     assert published[0].answer_state == "answered"

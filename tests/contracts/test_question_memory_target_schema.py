@@ -103,7 +103,7 @@ def test_question_memory_target_is_a_required_nullable_positive_column():
     )
 
 
-def test_v33_migration_is_append_only_and_preserves_v1_to_v32_checksums():
+def test_v34_migration_is_append_only_and_preserves_v1_to_v33_checksums():
     specs = schema_contract.RUNTIME_MIGRATIONS
 
     assert tuple(spec.migration_id for spec in specs[:29]) == (
@@ -112,7 +112,7 @@ def test_v33_migration_is_append_only_and_preserves_v1_to_v32_checksums():
     assert tuple(spec.checksum for spec in specs[:29]) == (
         _V1_TO_V26_CHECKSUMS + _V27_TO_V29_CHECKSUMS
     )
-    assert len(specs) == 33
+    assert len(specs) == 34
     assert specs[26].migration_id == "question_memory_resolved_target_v1_v27"
     assert specs[27].migration_id == "context_compression_failure_state_v1_v28"
     assert specs[28].migration_id == "row_serialization_versions_v1_v29"
@@ -124,7 +124,9 @@ def test_v33_migration_is_append_only_and_preserves_v1_to_v32_checksums():
     assert specs[30].checksum == schema_contract.RUNTIME_SCHEMA_V31_CHECKSUM
     assert specs[31].checksum == schema_contract.RUNTIME_SCHEMA_V32_CHECKSUM
     assert specs[32].checksum == schema_contract.RUNTIME_SCHEMA_V33_CHECKSUM
-    assert schema_contract.LATEST_RUNTIME_MIGRATION is specs[32]
+    assert specs[33].migration_id == "execution_artifact_store_v1_v34"
+    assert specs[33].checksum == schema_contract.RUNTIME_SCHEMA_V34_CHECKSUM
+    assert schema_contract.LATEST_RUNTIME_MIGRATION is specs[33]
 
     manifest = getattr(schema_contract, "RUNTIME_SCHEMA_V27_MANIFEST", None)
     checksum = getattr(schema_contract, "RUNTIME_SCHEMA_V27_CHECKSUM", None)
@@ -155,13 +157,16 @@ def test_v27_target_migration_precedes_v28_runtime_and_runs_target_upgrade():
     latest = schema_contract.LATEST_RUNTIME_MIGRATION
     assert migrations.RUNTIME_MIGRATION_ID == latest.migration_id
     assert migrations.RUNTIME_MIGRATION_MANIFEST == (
-        schema_contract.RUNTIME_SCHEMA_V33_MANIFEST
+        schema_contract.RUNTIME_SCHEMA_V34_MANIFEST
     )
     assert migrations.RUNTIME_MIGRATION_CHECKSUM == latest.checksum
-    assert latest.migration_id == "agent_invocation_lease_index_v1_v33"
+    assert latest.migration_id == "execution_artifact_store_v1_v34"
     assert latest.checksum == hashlib.sha256(
-        schema_contract.RUNTIME_SCHEMA_V33_MANIFEST.encode("utf-8")
+        schema_contract.RUNTIME_SCHEMA_V34_MANIFEST.encode("utf-8")
     ).hexdigest()
+    assert json.loads(schema_contract.RUNTIME_SCHEMA_V34_MANIFEST)[
+        "base_schema_checksum"
+    ] == schema_contract.RUNTIME_SCHEMA_V33_CHECKSUM
     assert json.loads(schema_contract.RUNTIME_SCHEMA_V33_MANIFEST)[
         "base_schema_checksum"
     ] == schema_contract.RUNTIME_SCHEMA_V32_CHECKSUM

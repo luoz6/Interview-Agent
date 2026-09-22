@@ -30,17 +30,17 @@
       "official_services_nonempty_loc": 75970
     },
     "p9": {
-      "python_files": 513,
-      "physical_loc": 128014,
-      "nonempty_loc": 116352,
+      "python_files": 521,
+      "physical_loc": 130560,
+      "nonempty_loc": 118694,
       "services_python_files": 0,
       "services_physical_loc": 0,
       "services_nonempty_loc": 0,
       "largest_module": {
         "file": "app/runtime/composition.py",
         "module": "app.runtime.composition",
-        "physical_loc": 2882,
-        "nonempty_loc": 2564
+        "physical_loc": 2958,
+        "nonempty_loc": 2632
       },
       "official_services_nonempty_loc": 0
     }
@@ -51,8 +51,8 @@
       "p0_module": "app.services.runtime",
       "p0_physical_loc": 2459,
       "p9_module": "app.runtime.composition",
-      "p9_physical_loc": 2882,
-      "delta": 423
+      "p9_physical_loc": 2958,
+      "delta": 499
     },
     {
       "owner": "Durable interview graph",

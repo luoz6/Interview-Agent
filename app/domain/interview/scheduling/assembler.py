@@ -214,6 +214,25 @@ def _assemble_payload(
         return {
             "state": answer_state,
             "question_id": _first(params, "question_id", "questionId"),
+            "answer_artifact_ref": next(
+                (
+                    ref.artifact_ref
+                    for ref in reversed(refs)
+                    if ref.artifact_type == "answer-artifact"
+                ),
+                None,
+            ),
+            "question_artifact_ref": next(
+                (
+                    ref.artifact_ref
+                    for ref in reversed(refs)
+                    if ref.artifact_type in {
+                        "main-question-artifact",
+                        "followup-artifact",
+                    }
+                ),
+                None,
+            ),
         }
 
     if skill == "evaluate-interview":

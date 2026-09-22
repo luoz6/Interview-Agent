@@ -87,6 +87,8 @@ class DeterministicSchedulerPolicy:
             runtime = runtime_by_id.get(task.task_id)
             if runtime is None or runtime.status not in {"PENDING", "READY"}:
                 continue
+            if task.task_kind == "QUESTION_RESOLUTION_GATE":
+                continue
             predecessors = {
                 dependency.predecessor_task_id
                 for dependency in plan.dependency_definitions
@@ -125,7 +127,7 @@ def _phase_reason(task: ExecutionTaskDefinition) -> str:
         "generate-followup": "dispatch_followup",
         "evaluate-interview": "dispatch_final_evaluation",
         "generate-report": "dispatch_report",
-    }.get(task.skill, "dispatch_task")
+    }.get(task.skill or "", "dispatch_task")
 
 
 def _observation_requires_user_wait(

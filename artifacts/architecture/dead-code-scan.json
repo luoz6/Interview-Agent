@@ -1,10 +1,10 @@
 {
   "metadata": {
     "generated_by": "tools/architecture/scan_dead_code.py",
-    "app_files_scanned": 513,
+    "app_files_scanned": 521,
     "script_files_scanned": 48,
-    "test_files_scanned": 466,
-    "top_level_symbols_scanned": 2918,
+    "test_files_scanned": 474,
+    "top_level_symbols_scanned": 2948,
     "parse_error_count": 0,
     "dynamic_import_site_count": 7,
     "unresolved_dynamic_import_site_count": 2,
@@ -76,7 +76,7 @@
     },
     {
       "category": "test_only",
-      "count": 62,
+      "count": 61,
       "disposition": "retain",
       "finding": "Test-only modules and symbols have explicit test reachability and do not satisfy the triple-zero rule."
     },
@@ -148,7 +148,7 @@
       "name": "_public_session_plan_snapshot",
       "kind": "function",
       "file": "app/adapters/memory/session_store.py",
-      "line": 618,
+      "line": 645,
       "visibility": "private",
       "static_references": 0,
       "runtime_wiring_references": 0,
@@ -265,7 +265,7 @@
       "name": "_require_step_budget",
       "kind": "function",
       "file": "app/domain/interview/scheduling/decisions.py",
-      "line": 533,
+      "line": 580,
       "visibility": "private",
       "static_references": 0,
       "runtime_wiring_references": 0,
@@ -690,13 +690,6 @@
     {
       "module": "app.a2a.official_cards",
       "file": "app/a2a/official_cards.py",
-      "static_references": 0,
-      "runtime_wiring_references": 0,
-      "test_references": 1
-    },
-    {
-      "module": "app.adapters.persistence.postgres.scheduler_commands",
-      "file": "app/adapters/persistence/postgres/scheduler_commands.py",
       "static_references": 0,
       "runtime_wiring_references": 0,
       "test_references": 1
@@ -1189,7 +1182,7 @@
       "name": "reset_runtime_for_tests",
       "kind": "function",
       "file": "app/runtime/composition.py",
-      "line": 2864,
+      "line": 2940,
       "visibility": "public",
       "static_references": 0,
       "runtime_wiring_references": 0,

@@ -264,6 +264,46 @@ def build_v3_session_shell_state(
     }
 
 
+def build_scheduler_projection_shell_state(
+    *,
+    session_id: str,
+    plan,
+    job_description: str,
+    resume_text: str,
+    job_tags: list[str],
+    memory_policy_version: MemoryPolicyVersion = "deterministic-v1",
+    plan_binding: SessionPlanBinding | None = None,
+) -> InterviewState:
+    """Build metadata storage for a Scheduler-owned execution read model."""
+
+    binding = plan_binding or legacy_session_plan_binding(plan)
+    if getattr(plan, "schema_version", None) == "interview-plan-v3":
+        return build_v3_session_shell_state(
+            session_id=session_id,
+            plan=plan,
+            job_description=job_description,
+            resume_text=resume_text,
+            job_tags=job_tags,
+            memory_policy_version=memory_policy_version,
+            plan_binding=binding,
+        )
+    state = build_initial_state(
+        session_id=session_id,
+        plan=plan,
+        job_description=job_description,
+        resume_text=resume_text,
+        job_tags=job_tags,
+        memory_policy_version=memory_policy_version,
+        plan_binding=binding,
+    )
+    state["messages"] = []
+    state["pending_output"] = None
+    state["state_version"] = 0
+    state["checkpoint_version"] = 0
+    state["projection_sha256"] = None
+    return state
+
+
 def default_memory_policy_for_engine(
     engine: WorkflowEngine,
 ) -> MemoryPolicyVersion:

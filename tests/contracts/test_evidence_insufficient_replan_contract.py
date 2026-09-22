@@ -106,7 +106,11 @@ def test_replan_acquires_followup_then_uses_typed_request_and_registers_task():
     assert type(request).__name__ == "GenerateFollowupRequest"
     assert request.question_id == "q1"
     assert state.task_state(task.task_id).status == "PENDING"
-    assert state.dynamic_task_definitions == (task,)
+    assert [item.task_id for item in state.dynamic_task_definitions] == [
+        "followup:q1:1",
+        "evaluate-followup:q1:1",
+    ]
+    assert state.followups_total_used == state.replans_used == 1
 
 
 def test_replan_rejects_non_insufficient_observations_and_non_acquisition_actions():

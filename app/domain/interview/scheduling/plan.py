@@ -16,12 +16,33 @@ class ExecutionTaskDefinition(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     task_id: str = Field(min_length=1)
+    task_kind: Literal["AGENT", "QUESTION_RESOLUTION_GATE"] = "AGENT"
     capability: str = Field(min_length=1)
-    agent_id: str = Field(min_length=1)
-    skill: str = Field(min_length=1)
+    agent_id: str | None = Field(default=None, min_length=1)
+    skill: str | None = Field(default=None, min_length=1)
     input_contract: str | None = Field(default=None, min_length=1)
     output_contract: str | None = Field(default=None, min_length=1)
     parameters: dict[str, Any] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def validate_task_kind_contract(self) -> "ExecutionTaskDefinition":
+        if self.task_kind == "AGENT":
+            if self.agent_id is None or self.skill is None:
+                raise ValueError("AGENT tasks require agent_id and skill")
+            return self
+        if any(
+            value is not None
+            for value in (
+                self.agent_id,
+                self.skill,
+                self.input_contract,
+                self.output_contract,
+            )
+        ):
+            raise ValueError("resolution gates cannot declare Agent contracts")
+        if self.capability != "scheduler.question-resolution":
+            raise ValueError("resolution gates require scheduler.question-resolution")
+        return self
 
 
 class ExecutionDependencyDefinition(BaseModel):
@@ -49,6 +70,9 @@ class ExecutionConstraints(BaseModel):
     max_tasks: int | None = Field(default=None, ge=1)
     max_concurrency: int | None = Field(default=None, ge=1)
     max_wall_time_seconds: int | None = Field(default=None, ge=1)
+    max_followups_total: int | None = Field(default=None, ge=0)
+    max_followups_per_question: int | None = Field(default=None, ge=0)
+    max_replans_total: int | None = Field(default=None, ge=0)
 
 
 class ExecutionPlan(BaseModel):
@@ -58,6 +82,10 @@ class ExecutionPlan(BaseModel):
 
     execution_id: str = Field(min_length=1)
     interview_plan_ref: str = Field(min_length=1)
+    orchestration_version: str = Field(
+        default="scheduler-pre-ma9",
+        min_length=1,
+    )
     definition_revision: int = Field(
         default=1,
         ge=1,

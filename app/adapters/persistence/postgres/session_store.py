@@ -11,7 +11,10 @@ from app.adapters.postgres.store_schema_adapter import (
     PostgresSessionSchemaAdapter,
 )
 from app.adapters.postgres.unit_of_work import PostgresUnitOfWork
-from app.graphs.interview_state import InterviewState
+from app.graphs.interview_state import (
+    InterviewState,
+    build_scheduler_projection_shell_state,
+)
 from app.ports.llm import InterviewLLM
 from app.runtime.agent_execution import AgentExecutionRunner
 from app.graphs.interview_rounds import round_closed_event_from_transition
@@ -234,6 +237,29 @@ class PostgresInterviewSessionStore(InterviewSessionStore):
         state["checkpoint_version"] = 0
         state["projection_sha256"] = None
         self._insert_state(state)
+
+    def insert_scheduler_projection_shell(
+        self,
+        *,
+        session_id: str,
+        plan: InterviewPlan,
+        job_description: str,
+        resume_text: str,
+        job_tags: list[str],
+        memory_policy_version: str = "deterministic-v1",
+        plan_binding: SessionPlanBinding | None = None,
+    ) -> None:
+        self._insert_state(
+            build_scheduler_projection_shell_state(
+                session_id=session_id,
+                plan=plan,
+                job_description=job_description,
+                resume_text=resume_text,
+                job_tags=job_tags,
+                memory_policy_version=memory_policy_version,
+                plan_binding=plan_binding,
+            )
+        )
 
     def insert_session_in_transaction(
         self,

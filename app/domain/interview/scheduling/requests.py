@@ -53,6 +53,8 @@ class EvaluateAnswerRequest(AgentRequest):
 
     state: dict[str, Any]
     question_id: str | None = Field(default=None, min_length=1)
+    answer_artifact_ref: str | None = Field(default=None, min_length=1)
+    question_artifact_ref: str | None = Field(default=None, min_length=1)
 
 
 class EvaluateInterviewRequest(AgentRequest):

@@ -6,6 +6,7 @@ from app.a2a.contracts.main_question import MainQuestionArtifactPayload
 from app.adapters.memory.execution_path_binding import (
     InMemoryExecutionPathBindingStore,
 )
+from app.adapters.memory.execution_artifacts import InMemoryExecutionArtifactStore
 from app.adapters.memory.scheduler_execution import (
     InMemorySchedulerExecutionRepository,
 )
@@ -85,6 +86,7 @@ def _runtime():
     bindings = InMemoryExecutionPathBindingStore()
     router = ExecutionPathRouter(bindings)
     invoker = Invoker()
+    artifacts = InMemoryExecutionArtifactStore()
 
     def compose(*, plan, initial_state, execution_state_store, **_kwargs):
         router.claim_execution(initial_state.execution_id, "NEW")
@@ -94,6 +96,7 @@ def _runtime():
                 plan=plan,
                 capability_port=Catalog(),
                 invocation_port=invoker,
+                artifact_store=artifacts,
             )
         )
 
@@ -116,9 +119,13 @@ def test_plan_mapper_is_deterministic_and_contains_full_interview_dag():
     assert [task.skill for task in execution_plan.task_definitions] == [
         "generate-main-question",
         "evaluate-answer",
+        None,
         "evaluate-interview",
         "generate-report",
     ]
+    assert execution_plan.task_definitions[2].task_kind == (
+        "QUESTION_RESOLUTION_GATE"
+    )
     assert state.execution_id == "session-1"
     assert state.artifact_refs[0].artifact_type == "interview-plan-artifact"
 
@@ -185,7 +192,7 @@ def test_new_snapshot_routes_to_scheduler_and_never_old_workflow():
     ).revision
 
 
-def test_completed_scheduler_finish_replays_legacy_idempotent_result():
+def test_completed_scheduler_finish_replays_projection_without_legacy_transition():
     entry, store, repository, _bindings, _invoker = _runtime()
     turn = entry.start(
         _plan(),
@@ -205,10 +212,4 @@ def test_completed_scheduler_finish_replays_legacy_idempotent_result():
     assert first.status == second.status == "finished"
     assert completed.execution_status == "COMPLETED"
     assert repository.load(turn.session_id) == completed
-    closing_messages = [
-        message
-        for message in store.get(turn.session_id)["messages"]
-        if message["content"] == "本次模拟面试已结束。"
-    ]
-    assert len(closing_messages) == 1
-    assert closing_messages[0]["role"] == "interviewer"
+    assert store.get(turn.session_id)["messages"] == []

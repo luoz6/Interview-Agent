@@ -109,6 +109,8 @@ def test_scheduler_bundle_uses_one_composed_dependency_graph(monkeypatch):
     assert composed.scheduler.capability_port is composed.capability_adapter
     assert composed.scheduler.invocation_port is composed.invocation_adapter
     assert composed.scheduler.invocation_ledger is composed.durable_ledger
+    assert composed.scheduler.artifact_store is composed.artifact_store
+    assert composed.artifact_store is runtime.get_execution_artifact_store()
     assert isinstance(composed.durable_ledger, AgentInvocationLedgerPort)
     assert composed.durable_ledger is runtime.get_scheduler_invocation_ledger()
     assert composed.memory_store is runtime.get_agent_memory_store()
@@ -126,6 +128,57 @@ def test_scheduler_bundle_uses_one_composed_dependency_graph(monkeypatch):
 
     node_names = set(composed.graph.get_graph().nodes) - {"__start__", "__end__"}
     assert node_names == {"DECIDE", "DISPATCH", "OBSERVE", "WAIT_USER", "COMPLETE"}
+
+
+def test_scheduler_composer_injects_durable_command_port(monkeypatch):
+    _configure_memory_runtime(monkeypatch)
+    plan, state = _plan_and_state()
+    durable_commands = SimpleNamespace(enqueue=lambda **_kwargs: None)
+
+    composed = runtime.compose_scheduler_runtime(
+        plan=plan,
+        initial_state=state,
+        durable_command_port=durable_commands,
+    )
+
+    assert composed.scheduler.durable_command_port is durable_commands
+
+
+def test_postgres_production_entry_binds_scheduler_command_port(monkeypatch):
+    session_store = SimpleNamespace(
+        durability="postgres",
+        get=lambda _execution_id: {},
+    )
+    repository = object()
+    router = object()
+    artifact_store = object()
+    durable_commands = object()
+    monkeypatch.setattr(
+        runtime,
+        "get_scheduler_execution_repository",
+        lambda: repository,
+    )
+    monkeypatch.setattr(runtime, "get_execution_path_router", lambda: router)
+    monkeypatch.setattr(
+        runtime,
+        "get_execution_artifact_store",
+        lambda: artifact_store,
+    )
+    monkeypatch.setattr(
+        runtime,
+        "get_scheduler_command_port",
+        lambda: durable_commands,
+    )
+
+    entry = runtime.build_scheduler_production_entry(session_store=session_store)
+
+    assert entry.execution_repository is repository
+    assert entry.execution_path_router is router
+    assert entry.scheduler_composer.keywords["artifact_store"] is artifact_store
+    assert (
+        entry.scheduler_composer.keywords["durable_command_port"]
+        is durable_commands
+    )
 
 
 def test_composition_rejects_execution_identity_or_state_conflicts(monkeypatch):

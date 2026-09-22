@@ -402,7 +402,10 @@ def _start_interview_locked(
             plan_sha256=payload.plan_sha256,
         )
         if turn is not None:
-            if scheduler_entry is not None:
+            if scheduler_entry is not None and not isinstance(
+                revision.plan,
+                InterviewPlanV3,
+            ):
                 scheduler_entry.ensure_bootstrapped(turn.session_id)
             revision_store.add_source_reference(
                 revision.source_id,
@@ -493,7 +496,7 @@ def _start_interview_locked(
                     job_tags=list(source_payload.job_tags),
                     plan_binding=plan_binding,
                     session_id=session_id,
-                    bootstrap=True,
+                    bootstrap=not is_v3,
                 )
             elif is_v3 or (
                 get_runtime_store() == "postgres"
@@ -970,6 +973,9 @@ def stream_interview_command(
 def stream_interview_bootstrap(
     session_id: str,
     store: InterviewSessionRepository = Depends(dependencies.get_session_store),
+    application: InterviewApplicationService = Depends(
+        dependencies.get_interview_application_service
+    ),
 ):
     """Observe and replay the recoverable V3 first-question bootstrap."""
 
@@ -983,6 +989,18 @@ def stream_interview_bootstrap(
             )
     except ValueError as exc:
         _raise_value_error(exc)
+    if application._is_scheduler_execution(session_id):
+        from app.runtime.scheduler_streaming import open_scheduler_bootstrap_stream
+
+        stream = open_scheduler_bootstrap_stream(
+            application.scheduler_entry_factory(),
+            session_id,
+        )
+        return StreamingResponse(
+            stream.events,
+            media_type="text/event-stream",
+            headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+        )
     workflow = dependencies.get_interview_workflow_service()
 
     def events():

@@ -28,6 +28,12 @@ from app.domain.interview.scheduling.conflicts import (
     classify_user_command,
 )
 from app.domain.interview.scheduling.waits import WaitHandle
+from app.domain.interview.scheduling.artifacts import (
+    AnswerArtifact,
+    AnswerKind,
+    answer_artifact_ref,
+    parse_execution_artifact,
+)
 from app.domain.interview.scheduling.commit import (
     AtomicCommitDecision,
     CommitStorageStrategy,
@@ -103,6 +109,10 @@ __all__ = [
     "UserCommandKind",
     "normalize_user_command_kind",
     "WaitHandle",
+    "AnswerArtifact",
+    "AnswerKind",
+    "answer_artifact_ref",
+    "parse_execution_artifact",
     "AtomicCommitDecision",
     "CommitStorageStrategy",
     "CURRENT_INVOCATION_COMMIT_DECISION",

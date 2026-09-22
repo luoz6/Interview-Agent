@@ -191,7 +191,12 @@ def get_interview_application_service(
 def get_streaming_turn_service(
     application=Depends(get_interview_application_service),
 ) -> StreamingTurnService:
-    return StreamingTurnService(application)
+    from app.runtime.scheduler_streaming import open_scheduler_answer_stream
+
+    return StreamingTurnService(
+        application,
+        scheduler_stream_factory=open_scheduler_answer_stream,
+    )
 
 
 def get_legacy_launch_session_store(

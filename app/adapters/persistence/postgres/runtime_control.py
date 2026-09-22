@@ -18,6 +18,9 @@ from app.adapters.persistence.postgres.execution_path_binding import (
 from app.adapters.persistence.postgres.scheduler_execution import (
     PostgresSchedulerExecutionRepository,
 )
+from app.adapters.persistence.postgres.execution_artifacts import (
+    PostgresExecutionArtifactStore,
+)
 from app.adapters.postgres.runtime_receipt_repository import (
     PostgresRuntimeReceiptRepository,
 )
@@ -70,6 +73,7 @@ class PostgresRuntimeControlStore:
             f"{table_prefix}_execution_path_bindings"
         )
         self.scheduler_executions_table = f"{table_prefix}_scheduler_executions"
+        self.execution_artifacts_table = f"{table_prefix}_execution_artifacts"
         self.schema_mode = resolve_schema_mode(
             schema_mode, provider_is_owned=self._provider_is_owned
         )
@@ -86,6 +90,7 @@ class PostgresRuntimeControlStore:
                     self.execution_path_bindings_table
                 ),
                 scheduler_executions_table=self.scheduler_executions_table,
+                execution_artifacts_table=self.execution_artifacts_table,
             ).ensure_schema()
         else:
             validate_relations(
@@ -97,6 +102,7 @@ class PostgresRuntimeControlStore:
                     self.agent_invocations_table,
                     self.execution_path_bindings_table,
                     self.scheduler_executions_table,
+                    self.execution_artifacts_table,
                     f"{table_prefix}_schema_migrations",
                 ),
             )
@@ -123,6 +129,10 @@ class PostgresRuntimeControlStore:
             self._connection_provider,
             table_name=self.scheduler_executions_table,
         )
+        self._execution_artifact_store = PostgresExecutionArtifactStore(
+            self._connection_provider,
+            table_name=self.execution_artifacts_table,
+        )
 
     @property
     def agent_invocation_ledger(self) -> PostgresAgentInvocationLedgerAdapter:
@@ -139,6 +149,10 @@ class PostgresRuntimeControlStore:
     @property
     def scheduler_execution_repository(self) -> PostgresSchedulerExecutionRepository:
         return self._scheduler_execution_repository
+
+    @property
+    def execution_artifact_store(self) -> PostgresExecutionArtifactStore:
+        return self._execution_artifact_store
 
     @contextmanager
     def connection(self) -> Iterator[Any]:

@@ -61,6 +61,7 @@ def _descriptor_for_skill(
             (f"{skill}-request", f"{skill}-artifact", ()),
         )
     )
+    output_version = "evaluation-artifact-v2" if skill == "evaluate-answer" else "1.0"
     return CapabilityDescriptor(
         agent_id=card.agent_id,
         skill=skill,
@@ -68,7 +69,7 @@ def _descriptor_for_skill(
         request_contract_id=request_contract_id,
         request_contract_version="v1",
         output_artifact_type=output_artifact_type,
-        output_artifact_version="1.0",
+        output_artifact_version=output_version,
         required_input_artifact_types=required_inputs,
         capability_version="v1",
     )

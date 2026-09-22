@@ -11,6 +11,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
+from datetime import datetime, timezone
 import hashlib
 import json
 from typing import Any, Literal, Protocol
@@ -31,6 +32,10 @@ from app.domain.interview.scheduling.plan import (
     ExecutionTaskDefinition,
 )
 from app.domain.interview.scheduling.commands import UserCommand
+from app.domain.interview.scheduling.artifacts import (
+    AnswerArtifact,
+    answer_artifact_ref,
+)
 from app.domain.interview.scheduling.ledger import (
     InvocationIdentity,
     InvocationLedgerEntry,
@@ -39,12 +44,24 @@ from app.domain.interview.scheduling.conflicts import (
     UserCommandConflictOutcome,
     classify_user_command,
 )
-from app.domain.interview.scheduling.state import ExecutionState
+from app.domain.interview.scheduling.requests import (
+    EvaluateAnswerRequest,
+    EvaluateInterviewRequest,
+    GenerateReportRequest,
+)
+from app.domain.interview.scheduling.state import (
+    ExecutionArtifactRef,
+    ExecutionState,
+)
 from app.domain.interview.scheduling.waits import WaitHandle
 from app.ports.agent_capability import AgentCapabilityPort
 from app.ports.agent_invocation import AgentInvocationPort
 from app.ports.agent_invocation_ledger import AgentInvocationLedgerPort
 from app.ports.scheduler_commands import SchedulerCommandPort
+from app.ports.execution_artifacts import (
+    ArtifactPayloadConflict,
+    ExecutionArtifactStore,
+)
 
 
 class ExecutionStateStore(Protocol):
@@ -194,6 +211,8 @@ class SchedulerApplicationCapability:
         command_port: SchedulerCommandPort | None = None,
         invocation_ledger: AgentInvocationLedgerPort | None = None,
         ledger_port: AgentInvocationLedgerPort | None = None,
+        artifact_store: ExecutionArtifactStore | None = None,
+        evaluation_state_provider: Callable[[str], dict[str, Any]] | None = None,
         worker_id: str = "scheduler",
         lease_seconds: int = 300,
     ) -> None:
@@ -239,6 +258,8 @@ class SchedulerApplicationCapability:
         if isinstance(lease_seconds, bool) or lease_seconds < 1:
             raise ValueError("lease_seconds must be positive")
         self.invocation_ledger = invocation_ledger or ledger_port
+        self.artifact_store = artifact_store
+        self.evaluation_state_provider = evaluation_state_provider
         self.worker_id = worker_id
         self.lease_seconds = lease_seconds
 
@@ -525,6 +546,8 @@ class SchedulerApplicationCapability:
             attempt=runtime_task.attempt,
             artifact=artifact,
         )
+        if self.artifact_store is not None:
+            self.artifact_store.put_if_absent(artifact_ref, artifact)
         if ledger is not None and ledger_identity is not None and lease is not None:
             try:
                 receipt = ledger.commit(
@@ -683,6 +706,9 @@ class SchedulerApplicationCapability:
                 reason_code="wrong_execution",
             )
             return UserCommandResult(outcome=outcome, state=state)
+        replay = self._replay_persisted_answer(state, command)
+        if replay is not None:
+            return replay
         wait_handle = state.current_wait_handle
         if wait_handle is None:
             recorded = self.command_store.get(command.command_id)
@@ -722,10 +748,17 @@ class SchedulerApplicationCapability:
                     reason_code=reason_code,
                 )
             else:
+                task_running = any(
+                    task.status == "RUNNING" for task in state.task_states
+                )
                 outcome = UserCommandConflictOutcome(
                     command_id=command.command_id,
                     disposition="REJECT",
-                    reason_code="no_active_wait",
+                    reason_code=(
+                        "QUESTION_NOT_READY"
+                        if task_running
+                        else "no_active_wait"
+                    ),
                 )
             return UserCommandResult(outcome=outcome, state=state)
         outcome = classify_user_command(
@@ -746,22 +779,193 @@ class SchedulerApplicationCapability:
                 reason_code="command_payload_conflict",
             )
             return UserCommandResult(outcome=conflict, state=state)
-        next_state = state.apply_transition(
-            expected_revision=state.revision,
-            transition_name=f"command:{command.command_id}",
-            current_wait_handle=None,
-            latest_observation={
+        artifact = self._persist_answer_artifact(command)
+        if artifact is None:
+            artifact_refs = state.artifact_refs
+            observation = {
                 "status": "ANSWER_RECEIVED",
                 "task_id": command.task_id,
                 "question_id": command.question_id,
                 "command_id": command.command_id,
                 "payload": dict(command.payload),
-            },
+            }
+        else:
+            artifact_refs = state.artifact_refs + (
+                ExecutionArtifactRef(
+                    artifact_ref=artifact.artifact_ref,
+                    artifact_type=artifact.artifact_type,
+                    artifact_version=artifact.schema_version,
+                    task_id=command.task_id,
+                ),
+            )
+            observation = self._answer_observation(artifact)
+        next_state = state.apply_transition(
+            expected_revision=state.revision,
+            transition_name=f"command:{command.command_id}",
+            current_wait_handle=None,
+            artifact_refs=artifact_refs,
+            latest_observation=observation,
             execution_status="RUNNING",
             scheduler_step_count=state.scheduler_step_count + 1,
         )
         self.command_store.put(command)
         return UserCommandResult(outcome=outcome, state=next_state)
+
+    def answer_artifact_for_command(
+        self,
+        execution_id: str,
+        command_id: str,
+    ) -> AnswerArtifact | None:
+        store = self.artifact_store
+        if store is None:
+            return None
+        ref = answer_artifact_ref(execution_id, command_id)
+        if not store.exists(ref):
+            return None
+        artifact = store.get_required(ref)
+        if not isinstance(artifact, AnswerArtifact):
+            raise ArtifactPayloadConflict(ref)
+        return artifact
+
+    def _persist_answer_artifact(
+        self,
+        command: UserCommand,
+    ) -> AnswerArtifact | None:
+        store = self.artifact_store
+        if store is None or command.command_kind != "ANSWER":
+            return None
+        answer_text = command.payload.get("answer_text")
+        if not isinstance(answer_text, str) or not answer_text.strip():
+            raise ValueError("answer_text is required")
+        if not isinstance(command.question_id, str) or not command.question_id:
+            raise ValueError("question_id is required for an answer artifact")
+        ref = answer_artifact_ref(command.execution_id, command.command_id)
+        artifact = AnswerArtifact(
+            artifact_ref=ref,
+            execution_id=command.execution_id,
+            question_id=command.question_id,
+            source_task_id=command.task_id,
+            answer_kind=(
+                "FOLLOWUP" if command.task_id.startswith("followup:") else "MAIN"
+            ),
+            answer_text=answer_text,
+            command_id=command.command_id,
+            wait_id=command.wait_id,
+            submitted_revision=command.expected_revision,
+            submitted_at=datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+        )
+        try:
+            persisted = store.put_if_absent(ref, artifact)
+        except ArtifactPayloadConflict:
+            # Concurrent first acceptance can differ only in the generated
+            # timestamp. Reuse the winner when every command-owned field is
+            # identical; any real payload or fence mismatch remains closed.
+            persisted = store.get_required(ref)
+            if not isinstance(persisted, AnswerArtifact) or not self._same_answer(
+                persisted,
+                command,
+            ):
+                raise
+        if not isinstance(persisted, AnswerArtifact):
+            raise ArtifactPayloadConflict(ref)
+        return persisted
+
+    def _replay_persisted_answer(
+        self,
+        state: ExecutionState,
+        command: UserCommand,
+    ) -> UserCommandResult | None:
+        artifact = self.answer_artifact_for_command(
+            command.execution_id,
+            command.command_id,
+        )
+        if artifact is None:
+            return None
+        if command.command_kind != "ANSWER" or not self._same_answer(
+            artifact,
+            command,
+        ):
+            outcome = UserCommandConflictOutcome(
+                command_id=command.command_id,
+                disposition="CONFLICT",
+                reason_code="command_payload_conflict",
+            )
+            return UserCommandResult(outcome=outcome, state=state)
+
+        already_referenced = any(
+            ref.artifact_ref == artifact.artifact_ref for ref in state.artifact_refs
+        )
+        active_wait = state.current_wait_handle
+        original_wait_active = (
+            active_wait is not None
+            and active_wait.wait_id == artifact.wait_id
+            and active_wait.task_id == artifact.source_task_id
+            and active_wait.question_id == artifact.question_id
+        )
+        repaired = state
+        if not already_referenced or original_wait_active:
+            refs = state.artifact_refs
+            if not already_referenced:
+                refs = refs + (
+                    ExecutionArtifactRef(
+                        artifact_ref=artifact.artifact_ref,
+                        artifact_type=artifact.artifact_type,
+                        artifact_version=artifact.schema_version,
+                        task_id=artifact.source_task_id,
+                    ),
+                )
+            repaired = state.apply_transition(
+                expected_revision=state.revision,
+                transition_name=f"command:{command.command_id}:repair",
+                artifact_refs=refs,
+                current_wait_handle=(None if original_wait_active else active_wait),
+                latest_observation=(
+                    self._answer_observation(artifact)
+                    if original_wait_active
+                    else state.latest_observation
+                ),
+                execution_status=(
+                    "RUNNING" if original_wait_active else state.execution_status
+                ),
+                scheduler_step_count=(
+                    state.scheduler_step_count + 1
+                    if original_wait_active
+                    else state.scheduler_step_count
+                ),
+            )
+        self.command_store.put(command)
+        return UserCommandResult(
+            outcome=UserCommandConflictOutcome(
+                command_id=command.command_id,
+                disposition="REPLAY",
+                reason_code="idempotent_replay",
+            ),
+            state=repaired,
+        )
+
+    @staticmethod
+    def _answer_observation(artifact: AnswerArtifact) -> dict[str, Any]:
+        return {
+            "status": "ANSWER_RECEIVED",
+            "task_id": artifact.source_task_id,
+            "question_id": artifact.question_id,
+            "command_id": artifact.command_id,
+            "answer_artifact_ref": artifact.artifact_ref,
+            "wait_id": artifact.wait_id,
+            "submitted_revision": artifact.submitted_revision,
+        }
+
+    @staticmethod
+    def _same_answer(artifact: AnswerArtifact, command: UserCommand) -> bool:
+        return (
+            artifact.execution_id == command.execution_id
+            and artifact.command_id == command.command_id
+            and artifact.answer_text == command.payload.get("answer_text")
+            and artifact.question_id == command.question_id
+            and artifact.source_task_id == command.task_id
+            and artifact.wait_id == command.wait_id
+            and artifact.submitted_revision == command.expected_revision
+        )
 
     def _get_durable_command(self, command: UserCommand) -> Any | None:
         port = self.durable_command_port
@@ -882,6 +1086,8 @@ class SchedulerApplicationCapability:
     ) -> SchedulerStepResult:
         """Project a durable completion after a scheduler-process restart."""
 
+        if self.artifact_store is not None:
+            self.artifact_store.get_required(artifact_ref)
         completed_state = running_state.transition_task(
             expected_revision=running_state.revision,
             task_id=task.task_id,
@@ -1022,6 +1228,8 @@ class SchedulerApplicationCapability:
             for task in task_definitions
         }
         for task in task_definitions:
+            if task.task_kind == "QUESTION_RESOLUTION_GATE":
+                continue
             if task in state.dynamic_task_definitions:
                 dependencies[task.task_id].update(
                     dependency
@@ -1054,15 +1262,115 @@ class SchedulerApplicationCapability:
                 target_status="READY",
             )
 
-    @staticmethod
     def _assemble_request(
+        self,
         task: ExecutionTaskDefinition,
         state: ExecutionState,
     ) -> Any:
         try:
-            return assemble_agent_request(task, state)
+            request = assemble_agent_request(task, state)
         except RequestAssemblyError:
             raise
+        if task.skill == "evaluate-interview":
+            if not isinstance(request, EvaluateInterviewRequest):
+                raise SchedulerDispatchError(
+                    f"task {task.task_id} assembled an invalid final evaluation request",
+                    task_id=task.task_id,
+                    code="request_contract_mismatch",
+                )
+            return EvaluateInterviewRequest(state=self._evaluation_state(state))
+        if task.skill == "generate-report":
+            if not isinstance(request, GenerateReportRequest):
+                raise SchedulerDispatchError(
+                    f"task {task.task_id} assembled an invalid report request",
+                    task_id=task.task_id,
+                    code="request_contract_mismatch",
+                )
+            if self.artifact_store is None:
+                return request
+            return request.model_copy(
+                update={"evaluation_artifacts": self._final_evaluations(state)}
+            )
+        if task.skill != "evaluate-answer":
+            return request
+        if not isinstance(request, EvaluateAnswerRequest):
+            raise SchedulerDispatchError(
+                f"task {task.task_id} assembled an invalid evaluation request",
+                task_id=task.task_id,
+                code="request_contract_mismatch",
+            )
+        return EvaluateAnswerRequest(
+            state=self._evaluation_state(state),
+            question_id=request.question_id,
+            answer_artifact_ref=request.answer_artifact_ref,
+            question_artifact_ref=request.question_artifact_ref,
+        )
+
+    def _evaluation_state(self, state: ExecutionState) -> dict[str, Any]:
+        evaluation_state = (
+            dict(self.evaluation_state_provider(state.execution_id))
+            if self.evaluation_state_provider is not None
+            else {}
+        )
+        if self.artifact_store is not None:
+            evaluation_state["messages"] = self._artifact_messages(state)
+        return evaluation_state
+
+    def _final_evaluations(self, state: ExecutionState) -> tuple[dict[str, Any], ...]:
+        if self.artifact_store is None:
+            raise SchedulerDispatchError(
+                "report generation requires an ArtifactStore",
+                code="artifact_store_missing",
+            )
+        ref = next(
+            (
+                item
+                for item in reversed(state.artifact_refs)
+                if item.artifact_type == "evaluation-artifact-set"
+            ),
+            None,
+        )
+        if ref is None:
+            raise SchedulerDispatchError(
+                "report generation requires a final evaluation artifact",
+                code="final_evaluation_missing",
+            )
+        artifact = self.artifact_store.get_required(ref.artifact_ref)
+        evaluations = getattr(artifact, "evaluations", None)
+        if evaluations is None:
+            raise SchedulerDispatchError(
+                "final evaluation artifact has no evaluations",
+                code="final_evaluation_invalid",
+            )
+        return tuple(
+            item.model_dump(mode="json") if hasattr(item, "model_dump") else dict(item)
+            for item in evaluations
+        )
+
+    def _artifact_messages(self, state: ExecutionState) -> list[dict[str, str]]:
+        messages: list[dict[str, str]] = []
+        if self.artifact_store is None:
+            return messages
+        for ref in state.artifact_refs:
+            if ref.artifact_type == "interview-plan-artifact":
+                continue
+            artifact = self.artifact_store.get_required(ref.artifact_ref)
+            if artifact.artifact_type == "main-question-artifact":
+                role, content = "interviewer", getattr(artifact, "question_text", "")
+            elif artifact.artifact_type == "followup-artifact":
+                role, content = "interviewer", getattr(artifact, "followup_text", "")
+            elif artifact.artifact_type == "answer-artifact":
+                role, content = "candidate", getattr(artifact, "answer_text", "")
+            else:
+                continue
+            messages.append(
+                {
+                    "role": role,
+                    "content": str(content),
+                    "question_id": str(getattr(artifact, "question_id", "")),
+                }
+            )
+        return messages
 
     @staticmethod
     def _validate_task_contract(

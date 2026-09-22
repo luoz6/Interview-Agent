@@ -246,7 +246,7 @@ def test_v16_context_artifact_identity_contract_requires_versioned_columns():
         "context_compression_failure_state_v1_v28"
     )
     assert LATEST_RUNTIME_MIGRATION.migration_id == (
-        "agent_invocation_lease_index_v1_v33"
+        "execution_artifact_store_v1_v34"
     )
 
 
@@ -873,7 +873,7 @@ def test_v28_failure_state_manifest_is_append_only_and_canonical():
     )
     assert RUNTIME_MIGRATIONS[-6].checksum == RUNTIME_SCHEMA_V28_CHECKSUM
     assert LATEST_RUNTIME_MIGRATION.migration_id == (
-        "agent_invocation_lease_index_v1_v33"
+        "execution_artifact_store_v1_v34"
     )
 
 

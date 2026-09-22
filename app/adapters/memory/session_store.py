@@ -26,6 +26,7 @@ from app.graphs.interview_graph import (
 )
 from app.graphs.interview_state import (
     InterviewState,
+    build_scheduler_projection_shell_state,
     get_current_question,
     MemoryPolicyVersion,
     utc_now_iso,
@@ -139,6 +140,32 @@ class InterviewSessionStore:
             )
             self._sessions[session_id] = state
             return self._to_turn(state, follow_up=None)
+
+    def insert_scheduler_projection_shell(
+        self,
+        *,
+        session_id: str,
+        plan: InterviewPlan,
+        job_description: str,
+        resume_text: str,
+        job_tags: list[str],
+        memory_policy_version: MemoryPolicyVersion = "deterministic-v1",
+        plan_binding: SessionPlanBinding | None = None,
+    ) -> None:
+        with self._start_lock:
+            if session_id in self._sessions:
+                return
+            self.cleanup_retention()
+            self._ensure_capacity_for_new_session()
+            self._sessions[session_id] = build_scheduler_projection_shell_state(
+                session_id=session_id,
+                plan=plan,
+                job_description=job_description,
+                resume_text=resume_text,
+                job_tags=job_tags,
+                memory_policy_version=memory_policy_version,
+                plan_binding=plan_binding,
+            )
 
     def cleanup_retention(self) -> int:
         cutoff = self._clock() - timedelta(

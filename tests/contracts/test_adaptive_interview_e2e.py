@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 from app.a2a.runtime import build_local_a2a_runtime
+from app.a2a.contracts.evaluation import EvaluationArtifactV2
 from app.adapters.memory.agent_invocation_ledger import (
     InMemoryAgentInvocationLedger,
 )
+from app.adapters.memory.execution_artifacts import InMemoryExecutionArtifactStore
 from app.application.scheduling import (
     InMemoryExecutionStateStore,
     SchedulerApplicationCapability,
@@ -59,6 +61,20 @@ def test_insufficient_evidence_replans_dispatches_and_completes_adaptive_intervi
         execution_status="RUNNING",
     )
     a2a = build_local_a2a_runtime(llm=AdaptiveLLM())
+    a2a.server.register(
+        agent_id="interview-reviewer",
+        skill="evaluate-answer",
+        handler=lambda request, _execution_context: EvaluationArtifactV2(
+            question_id=request["question_id"],
+            answer_artifact_ref=request["answer_artifact_ref"],
+            question_artifact_ref=request["question_artifact_ref"],
+            evaluation_status="EVALUATED",
+            evidence_status="SUFFICIENT",
+            score=84,
+            summary="The follow-up supplied the missing tradeoff evidence.",
+            evaluation_policy_version="review-policy-v2",
+        ),
+    )
     context = SchedulerContext(
         interview_plan_slice=InterviewPlanSlice(
             plan_ref=plan.interview_plan_ref,
@@ -111,6 +127,7 @@ def test_insufficient_evidence_replans_dispatches_and_completes_adaptive_intervi
         capability_port=a2a.registry,
         invocation_port=a2a.invoker,
         invocation_ledger=ledger,
+        artifact_store=InMemoryExecutionArtifactStore(),
         worker_id="adaptive-e2e-worker",
     )
 
@@ -131,6 +148,7 @@ def test_insufficient_evidence_replans_dispatches_and_completes_adaptive_intervi
             },
         ),
     )
+    reviewed = scheduler.step(plan.execution_id)
     completed = scheduler.step(plan.execution_id)
     invocation = ledger.get(
         InvocationIdentity(
@@ -153,12 +171,17 @@ def test_insufficient_evidence_replans_dispatches_and_completes_adaptive_intervi
     assert wait.task_id == dynamic_task.task_id
     assert wait.question_id == "q1"
     assert accepted.accepted
+    assert reviewed.action == "DISPATCH"
+    assert reviewed.task.skill == "evaluate-answer"
+    assert reviewed.artifact.evidence_status == "SUFFICIENT"
     assert completed.action == "COMPLETE"
     assert completed.state.execution_status == "COMPLETED"
     assert completed.state.current_wait_handle is None
     assert completed.state.task_state(dynamic_task.task_id).status == "COMPLETED"
+    assert completed.state.task_state("evaluate-followup:q1:1").status == "COMPLETED"
     assert invocation.status == "COMPLETED"
     assert invocation.artifact_ref == dispatched.observation["artifact_ref"]
     assert [item["skill"] for item in a2a.observability.snapshot()] == [
-        "generate-followup"
+        "generate-followup",
+        "evaluate-answer",
     ]

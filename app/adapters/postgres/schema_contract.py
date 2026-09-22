@@ -1555,6 +1555,41 @@ RUNTIME_SCHEMA_V33_CHECKSUM = hashlib.sha256(
     RUNTIME_SCHEMA_V33_MANIFEST.encode("utf-8")
 ).hexdigest()
 
+# V1-V33 checksums are immutable. V34 adds the durable execution artifact
+# relation used by MA9 answer acceptance and recovery.
+RUNTIME_REQUIRED_COLUMNS_BY_SUFFIX["_execution_artifacts"] = frozenset(
+    {
+        "artifact_ref",
+        "execution_id",
+        "artifact_type",
+        "schema_version",
+        "payload_sha256",
+        "payload_json",
+        "created_at",
+    }
+)
+RUNTIME_REQUIRED_FOREIGN_KEY_TOKENS_BY_SUFFIX["_execution_artifacts"] = (
+    frozenset({"foreign", "key", "execution_id", "references", "cascade"}),
+)
+RUNTIME_SCHEMA_V34_MANIFEST = json.dumps(
+    {
+        "base_schema_checksum": RUNTIME_SCHEMA_V33_CHECKSUM,
+        "execution_artifact_store": {
+            "relation_suffix": "_execution_artifacts",
+            "identity": ["artifact_ref"],
+            "owner": "scheduler_executions.execution_id",
+            "payload": "canonical-json-sha256-v1",
+            "deletion": "cascade-with-execution",
+        },
+        "transaction_mode": "transactional_with_idempotent_checkpointer_phase",
+    },
+    sort_keys=True,
+    separators=(",", ":"),
+)
+RUNTIME_SCHEMA_V34_CHECKSUM = hashlib.sha256(
+    RUNTIME_SCHEMA_V34_MANIFEST.encode("utf-8")
+).hexdigest()
+
 RUNTIME_MIGRATIONS = (
     PostgresMigrationSpec(
         migration_id="stage48_runtime_schema_v1",
@@ -1719,6 +1754,11 @@ RUNTIME_MIGRATIONS = (
     PostgresMigrationSpec(
         migration_id="agent_invocation_lease_index_v1_v33",
         checksum=RUNTIME_SCHEMA_V33_CHECKSUM,
+        transaction_mode="transactional_with_idempotent_checkpointer_phase",
+    ),
+    PostgresMigrationSpec(
+        migration_id="execution_artifact_store_v1_v34",
+        checksum=RUNTIME_SCHEMA_V34_CHECKSUM,
         transaction_mode="transactional_with_idempotent_checkpointer_phase",
     ),
 )

@@ -853,6 +853,49 @@ def get_scheduler_execution_state_store():
     return get_scheduler_execution_repository()
 
 
+def get_scheduler_command_port():
+    port = _runtime_container.get("scheduler_command_port")
+    if port is not None:
+        return port
+    if get_runtime_store() != "postgres":
+        return None
+    from app.adapters.persistence.postgres.interview_workflow_store import (
+        PostgresInterviewWorkflowStore,
+    )
+    from app.adapters.persistence.postgres.scheduler_commands import (
+        PostgresSchedulerCommandAdapter,
+    )
+
+    workflow_store = PostgresInterviewWorkflowStore(
+        dsn=get_postgres_dsn(),
+        connection_provider=get_postgres_connection_domains().business,
+        table_prefix=get_runtime_table_prefix(),
+        schema_mode="validate",
+    )
+    port = PostgresSchedulerCommandAdapter(workflow_store)
+    _runtime_container.set("scheduler_command_port", port)
+    return port
+
+
+def get_execution_artifact_store():
+    store = _runtime_container.get("execution_artifact_store")
+    if store is not None:
+        return store
+    if get_runtime_store() == "postgres":
+        control_store = get_runtime_control_store()
+        if control_store is None:
+            raise RuntimeError("Execution artifact store requires runtime control")
+        store = control_store.execution_artifact_store
+    else:
+        from app.adapters.memory.execution_artifacts import (
+            InMemoryExecutionArtifactStore,
+        )
+
+        store = InMemoryExecutionArtifactStore()
+    _runtime_container.set("execution_artifact_store", store)
+    return store
+
+
 def get_scheduler_execution_repository():
     repository = _runtime_container.get("scheduler_execution_repository")
     if repository is not None:
@@ -881,7 +924,14 @@ def build_scheduler_production_entry(*, session_store=None):
     if getattr(resolved_session_store, "durability", None) == "postgres":
         repository = get_scheduler_execution_repository()
         router = get_execution_path_router()
-        composer = compose_scheduler_runtime
+        from functools import partial
+
+        composer = partial(
+            compose_scheduler_runtime,
+            artifact_store=get_execution_artifact_store(),
+            durable_command_port=get_scheduler_command_port(),
+            evaluation_state_provider=resolved_session_store.get,
+        )
     else:
         from functools import partial
         from langgraph.checkpoint.memory import InMemorySaver
@@ -935,6 +985,22 @@ def build_scheduler_production_entry(*, session_store=None):
         if checkpointer is None:
             checkpointer = InMemorySaver()
             setattr(resolved_session_store, "_scheduler_checkpointer", checkpointer)
+        artifact_store = getattr(
+            resolved_session_store,
+            "_scheduler_execution_artifact_store",
+            None,
+        )
+        if artifact_store is None:
+            from app.adapters.memory.execution_artifacts import (
+                InMemoryExecutionArtifactStore,
+            )
+
+            artifact_store = InMemoryExecutionArtifactStore()
+            setattr(
+                resolved_session_store,
+                "_scheduler_execution_artifact_store",
+                artifact_store,
+            )
         composer = partial(
             compose_scheduler_runtime,
             a2a_runtime=a2a_runtime,
@@ -942,6 +1008,8 @@ def build_scheduler_production_entry(*, session_store=None):
             command_store=command_store,
             checkpointer=checkpointer,
             execution_path_router=router,
+            artifact_store=artifact_store,
+            evaluation_state_provider=resolved_session_store.get,
         )
     return SchedulerProductionEntry(
         session_store=resolved_session_store,
@@ -988,6 +1056,9 @@ def compose_scheduler_runtime(
     checkpointer=None,
     execution_path_router=None,
     command_store=None,
+    durable_command_port=None,
+    artifact_store=None,
+    evaluation_state_provider=None,
 ):
     """Compose one plan-scoped Scheduler from container-owned dependencies."""
 
@@ -1025,6 +1096,7 @@ def compose_scheduler_runtime(
     ledger = invocation_ledger or get_scheduler_invocation_ledger()
     resolved_memory = memory_store or get_agent_memory_store()
     resolved_checkpointer = checkpointer or get_scheduler_checkpointer()
+    resolved_artifact_store = artifact_store or get_execution_artifact_store()
     scheduler = SchedulerApplicationCapability(
         state_store=state_store,
         plan=plan,
@@ -1032,6 +1104,9 @@ def compose_scheduler_runtime(
         invocation_port=resolved_a2a.invoker,
         invocation_ledger=ledger,
         command_store=command_store,
+        durable_command_port=durable_command_port,
+        artifact_store=resolved_artifact_store,
+        evaluation_state_provider=evaluation_state_provider,
         worker_id=_runtime_worker_id("scheduler"),
     )
     graph = build_scheduler_graph(
@@ -1049,6 +1124,7 @@ def compose_scheduler_runtime(
         capability_adapter=resolved_a2a.registry,
         invocation_adapter=resolved_a2a.invoker,
         durable_ledger=ledger,
+        artifact_store=resolved_artifact_store,
         memory_store=resolved_memory,
         execution_state_store=state_store,
         checkpointer=resolved_checkpointer,

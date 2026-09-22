@@ -98,6 +98,11 @@ def test_runtime_control_schema_adapter_owns_runtime_schema_and_indexes():
     assert "test_schema_runtime_event_receipts" in rendered
     assert "test_schema_agent_runs" in rendered
     assert "test_schema_execution_path_bindings" in rendered
+    assert "test_schema_scheduler_executions" in rendered
+    assert "test_schema_execution_artifacts" in rendered
+    assert rendered.index("test_schema_scheduler_executions") < rendered.index(
+        "test_schema_execution_artifacts"
+    )
     assert "execution-path-binding-v1" in rendered
     assert "SELECT session_id, 'OLD'" in rendered
     assert "test_schema_runtime_outbox_running_lease_idx" in rendered

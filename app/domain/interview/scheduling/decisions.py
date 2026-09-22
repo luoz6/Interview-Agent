@@ -415,7 +415,54 @@ def execute_evidence_insufficient_replan(
 
     build_evidence_insufficient_replan(context, declaration)
     task, request = assemble_dynamic_task_request(context, declaration)
-    return register_dynamic_task(context.execution_state, task), task, request
+    latest = context.execution_state.latest_observation or {}
+    question_id = latest.get("question_id")
+    if not isinstance(question_id, str) or not question_id:
+        _invalid("question_id_missing", "follow-up pair requires question_id")
+    ordinal = context.execution_state.followups_by_question.get(question_id, 0) + 1
+    followup_id = f"followup:{question_id}:{ordinal}"
+    followup = task.model_copy(
+        update={
+            "task_id": followup_id,
+            "parameters": {
+                **task.parameters,
+                "question_id": question_id,
+                "replan_ordinal": ordinal,
+            },
+        }
+    )
+    reviewer = next(
+        (
+            capability
+            for capability in context.capabilities
+            if capability.skill == "evaluate-answer"
+        ),
+        None,
+    )
+    if reviewer is None:
+        _invalid("review_capability_unavailable", "follow-up pair requires Reviewer")
+    evaluation = ExecutionTaskDefinition(
+        task_id=f"evaluate-followup:{question_id}:{ordinal}",
+        capability="interview.answer-evaluation",
+        agent_id=reviewer.agent_id,
+        skill=reviewer.skill,
+        input_contract=reviewer.request_contract_id,
+        output_contract=reviewer.output_artifact_type,
+        parameters={
+            "phase": "followup_evaluation",
+            "question_id": question_id,
+            "dependencies": (followup_id,),
+            "parent_review_task_id": latest.get("task_id"),
+            "replan_ordinal": ordinal,
+        },
+    )
+    state = context.execution_state.register_followup_pair(
+        expected_revision=context.execution_state.revision,
+        question_id=question_id,
+        followup=followup,
+        evaluation=evaluation,
+    )
+    return state, followup, request
 
 
 def derive_adaptive_followup_decision(

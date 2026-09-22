@@ -1,8 +1,8 @@
 {
   "metadata": {
     "generated_by": "tools/architecture/scan_duplicate_implementations.py",
-    "files_scanned": 513,
-    "definitions_scanned": 2918,
+    "files_scanned": 521,
+    "definitions_scanned": 2948,
     "parse_error_count": 0,
     "classification_rule": "Only normalized AST body matches are confirmed_exact; all family, shape, name, wiring, and version matches are review candidates."
   },
@@ -839,6 +839,36 @@
         ]
       },
       {
+        "key": "executionartifactstore",
+        "status": "candidate",
+        "disposition": "expected_polymorphic_family",
+        "review_priority": "low",
+        "review_note": "Port and adapter variants are expected unless reachability says otherwise.",
+        "members": [
+          {
+            "module": "app.adapters.memory.execution_artifacts",
+            "name": "InMemoryExecutionArtifactStore",
+            "kind": "class",
+            "file": "app/adapters/memory/execution_artifacts.py",
+            "line": 12
+          },
+          {
+            "module": "app.adapters.persistence.postgres.execution_artifacts",
+            "name": "PostgresExecutionArtifactStore",
+            "kind": "class",
+            "file": "app/adapters/persistence/postgres/execution_artifacts.py",
+            "line": 27
+          },
+          {
+            "module": "app.ports.execution_artifacts",
+            "name": "ExecutionArtifactStore",
+            "kind": "class",
+            "file": "app/ports/execution_artifacts.py",
+            "line": 17
+          }
+        ]
+      },
+      {
         "key": "executionpathbindingstore",
         "status": "candidate",
         "disposition": "expected_polymorphic_family",
@@ -963,14 +993,14 @@
             "name": "InterviewSessionStore",
             "kind": "class",
             "file": "app/adapters/memory/session_store.py",
-            "line": 64
+            "line": 65
           },
           {
             "module": "app.adapters.persistence.postgres.session_store",
             "name": "PostgresInterviewSessionStore",
             "kind": "class",
             "file": "app/adapters/persistence/postgres/session_store.py",
-            "line": 48
+            "line": 51
           }
         ]
       },
@@ -1479,6 +1509,29 @@
         ]
       },
       {
+        "key": "[[\"execution_id\",\"str\"],[\"task_id\",\"str\"],[\"logical_attempt\",\"int\"],[\"agent_id\",\"str\"],[\"skill\",\"str\"],[\"question_id\",\"str | None\"]]",
+        "status": "candidate",
+        "disposition": "compatible_shape_only",
+        "review_priority": "low",
+        "review_note": "Field-shape equality alone does not establish duplicate semantics.",
+        "members": [
+          {
+            "module": "app.application.interview.scheduler_production_entry",
+            "name": "SchedulerQuestionBoundary",
+            "kind": "class",
+            "file": "app/application/interview/scheduler_production_entry.py",
+            "line": 45
+          },
+          {
+            "module": "app.domain.agent_streaming",
+            "name": "AgentStreamIdentity",
+            "kind": "class",
+            "file": "app/domain/agent_streaming.py",
+            "line": 13
+          }
+        ]
+      },
+      {
         "key": "[[\"id\",\"str\"],[\"kind\",\"Literal['project', 'technical', 'system-design', 'behavioral']\"],[\"prompt\",\"str\"],[\"focus\",\"str\"]]",
         "status": "candidate",
         "disposition": "compatible_shape_only",
@@ -1955,7 +2008,7 @@
             "name": "consume_round_review_event",
             "kind": "function",
             "file": "app/runtime/composition.py",
-            "line": 2712
+            "line": 2788
           },
           {
             "module": "app.runtime.runtime_event_consumer",
@@ -1978,7 +2031,7 @@
             "name": "consume_round_review_event_payload",
             "kind": "function",
             "file": "app/runtime/composition.py",
-            "line": 2685
+            "line": 2761
           },
           {
             "module": "app.runtime.runtime_event_consumer",

@@ -328,6 +328,7 @@ class PostgresRuntimeControlSchemaAdapter:
         agent_invocations_table: str | None = None,
         execution_path_bindings_table: str | None = None,
         scheduler_executions_table: str | None = None,
+        execution_artifacts_table: str | None = None,
     ) -> None:
         self._connection_provider = connection_provider
         self.table_prefix = table_prefix
@@ -345,6 +346,10 @@ class PostgresRuntimeControlSchemaAdapter:
         self.scheduler_executions_table = (
             scheduler_executions_table
             or f"{table_prefix}_scheduler_executions"
+        )
+        self.execution_artifacts_table = (
+            execution_artifacts_table
+            or f"{table_prefix}_execution_artifacts"
         )
 
     def ensure_schema(self) -> None:
@@ -406,6 +411,30 @@ class PostgresRuntimeControlSchemaAdapter:
                         scheduler_executions=sql.Identifier(
                             self.scheduler_executions_table
                         )
+                    )
+                )
+                cursor.execute(
+                    sql.SQL(
+                        """
+                        CREATE TABLE IF NOT EXISTS {execution_artifacts} (
+                            artifact_ref TEXT PRIMARY KEY,
+                            execution_id TEXT NOT NULL
+                                REFERENCES {scheduler_executions}(execution_id)
+                                ON DELETE CASCADE,
+                            artifact_type TEXT NOT NULL,
+                            schema_version TEXT NOT NULL,
+                            payload_sha256 TEXT NOT NULL,
+                            payload_json JSONB NOT NULL,
+                            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+                        )
+                        """
+                    ).format(
+                        execution_artifacts=sql.Identifier(
+                            self.execution_artifacts_table
+                        ),
+                        scheduler_executions=sql.Identifier(
+                            self.scheduler_executions_table
+                        ),
                     )
                 )
                 cursor.execute(

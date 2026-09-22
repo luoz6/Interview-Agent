@@ -36,9 +36,13 @@ def build_agent_idempotency_key(
     state_version = getattr(context, "state_version", None)
     command_id = getattr(context, "command_id", None)
     if agent_id == "interview-examiner":
+        intent = request.get("intent")
+        intent_question_id = (
+            intent.get("question_id") if isinstance(intent, dict) else None
+        )
         identity = [
             session_id,
-            request.get("question_id") or question_id,
+            request.get("question_id") or intent_question_id or question_id,
             state_version,
             command_id,
             request.get("policy_version"),
@@ -52,6 +56,9 @@ def build_agent_idempotency_key(
     elif agent_id == "interview-reviewer":
         identity = [
             session_id,
+            request.get("question_id") or question_id,
+            request.get("answer_artifact_ref"),
+            request.get("question_artifact_ref"),
             state_version,
             request.get("review_policy_version"),
         ]

@@ -158,6 +158,10 @@ class ExecutionState(BaseModel):
     current_wait_handle: WaitHandle | None = None
     latest_observation: dict[str, Any] | None = None
     scheduler_step_count: int = Field(default=0, ge=0)
+    followups_total_used: int = Field(default=0, ge=0)
+    followups_by_question: dict[str, int] = Field(default_factory=dict)
+    replans_used: int = Field(default=0, ge=0)
+    unresolved_gaps: tuple[dict[str, Any], ...] = ()
     execution_status: ExecutionStatus = "PENDING"
 
     @model_validator(mode="after")
@@ -173,6 +177,35 @@ class ExecutionState(BaseModel):
                 raise ValueError("task attempt keys must be non-empty")
             if isinstance(attempt, bool) or attempt < 0:
                 raise ValueError("task attempts must be non-negative integers")
+        followups = {
+            task.task_id: task
+            for task in self.dynamic_task_definitions
+            if task.task_id.startswith("followup:")
+        }
+        evaluations = {
+            task.task_id: task
+            for task in self.dynamic_task_definitions
+            if task.task_id.startswith("evaluate-followup:")
+        }
+        expected_evaluations = {
+            f"evaluate-{task_id}" for task_id in followups
+        }
+        question_counts: dict[str, int] = {}
+        for task_id in followups:
+            parts = task_id.split(":")
+            if len(parts) != 3 or not parts[1] or not parts[2].isdigit():
+                raise ValueError("follow-up pair task identity is invalid")
+            question_counts[parts[1]] = question_counts.get(parts[1], 0) + 1
+        runtime_ids = set(task_ids)
+        pair_ids = set(followups) | set(evaluations)
+        if (
+            set(evaluations) != expected_evaluations
+            or not pair_ids <= runtime_ids
+            or self.followups_total_used != len(followups)
+            or self.followups_by_question != question_counts
+            or self.replans_used != len(followups)
+        ):
+            raise ValueError("follow-up pair budget invariant violated")
         return self
 
     def task_state(self, task_id: str) -> TaskRuntimeState | None:
@@ -205,6 +238,53 @@ class ExecutionState(BaseModel):
             expected_revision=expected_revision,
             transition_name=transition_name,
             **changes,
+        )
+
+    def register_followup_pair(
+        self,
+        *,
+        expected_revision: int,
+        question_id: str,
+        followup: ExecutionTaskDefinition,
+        evaluation: ExecutionTaskDefinition,
+    ) -> "ExecutionState":
+        existing_definitions = {
+            task.task_id: task for task in self.dynamic_task_definitions
+        }
+        existing_runtime = {
+            task.task_id: task for task in self.task_states
+        }
+        present = (
+            followup.task_id in existing_definitions,
+            evaluation.task_id in existing_definitions,
+            followup.task_id in existing_runtime,
+            evaluation.task_id in existing_runtime,
+        )
+        if all(present):
+            if (
+                existing_definitions[followup.task_id] != followup
+                or existing_definitions[evaluation.task_id] != evaluation
+            ):
+                raise RuntimeError("follow-up pair identity payload conflict")
+            return self
+        if any(present):
+            raise RuntimeError("partial follow-up pair invariant violation")
+        counts = dict(self.followups_by_question)
+        counts[question_id] = counts.get(question_id, 0) + 1
+        return self._apply_transition(
+            expected_revision=expected_revision,
+            transition_name=f"followup-pair:{question_id}:{counts[question_id]}",
+            dynamic_task_definitions=(
+                self.dynamic_task_definitions + (followup, evaluation)
+            ),
+            task_states=self.task_states
+            + (
+                TaskRuntimeState(task_id=followup.task_id),
+                TaskRuntimeState(task_id=evaluation.task_id),
+            ),
+            followups_total_used=self.followups_total_used + 1,
+            followups_by_question=counts,
+            replans_used=self.replans_used + 1,
         )
 
     def transition_task(
@@ -257,6 +337,85 @@ class ExecutionState(BaseModel):
             dynamic_task_definitions=self.dynamic_task_definitions + (task,),
         )
 
+    def complete_resolution_gate(
+        self,
+        *,
+        expected_revision: int,
+        task_id: str,
+    ) -> "ExecutionState":
+        current = self.task_state(task_id)
+        if current is None:
+            raise KeyError(f"unknown task_id: {task_id}")
+        if current.status not in {"PENDING", "READY"}:
+            raise InvalidTaskTransition(
+                task_id=task_id,
+                source=current.status,
+                target="COMPLETED",
+            )
+        completed = current.model_copy(
+            update={"status": "COMPLETED", "reason_code": None}
+        )
+        return self._apply_transition(
+            expected_revision=expected_revision,
+            transition_name=f"resolution:{task_id}:COMPLETED",
+            task_states=tuple(
+                completed if task.task_id == task_id else task
+                for task in self.task_states
+            ),
+        )
+
+    def complete_resolution_with_gap(
+        self,
+        *,
+        expected_revision: int,
+        task_id: str,
+        gap: dict[str, Any],
+    ) -> "ExecutionState":
+        current = self.task_state(task_id)
+        if current is None:
+            raise KeyError(f"unknown task_id: {task_id}")
+        if current.status not in {"PENDING", "READY"}:
+            raise InvalidTaskTransition(
+                task_id=task_id,
+                source=current.status,
+                target="COMPLETED",
+            )
+        completed = current.model_copy(
+            update={"status": "COMPLETED", "reason_code": None}
+        )
+        return self._apply_transition(
+            expected_revision=expected_revision,
+            transition_name=f"resolution:{task_id}:UNRESOLVED_GAP",
+            task_states=tuple(
+                completed if task.task_id == task_id else task
+                for task in self.task_states
+            ),
+            unresolved_gaps=self.unresolved_gaps + (dict(gap),),
+        )
+
+    def complete_by_user(self, *, expected_revision: int) -> "ExecutionState":
+        """Atomically terminate remaining work after an explicit user finish."""
+
+        if expected_revision != self.revision:
+            raise ExecutionStateConflict(
+                expected_revision=expected_revision,
+                actual_revision=self.revision,
+            )
+        terminal = {"COMPLETED", "SKIPPED", "CANCELED"}
+        updated_tasks = tuple(
+            task
+            if task.status in terminal
+            else task.model_copy(update={"status": "CANCELED", "reason_code": None})
+            for task in self.task_states
+        )
+        return self._apply_transition(
+            expected_revision=expected_revision,
+            transition_name="execution:user-complete",
+            task_states=updated_tasks,
+            current_wait_handle=None,
+            execution_status="COMPLETED",
+        )
+
     def _apply_transition(
         self,
         *,
@@ -281,6 +440,10 @@ class ExecutionState(BaseModel):
             "current_wait_handle",
             "latest_observation",
             "scheduler_step_count",
+            "followups_total_used",
+            "followups_by_question",
+            "replans_used",
+            "unresolved_gaps",
             "execution_status",
         }
         unknown = set(changes) - mutable_fields

@@ -8,6 +8,16 @@ from fastapi.testclient import TestClient
 import app.api.reports.routes as report_route_module
 import app.api.prep.routes as prep_route_module
 import app.api.shared.dependencies as api_dependencies
+from app.a2a.contracts.evaluation import (
+    EvaluationArtifactPayload,
+    EvaluationArtifactV2,
+    EvaluationGapPayload,
+)
+from app.a2a.contracts.evaluation_set import EvaluationArtifactSetPayload
+from app.a2a.contracts.followup import FollowupArtifactPayload
+from app.a2a.contracts.main_question import MainQuestionArtifactPayload
+from app.a2a.contracts.report import ReportArtifactPayload
+from app.a2a.runtime import build_local_a2a_runtime
 from app.api.shared.dependencies import get_session_store
 from app.main import app
 from app.runtime.interview_prep import (
@@ -241,6 +251,109 @@ def make_client():
     report_tasks.get_knowledge_store = lambda: FakeVectorStore()
     llm = ReportApiLLM()
     store = InterviewSessionStore(llm=llm)
+    runtime = build_local_a2a_runtime(llm=llm)
+    review_counts = {}
+
+    def evaluate_answer(request, _execution_context):
+        question_id = request["question_id"]
+        review_counts[question_id] = review_counts.get(question_id, 0) + 1
+        if review_counts[question_id] == 1:
+            return EvaluationArtifactV2(
+                question_id=question_id,
+                answer_artifact_ref=request["answer_artifact_ref"],
+                question_artifact_ref=request["question_artifact_ref"],
+                evaluation_status="EVALUATED",
+                evidence_status="INSUFFICIENT",
+                gap=EvaluationGapPayload(
+                    gap_id=f"gap:{question_id}:tradeoffs",
+                    type="depth",
+                    focus="implementation tradeoffs",
+                    reason="The first answer needs one bounded follow-up.",
+                ),
+                summary="One follow-up is required.",
+                evaluation_policy_version="report-acceptance-review-v1",
+            )
+        return EvaluationArtifactV2(
+            question_id=question_id,
+            answer_artifact_ref=request["answer_artifact_ref"],
+            question_artifact_ref=request["question_artifact_ref"],
+            evaluation_status="EVALUATED",
+            evidence_status="SUFFICIENT",
+            score=81,
+            summary="The follow-up supplied enough evidence.",
+            evaluation_policy_version="report-acceptance-review-v1",
+        )
+
+    def generate_main_question(request, _execution_context):
+        intent = request["intent"]
+        return MainQuestionArtifactPayload(
+            question_id=intent["question_id"],
+            question_text=intent["fixed_question_text"],
+            render_mode="fixed",
+            reason_code="fixed_plan_question",
+        )
+
+    def generate_followup(request, _execution_context):
+        return FollowupArtifactPayload(
+            question_id=request["question_id"],
+            gap_id=request.get("gap_id"),
+            followup_text="Please explain the tradeoffs.",
+            reason_code=request["reason_code"],
+            focus=request.get("focus", ""),
+            policy_version=request["policy_version"],
+            evidence_ids=request.get("evidence_ids", []),
+        )
+
+    def evaluate_interview(_request, _execution_context):
+        return EvaluationArtifactSetPayload(
+            evaluations=[
+                EvaluationArtifactPayload(
+                    question_id=question_id,
+                    score=81,
+                    dimensions={"technical": 81},
+                    strengths=["Explained implementation tradeoffs."],
+                    evaluation_policy_version="report-acceptance-review-v1",
+                )
+                for question_id in review_counts
+            ]
+        )
+
+    def generate_report(request, _execution_context):
+        return ReportArtifactPayload(
+            session_id=request["session_id"],
+            summary="Clear project story with practical tradeoffs.",
+            dimension_scores={"technical": 81},
+            strengths=["Explained implementation tradeoffs."],
+            evaluation_refs=list(review_counts),
+            report_policy_version="report-acceptance-v1",
+        )
+
+    runtime.server.register(
+        agent_id="interview-reviewer",
+        skill="evaluate-answer",
+        handler=evaluate_answer,
+    )
+    runtime.server.register(
+        agent_id="interview-examiner",
+        skill="generate-main-question",
+        handler=generate_main_question,
+    )
+    runtime.server.register(
+        agent_id="interview-examiner",
+        skill="generate-followup",
+        handler=generate_followup,
+    )
+    runtime.server.register(
+        agent_id="interview-reviewer",
+        skill="evaluate-interview",
+        handler=evaluate_interview,
+    )
+    runtime.server.register(
+        agent_id="report-coach",
+        skill="generate-report",
+        handler=generate_report,
+    )
+    store._scheduler_a2a_runtime = runtime
     job_store = FakeReportJobStore(store)
     prep_plan_store = InMemoryPrepPlanStore()
     plan_revision_store = InMemoryInterviewPlanRevisionStore()
@@ -343,8 +456,21 @@ def start_legacy_interview(client: TestClient) -> str:
     return session_id
 
 
-def finish_session(store: InterviewSessionStore, session_id: str) -> None:
+def finish_session(
+    store: InterviewSessionStore,
+    session_id: str,
+    *,
+    answered_questions: int = 0,
+) -> None:
     state = store.get(session_id)
+    for question in state["plan"].questions[:answered_questions]:
+        state["messages"].append(
+            {
+                "role": "candidate",
+                "content": f"Answer for {question.id}.",
+                "question_id": question.id,
+            }
+        )
     state["status"] = "finished"
     state["current_index"] = len(state["plan"].questions)
 
@@ -429,7 +555,14 @@ def test_ma8_normal_interview_e2e_completes_on_single_scheduler_path(monkeypatch
 
     final = client.get(f"/api/interviews/{session_id}")
     scheduler_state = entry.execution_repository.load(session_id)
-    report = client.get(f"/api/interviews/{session_id}/report")
+    report_ref = next(
+        ref
+        for ref in reversed(scheduler_state.artifact_refs)
+        if ref.artifact_type == "report-artifact"
+    )
+    report_artifact = store._scheduler_execution_artifact_store.get_required(
+        report_ref.artifact_ref
+    )
 
     assert scheduler_revisions == sorted(scheduler_revisions)
     assert len(scheduler_revisions) == len(set(scheduler_revisions))
@@ -451,11 +584,11 @@ def test_ma8_normal_interview_e2e_completes_on_single_scheduler_path(monkeypatch
         "answered",
         "answered",
     ]
-    assert job_store.enqueue_calls == [session_id]
+    assert report_artifact.session_id == session_id
+    assert report_artifact.summary == "Clear project story with practical tradeoffs."
+    assert job_store.enqueue_calls == []
     assert llm.report_calls == 0
-    assert store.get_report_record(session_id).status == "processing"
-    assert report.status_code == 202
-    assert report.json()["status"] == "processing"
+    assert store.get_report_record(session_id) is None
 
 
 def test_report_endpoint_returns_404_for_unknown_session():
@@ -536,8 +669,7 @@ def test_reports_endpoint_lists_completed_failed_and_processing_reports():
     completed = start_interview(client)
     failed = start_interview(client)
     processing = start_interview(client)
-    store.submit_answer(completed, "I designed the cache recovery path.")
-    finish_session(store, completed)
+    finish_session(store, completed, answered_questions=1)
     finish_session(store, failed)
     finish_session(store, processing)
     store.save_report(completed, make_report_model(completed, summary="Completed summary."))
@@ -738,8 +870,7 @@ def test_report_endpoint_returns_202_with_progress():
 def test_completed_report_endpoint_returns_authoritative_reliability_object():
     client, store, _, _ = make_client()
     session_id = start_interview(client)
-    responses = answer_all_questions(client, session_id)
-    assert all(response.status_code == 200 for response in responses)
+    finish_session(store, session_id, answered_questions=3)
     store.save_report(session_id, make_report_model(session_id))
 
     response = client.get(f"/api/interviews/{session_id}/report")
@@ -764,8 +895,7 @@ def test_practice_plan_endpoint_returns_new_editable_plan_with_provenance():
     client, store, _, _ = make_client()
     session_id = start_legacy_interview(client)
     question_ids = [item.id for item in store.get(session_id)["plan"].questions]
-    responses = answer_all_questions(client, session_id)
-    assert all(response.status_code == 200 for response in responses)
+    finish_session(store, session_id, answered_questions=3)
     report = make_report_model(session_id, question_id=question_ids[0])
     report = report.model_copy(
         update={
@@ -885,8 +1015,7 @@ def test_practice_plan_endpoint_returns_stable_semantic_validation_errors(
     client, store, _, _ = make_client()
     session_id = start_legacy_interview(client)
     question_ids = [item.id for item in store.get(session_id)["plan"].questions]
-    responses = answer_all_questions(client, session_id)
-    assert all(response.status_code == 200 for response in responses)
+    finish_session(store, session_id, answered_questions=3)
     report = make_report_model(session_id, question_id=question_ids[0])
     report = report.model_copy(
         update={
@@ -1015,16 +1144,16 @@ def test_report_progress_endpoint_includes_progress_metadata():
     assert body["metadata"]["microbatch_rerun_questions"] == 1
 
 
-def test_report_progress_endpoint_returns_report_job_id_after_finish_enqueue():
-    client, _, _, _ = make_client()
+def test_finish_does_not_enqueue_legacy_report_job_for_ma9_execution():
+    client, _, _, job_store = make_client()
     session_id = start_interview(client)
 
     finish_response = client.post(f"/api/interviews/{session_id}/finish")
     progress_response = client.get(f"/api/interviews/{session_id}/report/progress")
 
     assert finish_response.status_code == 200
-    assert progress_response.status_code == 200
-    assert progress_response.json()["report_job_id"] == "job-1"
+    assert progress_response.status_code == 404
+    assert job_store.enqueue_calls == []
 
 
 def test_report_progress_endpoint_returns_completed_detail():
@@ -1273,7 +1402,7 @@ def test_report_requeue_returns_503_when_queue_is_unavailable():
     assert response.json() == {"detail": "report queue is unavailable"}
 
 
-def test_finished_answer_enqueues_report_generation_once_and_leaves_processing():
+def test_finished_answer_commits_ma9_report_without_legacy_enqueue():
     client, store, llm, job_store = make_client()
     session_id = start_interview(client)
 
@@ -1284,18 +1413,15 @@ def test_finished_answer_enqueues_report_generation_once_and_leaves_processing()
     assert first_response.status_code == 200
     assert second_response.status_code == 200
     assert second_response.json()["status"] == "finished"
-    assert job_store.enqueue_calls == [session_id]
+    assert job_store.enqueue_calls == []
     assert llm.report_calls == 0
     record = store.get_report_record(session_id)
-    assert record is not None
-    assert record.status == "processing"
-
-    report_response = client.get(f"/api/interviews/{session_id}/report")
-    assert report_response.status_code == 202
-    assert report_response.json()["status"] == "processing"
+    assert record is None
+    state = store._scheduler_execution_repository.load(session_id)
+    assert any(ref.artifact_type == "report-artifact" for ref in state.artifact_refs)
 
 
-def test_finish_endpoint_enqueues_report_generation_once_and_is_idempotent():
+def test_finish_endpoint_completes_ma9_execution_without_legacy_side_effects():
     client, store, llm, job_store = make_client()
     session_id = start_interview(client)
 
@@ -1306,9 +1432,9 @@ def test_finish_endpoint_enqueues_report_generation_once_and_is_idempotent():
     assert second_response.status_code == 200
     assert first_response.json()["status"] == "finished"
     assert first_response.json()["current_question"] is None
-    assert first_response.json()["follow_up"] == "本次模拟面试已结束。"
+    assert first_response.json()["follow_up"] is None
     assert second_response.json()["status"] == "finished"
-    assert job_store.enqueue_calls == [session_id]
+    assert job_store.enqueue_calls == []
     assert llm.report_calls == 0
     assert len(
         [
@@ -1316,14 +1442,13 @@ def test_finish_endpoint_enqueues_report_generation_once_and_is_idempotent():
             for message in store.get(session_id)["messages"]
             if message["content"] == "本次模拟面试已结束。"
         ]
-    ) == 1
+    ) == 0
 
     report_response = client.get(f"/api/interviews/{session_id}/report")
-    assert report_response.status_code == 202
-    assert report_response.json()["status"] == "processing"
+    assert report_response.status_code == 404
 
 
-def test_finished_answer_fails_report_without_process_coupled_fallback_when_job_store_is_unavailable():
+def test_finished_answer_does_not_require_legacy_report_queue():
     client, store, llm, _ = make_client()
     api_dependencies.get_report_job_store = lambda: (_ for _ in ()).throw(
         RuntimeError("POSTGRES_DSN is required to build report job store")
@@ -1339,13 +1464,10 @@ def test_finished_answer_fails_report_without_process_coupled_fallback_when_job_
     assert second_response.json()["status"] == "finished"
     assert llm.report_calls == 0
     record = store.get_report_record(session_id)
-    assert record is not None
-    assert record.status == "failed"
-    assert record.error == "report queue unavailable"
+    assert record is None
 
     report_response = client.get(f"/api/interviews/{session_id}/report")
-    assert report_response.status_code == 500
-    assert report_response.json()["detail"] == "Report queue is unavailable."
+    assert report_response.status_code == 404
 
 
 def test_report_endpoint_returns_500_for_failed_report():

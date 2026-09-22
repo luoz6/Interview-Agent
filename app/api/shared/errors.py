@@ -134,6 +134,11 @@ def raise_prep_source_import_invalid_request() -> None:
 
 def raise_value_error(exc: ValueError) -> None:
     detail = str(exc)
+    if detail == "QUESTION_NOT_READY":
+        raise HTTPException(
+            status_code=409,
+            detail={"code": "QUESTION_NOT_READY"},
+        ) from exc
     status_code = 404 if detail == "session not found" else 400
     raise HTTPException(status_code=status_code, detail=detail)
 

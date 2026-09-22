@@ -30,7 +30,7 @@ class RuntimePostgresIdentifiers:
 
 _RUNTIME_TABLE_SUFFIXES = (
     "sessions", "messages", "reports", "question_evaluations", "runtime_outbox",
-    "runtime_event_receipts", "agent_runs", "agent_invocations", "execution_path_bindings", "scheduler_executions", "generations", "generation_attempts",
+    "runtime_event_receipts", "agent_runs", "agent_invocations", "execution_path_bindings", "scheduler_executions", "execution_artifacts", "generations", "generation_attempts",
     "generation_chunks", "workflow_commands", "report_jobs", "review_runs",
     "review_artifacts", "review_effects", "context_artifacts", "context_artifact_refs",
     "runtime_signal_buckets", "memory_metric_buckets", "principal_memory_controls",

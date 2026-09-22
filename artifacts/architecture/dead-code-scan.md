@@ -12,17 +12,17 @@ Status: P9-T02 COMPLETE - evidence scan only; no deletion performed
 
 ## Summary
 
-- App files scanned: 513
+- App files scanned: 521
 - Script files scanned: 48
-- Test files scanned: 466
-- Top-level symbols scanned: 2918
+- Test files scanned: 474
+- Top-level symbols scanned: 2948
 - Parse errors: 0
 - Dynamic import sites reviewed: 7
 - Unresolved dynamic import calls: 2
 - Triple-zero modules: 3
 - Triple-zero symbols: 31 (11 private)
 - Additional symbols covered by triple-zero modules: 12
-- Test-only modules: 12
+- Test-only modules: 11
 - Test-only symbols: 50
 
 ## Reviewed Disposition
@@ -32,7 +32,7 @@ Status: P9-T02 COMPLETE - evidence scan only; no deletion performed
 | triple_zero_modules | 3 | `dedicated_cleanup_candidate` | The module candidates are legacy T63/T65 evaluation implementations. Their former one-off scripts/tests are absent and no current Python consumer or runtime wiring remains. |
 | private_symbols | 11 | `higher_confidence_cleanup_candidate` | Private triple-zero helpers have no detected production, runtime, or test reachability; remove only in a dedicated change with regression tests. |
 | public_symbols | 20 | `external_contract_review_required` | Public triple-zero symbols may still have external import consumers; zero repository reachability alone is insufficient for deletion. |
-| test_only | 62 | `retain` | Test-only modules and symbols have explicit test reachability and do not satisfy the triple-zero rule. |
+| test_only | 61 | `retain` | Test-only modules and symbols have explicit test reachability and do not satisfy the triple-zero rule. |
 | unresolved_dynamic_imports | 2 | `reviewed_no_candidate_target` | Unresolved calls are test helpers whose call sites supply literal Runtime module names; exact string scanning records those targets separately. |
 
 ## Triple-Zero Module Candidates
@@ -87,7 +87,6 @@ These are retained: test reachability means they do not satisfy the deletion rul
 | --- | ---: | ---: | ---: | --- |
 | `app.a2a.contracts.common` | 0 | 0 | 1 | `test_only` |
 | `app.a2a.official_cards` | 0 | 0 | 1 | `test_only` |
-| `app.adapters.persistence.postgres.scheduler_commands` | 0 | 0 | 1 | `test_only` |
 | `app.application.interview.plan_generation_policy` | 0 | 0 | 1 | `test_only` |
 | `app.application.report.evaluator` | 0 | 0 | 5 | `test_only` |
 | `app.evals.report_calibration_runner` | 0 | 0 | 1 | `test_only` |

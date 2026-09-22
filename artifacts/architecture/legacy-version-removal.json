@@ -1,9 +1,9 @@
 {
   "metadata": {
     "generated_by": "tools/architecture/scan_legacy_versions.py",
-    "app_files_scanned": 513,
+    "app_files_scanned": 521,
     "script_files_scanned": 48,
-    "test_files_scanned": 466,
+    "test_files_scanned": 474,
     "parse_error_count": 0,
     "version_family_count": 3,
     "legacy_module_count": 4,
@@ -343,7 +343,7 @@
           {
             "file": "app/runtime/composition.py",
             "module": "app.runtime.composition",
-            "line": 1877,
+            "line": 1953,
             "reason": "from_import"
           },
           {
@@ -357,7 +357,7 @@
           {
             "file": "app/runtime/composition.py",
             "module": "app.runtime.composition",
-            "line": 1877,
+            "line": 1953,
             "reason": "from_import"
           },
           {
