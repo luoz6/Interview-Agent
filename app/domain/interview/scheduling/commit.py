@@ -69,8 +69,10 @@ def choose_atomic_commit_strategy(
     )
 
 
-CURRENT_INVOCATION_COMMIT_DECISION = choose_atomic_commit_strategy(
-    same_transactional_store=False,
+CURRENT_INVOCATION_COMMIT_DECISION = AtomicCommitDecision(
+    strategy="TRANSACTIONAL_OUTBOX",
+    state_and_ledger_same_store=True,
+    artifact_metadata_same_store=True,
     outbox_name="runtime_outbox",
 )
 

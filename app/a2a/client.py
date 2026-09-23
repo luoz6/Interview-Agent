@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import Any
 from uuid import uuid4
 
@@ -63,3 +64,45 @@ class InProcessA2AClient:
             internal_reason=error.internal_reason,
             observability_code=error.observability_code,
         )
+
+    def stream_task(
+        self,
+        *,
+        agent_id: str,
+        skill: str,
+        request: dict[str, Any],
+        on_delta: Callable[[str], None],
+        execution_context: Any | None = None,
+        task_id: str | None = None,
+        context_id: str | None = None,
+        correlation_id: str | None = None,
+        causation_id: str | None = None,
+        parent_run_id: str | None = None,
+        command_id: str | None = None,
+        idempotency_key: str | None = None,
+    ) -> DomainArtifact:
+        del task_id, context_id, correlation_id, causation_id, parent_run_id
+        del command_id, idempotency_key
+        handler = self.server.get_stream_handler(agent_id=agent_id, skill=skill)
+        if handler is None:
+            raise A2AAgentError(
+                code="streaming_unsupported",
+                retryable=False,
+                terminal=True,
+                fallback_allowed=False,
+                public_message="Agent skill does not support streaming.",
+                internal_reason=f"{agent_id}:{skill} has no streaming handler",
+            )
+        try:
+            return handler(request, execution_context, on_delta)
+        except A2AAgentError:
+            raise
+        except Exception as exc:
+            raise A2AAgentError(
+                code="unexpected_error",
+                retryable=False,
+                terminal=True,
+                fallback_allowed=True,
+                public_message="Agent execution failed.",
+                internal_reason=str(exc),
+            ) from exc

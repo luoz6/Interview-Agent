@@ -762,6 +762,42 @@ class OpenAIInterviewLLM:
             if text:
                 yield text
 
+    def stream_main_question(
+        self,
+        *,
+        intent,
+        conversation: list[dict[str, str]] | None = None,
+        evidence: list[dict[str, str]] | None = None,
+        timeout_seconds: float | None = None,
+    ) -> Iterator[str]:
+        from app.domain.interview.question_intent import QuestionIntentV1
+        from app.domain.interview.main_question_generation import (
+            render_main_question_prompt,
+            validate_main_question,
+        )
+        frozen_intent = (
+            intent
+            if isinstance(intent, QuestionIntentV1)
+            else QuestionIntentV1.model_validate(intent)
+        )
+        bounded_context = [*(conversation or []), *(evidence or [])]
+        prompt = render_main_question_prompt(
+            intent=frozen_intent,
+            context=bounded_context,
+        )
+        from app.domain.context.budget import MAIN_QUESTION_CONTEXT_POLICY
+
+        self._guard_prompt(prompt, MAIN_QUESTION_CONTEXT_POLICY)
+        chunks: list[str] = []
+        for chunk in self._stream_chat(prompt, MAIN_QUESTION_CONTEXT_POLICY):
+            text = str(getattr(chunk, "content", "") or "")
+            if text:
+                chunks.append(text)
+                yield text
+        validate_main_question(
+            "".join(chunks), frozen_intent, conversation or []
+        )
+
     def generate_report(
         self,
         plan,

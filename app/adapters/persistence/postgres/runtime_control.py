@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 from collections.abc import Iterator
 from contextlib import contextmanager
 from datetime import datetime
@@ -36,7 +37,8 @@ from app.adapters.postgres.connections import (
 )
 from app.adapters.postgres.identifiers import validate_runtime_table_prefix
 from app.adapters.postgres.schema import resolve_schema_mode, validate_relations
-from app.domain.runtime_events import RuntimeEventEnvelope
+from app.domain.runtime_events import RuntimeEventEnvelope, SchedulerCommitEvent
+from app.adapters.postgres.session_repository_support import postgres_sql
 class PostgresRuntimeControlStore:
     def __init__(
         self,
@@ -166,6 +168,105 @@ class PostgresRuntimeControlStore:
 
     def enqueue_event(self, cursor, event: RuntimeEventEnvelope) -> bool:
         return self._outbox_repository.enqueue_event(cursor, event)
+
+    def commit_answer(self, *, command, artifact, state) -> None:
+        """Commit command, AnswerArtifact, ExecutionState, and outbox atomically."""
+
+        answer_text = command.payload.get("answer_text")
+        payload = json.dumps(
+            ["answer", command.expected_revision, answer_text or ""],
+            ensure_ascii=False,
+            separators=(",", ":"),
+        )
+        payload_sha256 = hashlib.sha256(payload.encode("utf-8")).hexdigest()
+        sql = postgres_sql()
+        commands_table = f"{self.table_prefix}_workflow_commands"
+        with PostgresUnitOfWork(self._connection_provider) as unit_of_work:
+            cursor = unit_of_work.cursor
+            cursor.execute(
+                sql.SQL(
+                    "INSERT INTO {table} (session_id, command_id, command_type, "
+                    "expected_version, answer_text, payload_sha256) "
+                    "VALUES (%s,%s,'answer',%s,%s,%s) "
+                    "ON CONFLICT (session_id, command_id) DO NOTHING"
+                ).format(table=sql.Identifier(commands_table)),
+                (
+                    command.execution_id,
+                    command.command_id,
+                    command.expected_revision,
+                    answer_text,
+                    payload_sha256,
+                ),
+            )
+            if cursor.rowcount == 0:
+                cursor.execute(
+                    sql.SQL(
+                        "SELECT payload_sha256 FROM {table} "
+                        "WHERE session_id=%s AND command_id=%s"
+                    ).format(table=sql.Identifier(commands_table)),
+                    (command.execution_id, command.command_id),
+                )
+                row = cursor.fetchone()
+                if row is None or row[0] != payload_sha256:
+                    raise RuntimeError("durable command payload conflict")
+            self._execution_artifact_store.put_if_absent_with_cursor(
+                cursor, artifact.artifact_ref, artifact
+            )
+            self._scheduler_execution_repository.save_with_cursor(cursor, state)
+            self.enqueue_event(
+                cursor,
+                SchedulerCommitEvent(
+                    event_id=f"scheduler-answer-{command.execution_id}-{command.command_id}",
+                    session_id=command.execution_id,
+                    causation_id=command.command_id,
+                    state_version=state.revision,
+                    effect_kind="answer_accepted",
+                    effect_id=artifact.artifact_ref,
+                ),
+            )
+            unit_of_work.commit()
+
+    def commit_agent_result(
+        self,
+        *,
+        artifact_ref,
+        artifact,
+        identity,
+        lease,
+        state,
+    ) -> None:
+        """Commit artifact, ledger, state, and outbox in one transaction."""
+
+        with PostgresUnitOfWork(self._connection_provider) as unit_of_work:
+            cursor = unit_of_work.cursor
+            self._execution_artifact_store.put_if_absent_with_cursor(
+                cursor, artifact_ref, artifact
+            )
+            if identity is not None and lease is not None:
+                self._agent_invocation_ledger.commit_with_cursor(
+                    cursor,
+                    identity,
+                    artifact_ref=artifact_ref,
+                    lease_owner=lease.owner_id,
+                    fencing_version=lease.fencing_version,
+                )
+            self._scheduler_execution_repository.save_with_cursor(cursor, state)
+            effect_id = (
+                f"{identity.task_id}:{identity.logical_attempt}"
+                if identity is not None
+                else artifact_ref
+            )
+            self.enqueue_event(
+                cursor,
+                SchedulerCommitEvent(
+                    event_id=f"scheduler-agent-{state.execution_id}-{effect_id}",
+                    session_id=state.execution_id,
+                    state_version=state.revision,
+                    effect_kind="agent_result_committed",
+                    effect_id=artifact_ref,
+                ),
+            )
+            unit_of_work.commit()
 
     def count_outbox(self, event_id: str | None = None) -> int:
         return self._outbox_repository.count_outbox(event_id)

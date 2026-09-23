@@ -12,10 +12,10 @@ Status: P9-T02 COMPLETE - evidence scan only; no deletion performed
 
 ## Summary
 
-- App files scanned: 521
+- App files scanned: 522
 - Script files scanned: 48
-- Test files scanned: 474
-- Top-level symbols scanned: 2948
+- Test files scanned: 478
+- Top-level symbols scanned: 2953
 - Parse errors: 0
 - Dynamic import sites reviewed: 7
 - Unresolved dynamic import calls: 2

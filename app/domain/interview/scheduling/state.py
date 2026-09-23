@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Any, Literal
 
 from pydantic import AliasChoices, BaseModel, ConfigDict, Field, model_validator
@@ -161,6 +162,10 @@ class ExecutionState(BaseModel):
     followups_total_used: int = Field(default=0, ge=0)
     followups_by_question: dict[str, int] = Field(default_factory=dict)
     replans_used: int = Field(default=0, ge=0)
+    agent_calls_used: int = Field(default=0, ge=0)
+    retries_used: int = Field(default=0, ge=0)
+    execution_started_at: datetime | None = None
+    completion_reason: Literal["NORMAL", "USER_FINISHED_EARLY"] | None = None
     unresolved_gaps: tuple[dict[str, Any], ...] = ()
     execution_status: ExecutionStatus = "PENDING"
 
@@ -279,8 +284,14 @@ class ExecutionState(BaseModel):
             ),
             task_states=self.task_states
             + (
-                TaskRuntimeState(task_id=followup.task_id),
-                TaskRuntimeState(task_id=evaluation.task_id),
+                TaskRuntimeState(
+                    task_id=followup.task_id,
+                    max_attempts=int(followup.parameters.get("max_attempts", 1)),
+                ),
+                TaskRuntimeState(
+                    task_id=evaluation.task_id,
+                    max_attempts=int(evaluation.parameters.get("max_attempts", 1)),
+                ),
             ),
             followups_total_used=self.followups_total_used + 1,
             followups_by_question=counts,
@@ -393,7 +404,12 @@ class ExecutionState(BaseModel):
             unresolved_gaps=self.unresolved_gaps + (dict(gap),),
         )
 
-    def complete_by_user(self, *, expected_revision: int) -> "ExecutionState":
+    def complete_by_user(
+        self,
+        *,
+        expected_revision: int,
+        preserve_task_ids: frozenset[str] = frozenset(),
+    ) -> "ExecutionState":
         """Atomically terminate remaining work after an explicit user finish."""
 
         if expected_revision != self.revision:
@@ -404,7 +420,7 @@ class ExecutionState(BaseModel):
         terminal = {"COMPLETED", "SKIPPED", "CANCELED"}
         updated_tasks = tuple(
             task
-            if task.status in terminal
+            if task.status in terminal or task.task_id in preserve_task_ids
             else task.model_copy(update={"status": "CANCELED", "reason_code": None})
             for task in self.task_states
         )
@@ -413,7 +429,12 @@ class ExecutionState(BaseModel):
             transition_name="execution:user-complete",
             task_states=updated_tasks,
             current_wait_handle=None,
-            execution_status="COMPLETED",
+            latest_observation={
+                "status": "USER_FINISHED_EARLY",
+                "reason_code": "completion_requested",
+            },
+            execution_status="RUNNING",
+            completion_reason="USER_FINISHED_EARLY",
         )
 
     def _apply_transition(
@@ -443,6 +464,10 @@ class ExecutionState(BaseModel):
             "followups_total_used",
             "followups_by_question",
             "replans_used",
+            "agent_calls_used",
+            "retries_used",
+            "execution_started_at",
+            "completion_reason",
             "unresolved_gaps",
             "execution_status",
         }

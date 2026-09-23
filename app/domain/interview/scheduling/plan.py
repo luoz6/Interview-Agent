@@ -73,6 +73,9 @@ class ExecutionConstraints(BaseModel):
     max_followups_total: int | None = Field(default=None, ge=0)
     max_followups_per_question: int | None = Field(default=None, ge=0)
     max_replans_total: int | None = Field(default=None, ge=0)
+    max_agent_calls: int | None = Field(default=None, ge=0)
+    max_retries: int | None = Field(default=None, ge=0)
+    execution_timeout_seconds: float | None = Field(default=None, gt=0)
 
 
 class ExecutionPlan(BaseModel):

@@ -37,6 +37,16 @@ class PostgresExecutionArtifactStore:
         embedded_ref = getattr(artifact, "artifact_ref", artifact_ref)
         if embedded_ref != artifact_ref:
             raise ArtifactPayloadConflict(artifact_ref)
+        with self._provider.connection() as connection:
+            with connection.cursor() as cursor:
+                result = self.put_if_absent_with_cursor(cursor, artifact_ref, artifact)
+            connection.commit()
+        return result
+
+    def put_if_absent_with_cursor(self, cursor, artifact_ref, artifact):
+        embedded_ref = getattr(artifact, "artifact_ref", artifact_ref)
+        if embedded_ref != artifact_ref:
+            raise ArtifactPayloadConflict(artifact_ref)
         sql = postgres_sql()
         payload, payload_sha256 = _canonical_payload(artifact)
         execution_id = getattr(artifact, "execution_id", None)
@@ -44,9 +54,7 @@ class PostgresExecutionArtifactStore:
             execution_id = artifact_ref.split("/", 1)[0]
         if not execution_id:
             raise ValueError("execution artifact requires execution_id")
-        with self._provider.connection() as connection:
-            with connection.cursor() as cursor:
-                cursor.execute(
+        cursor.execute(
                     sql.SQL(
                         "INSERT INTO {table} (artifact_ref, execution_id, artifact_type, "
                         "schema_version, payload_sha256, payload_json) "
@@ -62,19 +70,18 @@ class PostgresExecutionArtifactStore:
                         json.dumps(payload, ensure_ascii=False),
                     ),
                 )
-                if cursor.rowcount == 0:
-                    cursor.execute(
+        if cursor.rowcount == 0:
+            cursor.execute(
                         sql.SQL(
                             "SELECT payload_sha256, payload_json FROM {table} "
                             "WHERE artifact_ref = %s"
                         ).format(table=sql.Identifier(self.table_name)),
                         (artifact_ref,),
                     )
-                    row = cursor.fetchone()
-                    if row is None or row[0] != payload_sha256:
-                        raise ArtifactPayloadConflict(artifact_ref)
-                    return parse_execution_artifact(row[1])
-            connection.commit()
+            row = cursor.fetchone()
+            if row is None or row[0] != payload_sha256:
+                raise ArtifactPayloadConflict(artifact_ref)
+            return parse_execution_artifact(row[1])
         return artifact
 
     def get_required(self, artifact_ref: str) -> DomainArtifact:

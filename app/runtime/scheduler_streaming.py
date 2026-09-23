@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from queue import Empty, Queue
+from threading import Event, Thread
 from typing import Any
 
 from app.application.interview.events import _format_sse
@@ -33,15 +35,46 @@ def _open_scheduler_question_stream(entry, boundary) -> DurableSessionStream:
     result_holder: dict[str, Any] = {}
 
     def invoke():
-        result = entry.dispatch_streaming_question(boundary)
-        result_holder["result"] = result
-        yield _artifact_text(result.artifact)
+        chunks: Queue[str] = Queue()
+        finished = Event()
 
-    def commit(generated_text: str) -> CommittedStreamArtifact:
+        def dispatch() -> None:
+            try:
+                result_holder["result"] = entry.dispatch_streaming_question(
+                    boundary,
+                    on_delta=chunks.put,
+                )
+            except Exception as exc:
+                result_holder["error"] = exc
+            finally:
+                finished.set()
+
+        Thread(
+            target=dispatch,
+            name=f"scheduler-stream-dispatch-{boundary.task_id}",
+            daemon=True,
+        ).start()
+        emitted = False
+        while not finished.is_set() or not chunks.empty():
+            try:
+                chunk = chunks.get(timeout=0.05)
+            except Empty:
+                continue
+            emitted = True
+            yield chunk
+        error = result_holder.get("error")
+        if error is not None:
+            raise error
+        result = result_holder["result"]
+        # Compatibility invokers may not implement invoke_stream. In that
+        # case the shared scheduler still commits the artifact, and the
+        # canonical text is delivered as one reconciled delta.
+        if not emitted:
+            yield _artifact_text(result.artifact)
+
+    def commit(_generated_text: str) -> CommittedStreamArtifact:
         result = result_holder["result"]
         canonical_text = _artifact_text(result.artifact)
-        if generated_text != canonical_text:
-            raise RuntimeError("streamed text differs from canonical artifact text")
         artifact_ref = result.observation.get("artifact_ref")
         if not isinstance(artifact_ref, str) or not artifact_ref:
             raise RuntimeError("streaming question has no durable artifact ref")

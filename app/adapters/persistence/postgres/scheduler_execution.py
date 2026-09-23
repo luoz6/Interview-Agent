@@ -63,31 +63,34 @@ class PostgresSchedulerExecutionRepository:
         return ExecutionState.model_validate(row)
 
     def save(self, state: ExecutionState) -> ExecutionState:
-        sql = postgres_sql()
         with self._provider.connection() as connection:
             with connection.cursor() as cursor:
-                cursor.execute(
+                result = self.save_with_cursor(cursor, state)
+            connection.commit()
+        return result
+
+    def save_with_cursor(self, cursor, state: ExecutionState) -> ExecutionState:
+        sql = postgres_sql()
+        cursor.execute(
                     sql.SQL(
                         "SELECT state_json, state_revision FROM {table} "
                         "WHERE execution_id = %s FOR UPDATE"
                     ).format(table=sql.Identifier(self.table_name)),
                     (state.execution_id,),
                 )
-                row = cursor.fetchone()
-                if row is None:
-                    raise KeyError(
-                        f"execution state not found: {state.execution_id}"
-                    )
-                current_state = ExecutionState.model_validate(row[0])
-                current_revision = int(row[1])
-                if current_state == state:
-                    return state
-                if state.revision <= current_revision:
-                    raise ExecutionStateConflict(
-                        expected_revision=state.revision,
-                        actual_revision=current_revision,
-                    )
-                cursor.execute(
+        row = cursor.fetchone()
+        if row is None:
+            raise KeyError(f"execution state not found: {state.execution_id}")
+        current_state = ExecutionState.model_validate(row[0])
+        current_revision = int(row[1])
+        if current_state == state:
+            return state
+        if state.revision <= current_revision:
+            raise ExecutionStateConflict(
+                expected_revision=state.revision,
+                actual_revision=current_revision,
+            )
+        cursor.execute(
                     sql.SQL(
                         "UPDATE {table} SET state_json = %s::jsonb, state_revision = %s, "
                         "updated_at = NOW() WHERE execution_id = %s"
@@ -98,7 +101,6 @@ class PostgresSchedulerExecutionRepository:
                         state.execution_id,
                     ),
                 )
-            connection.commit()
         return state
 
     def delete(self, execution_id: str) -> int:

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""P9-T04: compare the frozen P0 baseline with the current P9 Python tree."""
+"""Generate the current architecture snapshot without rewriting P9 history."""
 
 from __future__ import annotations
 
@@ -18,8 +18,9 @@ from typing import Any
 REPO_ROOT = Path(__file__).resolve().parents[2]
 APP_ROOT = REPO_ROOT / "app"
 ARTIFACTS_DIR = REPO_ROOT / "artifacts" / "architecture"
-JSON_PATH = ARTIFACTS_DIR / "P9-final-python-loc-report.json"
-MARKDOWN_PATH = ARTIFACTS_DIR / "P9-final-python-loc-report.md"
+MA9_ARTIFACTS_DIR = REPO_ROOT / "artifacts" / "multi-agent"
+JSON_PATH = MA9_ARTIFACTS_DIR / "MA9-final-architecture-snapshot.json"
+MARKDOWN_PATH = MA9_ARTIFACTS_DIR / "MA9-final-architecture-snapshot.md"
 P0_BASELINE_COMMIT = "0af2a8b"
 P0_ARCHITECTURE_BASELINE = (
     REPO_ROOT / "docs" / "architecture" / "current-architecture-baseline.md"
@@ -436,16 +437,17 @@ def scan() -> dict[str, Any]:
         "full_production_reliability_gate": "NOT_VERIFIED",
         "final_architecture_definition_satisfied": measured_boundaries_satisfied,
         "final_gate_scope_note": (
-            "P9-T04 supplies measurement evidence for the P0-P9 architecture "
-            "refactor closure. Protected PostgreSQL reliability is deferred and "
-            "the full production reliability gate remains NOT_VERIFIED."
+            "This MA9 snapshot records current architecture metrics without "
+            "overwriting the frozen P9 closure evidence. Protected PostgreSQL "
+            "reliability remains deferred pending explicit approval, and the "
+            "full production reliability gate remains NOT_VERIFIED."
         ),
         "decision": (
-            "The P9 measurement task is complete, its measured boundary signals "
-            "are satisfied, and it supports P0-P9 architecture refactor closure."
+            "The MA9 architecture snapshot satisfies all measured boundary "
+            "signals. The historical P9 report remains separately frozen."
             if measured_boundaries_satisfied
-            else "The P9 measurement task is complete, but remaining boundary "
-            "violations must not be hidden by LOC reduction."
+            else "The MA9 architecture snapshot has remaining boundary "
+            "violations that must not be hidden by LOC reduction."
         ),
     }
 
@@ -464,23 +466,23 @@ def render_markdown(result: dict[str, Any]) -> str:
     duplicates = architecture["exact_duplicate_groups"]
     signals = result["final_gate_signals"]
     lines = [
-        "# P9 Final Python LOC and Architecture Report",
+        "# MA9 Final Architecture Snapshot",
         "",
-        "Status: P9-T04 COMPLETE - architecture closure measurement evidence",
+        "Status: MA9 CURRENT - production closure architecture evidence",
         "",
         "## Counting Rules",
         "",
         "- P0 is pinned to commit `0af2a8b`.",
-        "- Services LOC uses the official P0 non-empty-line baseline; P9 uses the same definition.",
+        "- Services LOC uses the official P0 non-empty-line baseline; MA9 uses the same definition.",
         "- God-module and largest-module LOC are physical lines including blanks and comments.",
         "- Cross-layer violations are unique `(rule, source module, target module)` ratchet pairs.",
         "- Dependency cycles are strongly connected components containing at least two modules.",
         "- Duplicate implementations are exact normalized top-level AST-body groups.",
         "- LOC is an outcome metric, not proof of architecture quality.",
         "",
-        "## P0 vs P9",
+        "## P0 vs MA9",
         "",
-        "| metric | P0 | P9 | delta |",
+        "| metric | P0 | MA9 | delta |",
         "| --- | ---: | ---: | ---: |",
         f"| App Python files | {p0['python_files']:,} | {p9['python_files']:,} | {_delta(p0['python_files'], p9['python_files'])} |",
         f"| App physical LOC | {p0['physical_loc']:,} | {p9['physical_loc']:,} | {_delta(p0['physical_loc'], p9['physical_loc'])} |",
@@ -496,11 +498,11 @@ def render_markdown(result: dict[str, Any]) -> str:
         "Largest modules:",
         "",
         f"- P0: `{p0['largest_module']['module']}` ({p0['largest_module']['physical_loc']:,} LOC from pinned commit).",
-        f"- P9: `{p9['largest_module']['module']}` ({p9['largest_module']['physical_loc']:,} LOC).",
+        f"- MA9: `{p9['largest_module']['module']}` ({p9['largest_module']['physical_loc']:,} LOC).",
         "",
         "## God-Module Owners",
         "",
-        "| responsibility | P0 owner | P0 LOC | P9 owner | P9 LOC | delta |",
+        "| responsibility | P0 owner | P0 LOC | MA9 owner | MA9 LOC | delta |",
         "| --- | --- | ---: | --- | ---: | ---: |",
     ]
     for row in result["god_module_owner_comparison"]:
@@ -529,7 +531,7 @@ def render_markdown(result: dict[str, Any]) -> str:
             "",
             result["final_gate_scope_note"],
             "",
-            "Large composition/graph modules, remaining cycles, and duplicate groups are Future Hardening items rather than P0-P9 closure blockers.",
+            "Large composition/graph modules, remaining cycles, and duplicate groups are Future Hardening items rather than MA9 closure blockers.",
             "",
         ]
     )
@@ -538,7 +540,7 @@ def render_markdown(result: dict[str, Any]) -> str:
 
 def main() -> int:
     result = scan()
-    ARTIFACTS_DIR.mkdir(parents=True, exist_ok=True)
+    MA9_ARTIFACTS_DIR.mkdir(parents=True, exist_ok=True)
     JSON_PATH.write_text(
         json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8"
     )

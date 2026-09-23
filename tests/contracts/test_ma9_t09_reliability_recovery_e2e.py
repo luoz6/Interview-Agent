@@ -164,7 +164,7 @@ def test_new_execution_binds_ma9_version_in_immutable_plan() -> None:
         plan.orchestration_version = "scheduler-other"
 
 
-def test_pre_ma9_new_execution_is_not_taken_over_by_ma9_runtime() -> None:
+def test_pre_ma9_new_execution_routes_to_compatibility_runtime() -> None:
     repository = InMemorySchedulerExecutionRepository()
     legacy_plan = ExecutionPlan(
         execution_id="pre-ma9-new",
@@ -177,11 +177,7 @@ def test_pre_ma9_new_execution_is_not_taken_over_by_ma9_runtime() -> None:
     entry = _entry(repository)
     entry.execution_path_router.claim_execution(legacy_plan.execution_id, "NEW")
 
-    with pytest.raises(OrchestrationVersionMismatch) as mismatch:
-        entry.snapshot(legacy_plan.execution_id)
-
-    assert mismatch.value.expected == MA9_ORCHESTRATION_VERSION
-    assert mismatch.value.actual == "scheduler-pre-ma9"
+    assert entry._load_ma9_plan(legacy_plan.execution_id) == legacy_plan
 
 
 @pytest.mark.parametrize(

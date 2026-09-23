@@ -72,6 +72,7 @@ def _descriptor_for_skill(
         output_artifact_version=output_version,
         required_input_artifact_types=required_inputs,
         capability_version="v1",
+        supports_streaming=skill in {"generate-main-question", "generate-followup"},
     )
 
 

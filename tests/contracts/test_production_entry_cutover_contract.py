@@ -3,6 +3,8 @@ from __future__ import annotations
 from types import SimpleNamespace
 
 from app.a2a.contracts.main_question import MainQuestionArtifactPayload
+from app.a2a.contracts.evaluation_set import EvaluationArtifactSetPayload
+from app.a2a.contracts.report import ReportArtifactPayload
 from app.adapters.memory.execution_path_binding import (
     InMemoryExecutionPathBindingStore,
 )
@@ -25,21 +27,29 @@ from app.ports import SchedulerExecutionRepository
 
 
 class Catalog:
-    capability = CapabilityDescriptor(
-        agent_id="interview-examiner",
-        skill="generate-main-question",
-        description="main question",
-        request_contract_id="generate-main-question-request",
-        request_contract_version="v1",
-        output_artifact_type="main-question-artifact",
-        output_artifact_version="1.0",
-        capability_version="v1",
-    )
+    capabilities = {
+        ("interview-examiner", "generate-main-question"): CapabilityDescriptor(
+            agent_id="interview-examiner", skill="generate-main-question",
+            description="main question", request_contract_id="generate-main-question-request",
+            request_contract_version="v1", output_artifact_type="main-question-artifact",
+            output_artifact_version="1.0", capability_version="v1",
+        ),
+        ("interview-reviewer", "evaluate-interview"): CapabilityDescriptor(
+            agent_id="interview-reviewer", skill="evaluate-interview",
+            description="final review", request_contract_id="evaluate-interview-request",
+            request_contract_version="v1", output_artifact_type="evaluation-artifact-set",
+            output_artifact_version="1.0", capability_version="v1",
+        ),
+        ("report-coach", "generate-report"): CapabilityDescriptor(
+            agent_id="report-coach", skill="generate-report",
+            description="report", request_contract_id="generate-report-request",
+            request_contract_version="v1", output_artifact_type="report-artifact",
+            output_artifact_version="1.0", capability_version="v1",
+        ),
+    }
 
     def resolve(self, *, agent_id, skill, capability_version=None):
-        if (agent_id, skill) == ("interview-examiner", "generate-main-question"):
-            return self.capability
-        return None
+        return self.capabilities.get((agent_id, skill))
 
     def validate_compatibility(self, **kwargs):
         return self.resolve(
@@ -53,6 +63,15 @@ class Invoker:
 
     def invoke(self, *, agent_id, skill, request, execution_context=None):
         self.calls.append((agent_id, skill, request))
+        if skill == "evaluate-interview":
+            return EvaluationArtifactSetPayload(evaluations=[])
+        if skill == "generate-report":
+            return ReportArtifactPayload(
+                session_id=request.session_id,
+                summary="finished",
+                dimension_scores={},
+                report_policy_version="report-policy-v1",
+            )
         return MainQuestionArtifactPayload(
             question_id=request.intent["question_id"],
             question_text=request.intent["fixed_question_text"],

@@ -360,6 +360,9 @@ def test_bootstrap_sse_only_replays_background_committed_question(monkeypatch):
     response = interview_routes.stream_interview_bootstrap(
         "session-background",
         store=Store(),
+        application=SimpleNamespace(
+            _is_scheduler_execution=lambda _session_id: False,
+        ),
     )
 
     async def collect_body():

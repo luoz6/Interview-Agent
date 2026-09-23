@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import Any, Mapping
 
 from app.a2a.client import InProcessA2AClient
@@ -52,6 +53,46 @@ class A2AAgentInvoker:
             agent_id=agent_id,
             skill=skill,
             request=serialized_request,
+            execution_context=execution_context,
+            context_id=resolved.context_id,
+            correlation_id=resolved.correlation_id,
+            causation_id=resolved.causation_id,
+            parent_run_id=resolved.parent_run_id,
+            command_id=resolved.command_id,
+            idempotency_key=resolved_idempotency_key,
+        )
+
+    def invoke_stream(
+        self,
+        *,
+        agent_id: str,
+        skill: str,
+        request: AgentRequest,
+        on_delta: Callable[[str], None],
+        invocation_context: InvocationContext | None = None,
+        execution_context: AgentExecutionContext | None = None,
+    ) -> DomainArtifact:
+        if not callable(on_delta):
+            raise TypeError("on_delta must be callable")
+        serialized_request = (
+            request.model_dump(mode="python")
+            if isinstance(request, AgentRequest)
+            else dict(request)
+        )
+        resolved = invocation_context or InvocationContext.from_execution_context(
+            execution_context
+        )
+        resolved_idempotency_key = resolved.idempotency_key or build_agent_idempotency_key(
+            agent_id=agent_id,
+            skill=skill,
+            request=serialized_request,
+            invocation_context=resolved,
+        )
+        return self._client.stream_task(
+            agent_id=agent_id,
+            skill=skill,
+            request=serialized_request,
+            on_delta=on_delta,
             execution_context=execution_context,
             context_id=resolved.context_id,
             correlation_id=resolved.correlation_id,

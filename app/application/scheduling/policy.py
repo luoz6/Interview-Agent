@@ -80,7 +80,7 @@ class DeterministicSchedulerPolicy:
         completed = {
             item.task_id
             for item in state.task_states
-            if item.status in {"COMPLETED", "SKIPPED"}
+            if item.status in {"COMPLETED", "SKIPPED", "CANCELED"}
         }
         runtime_by_id = {item.task_id: item for item in state.task_states}
         for task in task_definitions:

@@ -34,6 +34,15 @@ class InterviewLLM(Protocol):
 
     def stream_followup(self, context: list[dict[str, str]]) -> Iterator[str]: ...
 
+    def stream_main_question(
+        self,
+        *,
+        intent,
+        conversation: list[dict[str, str]] | None = None,
+        evidence: list[dict[str, str]] | None = None,
+        timeout_seconds: float | None = None,
+    ) -> Iterator[str]: ...
+
     def generate_report(
         self,
         plan,

@@ -10,6 +10,9 @@ from app.a2a.invocation.execution_context import build_agent_execution_context
 
 
 LocalSkillHandler = Callable[[dict[str, Any], Any | None], DomainArtifact]
+LocalStreamingSkillHandler = Callable[
+    [dict[str, Any], Any | None, Callable[[str], None]], DomainArtifact
+]
 
 
 class LocalAgentInvoker:
@@ -21,6 +24,7 @@ class LocalAgentInvoker:
 
     def __init__(self) -> None:
         self._handlers: dict[tuple[str, str], LocalSkillHandler] = {}
+        self._stream_handlers: dict[tuple[str, str], LocalStreamingSkillHandler] = {}
 
     def register(
         self,
@@ -30,6 +34,15 @@ class LocalAgentInvoker:
         handler: LocalSkillHandler,
     ) -> None:
         self._handlers[(agent_id, skill)] = handler
+
+    def register_stream(
+        self,
+        *,
+        agent_id: str,
+        skill: str,
+        handler: LocalStreamingSkillHandler,
+    ) -> None:
+        self._stream_handlers[(agent_id, skill)] = handler
 
     def invoke(
         self,
@@ -57,3 +70,31 @@ class LocalAgentInvoker:
             request=request,
         )
         return handler(request, resolved_execution_context)
+
+    def invoke_stream(
+        self,
+        *,
+        agent_id: str,
+        skill: str,
+        request: dict[str, Any],
+        on_delta: Callable[[str], None],
+        invocation_context: InvocationContext | None = None,
+        execution_context: Any | None = None,
+    ) -> DomainArtifact:
+        handler = self._stream_handlers.get((agent_id, skill))
+        if handler is None:
+            raise A2AAgentError(
+                code="streaming_unsupported",
+                retryable=False,
+                terminal=True,
+                fallback_allowed=False,
+                public_message="Agent skill does not support streaming.",
+                internal_reason=f"{agent_id}:{skill} is not stream-enabled",
+            )
+        resolved_execution_context = execution_context or build_agent_execution_context(
+            agent_id=agent_id,
+            skill=skill,
+            invocation_context=invocation_context,
+            request=request,
+        )
+        return handler(request, resolved_execution_context, on_delta)

@@ -16,7 +16,7 @@ from app.domain.interview.question_intent import (
 )
 
 
-MAIN_QUESTION_GENERATION_PROMPT_VERSION = "main-question-generation-v1"
+MAIN_QUESTION_GENERATION_PROMPT_VERSION = "main-question-generation-v2"
 MAIN_QUESTION_MAX_PROVIDER_INVOCATIONS = 2
 MAIN_QUESTION_ATTEMPT_TIMEOUT_SECONDS = 20
 MAIN_QUESTION_TOTAL_TIMEOUT_SECONDS = 30
@@ -27,6 +27,7 @@ MAIN_QUESTION_GENERATION_PROMPT_TEMPLATE = (
     "Prompt version: {prompt_version}.\n"
     "请只输出一个自然的中文面试问题，不要输出标题、编号、解释或评分。\n"
     "题型：{kind}\n考察主题：{focus}\n"
+    "问题正文必须原样包含上述考察主题，不要翻译、缩写或同义改写。\n"
     "难度：{difficulty}\n观察目标：{assessment_goals}\n"
     "优先承接候选人上一轮回答中的事实、选择、遗漏或风险；"
     "不得凭空捏造候选人事实。\n"

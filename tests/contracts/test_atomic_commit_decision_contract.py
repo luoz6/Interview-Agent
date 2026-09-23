@@ -16,6 +16,8 @@ ROOT = Path(__file__).resolve().parents[2]
 def test_current_decision_uses_existing_transactional_outbox_boundary():
     decision = CURRENT_INVOCATION_COMMIT_DECISION
     assert decision.strategy == "TRANSACTIONAL_OUTBOX"
+    assert decision.state_and_ledger_same_store is True
+    assert decision.artifact_metadata_same_store is True
     assert decision.outbox_name == "runtime_outbox"
     assert decision.logical_effect_guarantee is True
     assert decision.external_provider_exactly_once is False

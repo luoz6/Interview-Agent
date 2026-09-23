@@ -19,6 +19,7 @@ class CapabilityDescriptor(BaseModel):
     output_artifact_version: str = Field(min_length=1)
     required_input_artifact_types: tuple[str, ...] = ()
     capability_version: str = Field(min_length=1)
+    supports_streaming: bool = False
 
     @field_validator("required_input_artifact_types")
     @classmethod

@@ -1,13 +1,18 @@
 import ast
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
+
+import pytest
 
 from app.application.scheduling import (
     InMemoryExecutionStateStore,
     SchedulerApplicationCapability,
+    SchedulerDispatchError,
 )
 from app.domain.agents.artifacts import DomainArtifact
 from app.domain.interview.scheduling import (
     CapabilityDescriptor,
+    ExecutionConstraints,
     ExecutionPlan,
     ExecutionState,
     ExecutionTaskDefinition,
@@ -147,3 +152,78 @@ def test_scheduler_application_has_no_transport_dependency():
     assert "app.ports.agent_capability" in imported_modules
     assert "app.ports.agent_invocation" in imported_modules
 
+
+def test_agent_call_budget_exhaustion_blocks_invocation():
+    scheduler, invoker, store = _fixture()
+    scheduler.plan = scheduler.plan.model_copy(
+        update={"execution_constraints": ExecutionConstraints(max_agent_calls=0)}
+    )
+
+    with pytest.raises(SchedulerDispatchError) as failure:
+        scheduler.step("exec-1")
+
+    assert failure.value.code == "AGENT_CALL_BUDGET_EXHAUSTED"
+    assert invoker.requests == []
+    assert store.load("exec-1").agent_calls_used == 0
+
+
+def test_execution_timeout_blocks_invocation_from_durable_start_time():
+    scheduler, invoker, store = _fixture()
+    scheduler.plan = scheduler.plan.model_copy(
+        update={
+            "execution_constraints": ExecutionConstraints(
+                execution_timeout_seconds=1,
+            )
+        }
+    )
+    expired = store.load("exec-1").model_copy(
+        update={
+            "execution_started_at": datetime.now(timezone.utc)
+            - timedelta(seconds=2),
+        }
+    )
+    store.save(expired)
+
+    with pytest.raises(SchedulerDispatchError) as failure:
+        scheduler.step("exec-1")
+
+    assert failure.value.code == "EXECUTION_TIMEOUT"
+    assert invoker.requests == []
+
+
+def test_zero_retry_budget_allows_a_new_task():
+    scheduler, invoker, _store = _fixture()
+    scheduler.plan = scheduler.plan.model_copy(
+        update={"execution_constraints": ExecutionConstraints(max_retries=0)}
+    )
+
+    result = scheduler.step("exec-1")
+
+    assert result.action == "DISPATCH"
+    assert len(invoker.requests) == 1
+
+
+def test_zero_retry_budget_blocks_a_new_logical_attempt():
+    scheduler, invoker, store = _fixture()
+    scheduler.plan = scheduler.plan.model_copy(
+        update={"execution_constraints": ExecutionConstraints(max_retries=0)}
+    )
+    retried = store.load("exec-1").model_copy(
+        update={
+            "task_states": (
+                TaskRuntimeState(
+                    task_id="followup-1",
+                    status="READY",
+                    attempt=1,
+                    max_attempts=2,
+                ),
+            ),
+        }
+    )
+    store.save(retried)
+
+    with pytest.raises(SchedulerDispatchError) as failure:
+        scheduler.step("exec-1")
+
+    assert failure.value.code == "RETRY_BUDGET_EXHAUSTED"
+    assert invoker.requests == []

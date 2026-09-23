@@ -53,6 +53,16 @@ def build_local_a2a_runtime(
                 skill=skill,
                 handler=handler,
             )
+        stream_handler = server.get_stream_handler(
+            agent_id=agent_id,
+            skill=skill,
+        )
+        if stream_handler is not None:
+            local_invoker.register_stream(
+                agent_id=agent_id,
+                skill=skill,
+                handler=stream_handler,
+            )
     registry = AgentRegistry()
     for card in (
         EXAMINER_AGENT_CARD,

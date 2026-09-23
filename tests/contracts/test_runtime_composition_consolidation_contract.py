@@ -145,9 +145,11 @@ def test_scheduler_composer_injects_durable_command_port(monkeypatch):
 
 
 def test_postgres_production_entry_binds_scheduler_command_port(monkeypatch):
+    execution_commit_port = object()
     session_store = SimpleNamespace(
         durability="postgres",
         get=lambda _execution_id: {},
+        _runtime_control=execution_commit_port,
     )
     repository = object()
     router = object()
@@ -178,6 +180,10 @@ def test_postgres_production_entry_binds_scheduler_command_port(monkeypatch):
     assert (
         entry.scheduler_composer.keywords["durable_command_port"]
         is durable_commands
+    )
+    assert (
+        entry.scheduler_composer.keywords["execution_commit_port"]
+        is execution_commit_port
     )
 
 

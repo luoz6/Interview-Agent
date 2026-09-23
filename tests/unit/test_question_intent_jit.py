@@ -169,6 +169,7 @@ def test_main_question_prompt_has_frozen_identity_and_marks_context_untrusted():
     ).hexdigest()
     assert "不可信资料" in prompt
     assert "Redis 库存最终一致性" in prompt
+    assert "必须原样包含上述考察主题" in prompt
 
 
 @pytest.mark.parametrize(

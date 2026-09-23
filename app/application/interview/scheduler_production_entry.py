@@ -28,6 +28,9 @@ from app.domain.interview.scheduling import (
 
 
 MA9_ORCHESTRATION_VERSION = "scheduler-ma9-v1"
+HISTORICAL_ORCHESTRATION_VERSIONS = frozenset(
+    {"scheduler-pre-ma9", "scheduler-v2-compat"}
+)
 
 
 class OrchestrationVersionMismatch(RuntimeError):
@@ -113,6 +116,7 @@ def build_interview_execution(
             parameters={
                 "phase": "answer_evaluation",
                 "question_id": question_id,
+                "max_attempts": 2,
             },
         )
         resolution = ExecutionTaskDefinition(
@@ -199,11 +203,20 @@ def build_interview_execution(
             max_followups_total=max_followups_total,
             max_followups_per_question=max_followups_per_question,
             max_replans_total=max_followups_total,
+            max_agent_calls=max(8, len(tasks) * 2),
+            max_retries=max(2, len(tasks)),
+            execution_timeout_seconds=3600,
         ),
     )
     state = ExecutionState(
         execution_id=session_id,
-        task_states=tuple(TaskRuntimeState(task_id=task.task_id) for task in tasks),
+        task_states=tuple(
+            TaskRuntimeState(
+                task_id=task.task_id,
+                max_attempts=int(task.parameters.get("max_attempts", 1)),
+            )
+            for task in tasks
+        ),
         artifact_refs=(
             ExecutionArtifactRef(
                 artifact_ref=f"{session_id}/interview-plan/{plan_sha256[:16]}",
@@ -226,12 +239,18 @@ class SchedulerProductionEntry:
         execution_path_router: Any,
         scheduler_composer: Callable[..., Any],
         id_generator: Callable[[], str] | None = None,
+        ma9_admission_enabled: bool | None = None,
     ) -> None:
         self.session_store = session_store
         self.execution_repository = execution_repository
         self.execution_path_router = execution_path_router
         self.scheduler_composer = scheduler_composer
         self.id_generator = id_generator or (lambda: str(uuid4()))
+        self.ma9_admission_enabled = (
+            True
+            if ma9_admission_enabled is None
+            else bool(ma9_admission_enabled)
+        )
 
     def start(
         self,
@@ -244,6 +263,8 @@ class SchedulerProductionEntry:
         plan_binding: Any | None = None,
         bootstrap: bool = True,
     ) -> InterviewTurn:
+        if not self.ma9_admission_enabled:
+            raise RuntimeError("MA9 admission is disabled for new executions")
         execution_id = session_id or self.id_generator()
         self.execution_path_router.claim_execution(execution_id, "NEW")
 
@@ -305,8 +326,25 @@ class SchedulerProductionEntry:
         if state.execution_status == "COMPLETED" and command.command_type == "finish":
             return self._project_turn(command.session_id)
         if command.command_type == "finish":
-            completed = state.complete_by_user(expected_revision=state.revision)
+            preserved = frozenset(
+                task.task_id
+                for task in plan.task_definitions + state.dynamic_task_definitions
+                if task.skill in {"evaluate-interview", "generate-report"}
+            )
+            completed = state.complete_by_user(
+                expected_revision=state.revision,
+                preserve_task_ids=preserved,
+            )
             self.execution_repository.save(completed)
+            runtime = self.scheduler_composer(
+                plan=plan,
+                initial_state=completed,
+                execution_state_store=self.execution_repository,
+            )
+            self._dispatch_final_pipeline(
+                runtime,
+                execution_id=command.session_id,
+            )
             return self._project_turn(command.session_id)
         if command.command_type == "skip":
             return self._skip_current_question(command, plan=plan, state=state)
@@ -480,6 +518,8 @@ class SchedulerProductionEntry:
     def dispatch_streaming_question(
         self,
         boundary: SchedulerQuestionBoundary,
+        *,
+        on_delta: Callable[[str], None] | None = None,
     ):
         plan = self._load_ma9_plan(boundary.execution_id)
         state = self.execution_repository.load(boundary.execution_id)
@@ -488,7 +528,10 @@ class SchedulerProductionEntry:
             initial_state=state,
             execution_state_store=self.execution_repository,
         )
-        result = runtime.scheduler.step(boundary.execution_id)
+        result = runtime.scheduler.step(
+            boundary.execution_id,
+            stream_callback=on_delta,
+        )
         if (
             result.action != "DISPATCH"
             or result.task is None
@@ -636,6 +679,42 @@ class SchedulerProductionEntry:
             artifact=result.artifact,
             execution_id=execution_id,
         )
+        if resolution == "DEGRADED":
+            retry_state = self.execution_repository.load(execution_id)
+            retry_runtime = self.scheduler_composer(
+                plan=plan,
+                initial_state=retry_state,
+                execution_state_store=self.execution_repository,
+            )
+            retry_result = retry_runtime.scheduler.step(execution_id)
+            if (
+                retry_result.action != "DISPATCH"
+                or retry_result.task is None
+                or retry_result.task.task_id != evaluation_task_id
+            ):
+                raise RuntimeError("degraded reviewer retry was not dispatched")
+            resolution = self._apply_evaluation_resolution(
+                plan=plan,
+                evaluation_task_id=evaluation_task_id,
+                artifact=retry_result.artifact,
+                execution_id=execution_id,
+            )
+            if resolution == "DEGRADED_EXHAUSTED":
+                exhausted = self.execution_repository.load(execution_id)
+                gate_id = self._resolution_task_id(
+                    plan, evaluation_task_id, state=exhausted
+                )
+                exhausted = exhausted.complete_resolution_with_gap(
+                    expected_revision=exhausted.revision,
+                    task_id=gate_id,
+                    gap={
+                        "question_id": str(getattr(result.artifact, "question_id", "")),
+                        "evaluation_task_id": evaluation_task_id,
+                        "reason_code": "evaluation_degraded",
+                    },
+                )
+                self.execution_repository.save(exhausted)
+                resolution = "UNRESOLVED"
         if resolution == "INSUFFICIENT":
             if defer_question_dispatch:
                 return self._next_examiner_task_id(plan, execution_id)
@@ -677,10 +756,15 @@ class SchedulerProductionEntry:
 
     def _load_ma9_plan(self, execution_id: str):
         plan = self.execution_repository.load_plan(execution_id)
-        if plan.orchestration_version != MA9_ORCHESTRATION_VERSION:
+        if plan.orchestration_version not in {
+            MA9_ORCHESTRATION_VERSION,
+            *HISTORICAL_ORCHESTRATION_VERSIONS,
+        }:
             raise OrchestrationVersionMismatch(
                 execution_id,
-                expected=MA9_ORCHESTRATION_VERSION,
+                expected=(
+                    f"{MA9_ORCHESTRATION_VERSION} or historical compatibility"
+                ),
                 actual=plan.orchestration_version,
             )
         return plan
@@ -791,6 +875,20 @@ class SchedulerProductionEntry:
                 )
                 self.execution_repository.save(resolved)
                 return "UNRESOLVED"
+            if getattr(artifact, "evaluation_status", None) == "DEGRADED":
+                review = current_state.task_state(evaluation_task_id)
+                if review is None:
+                    raise RuntimeError("degraded reviewer task state is missing")
+                if review.attempt < review.max_attempts:
+                    retry_ready = current_state.transition_task(
+                        expected_revision=current_state.revision,
+                        task_id=evaluation_task_id,
+                        target_status="READY",
+                        reason_code="review_degraded_retry",
+                    )
+                    self.execution_repository.save(retry_ready)
+                    return "DEGRADED"
+                return "DEGRADED_EXHAUSTED"
             return "UNDETERMINED"
         gate_definition = next(
             task
@@ -858,6 +956,7 @@ class SchedulerProductionEntry:
                 "gap_id": gap_payload.get("gap_id"),
                 "reason_code": gap_payload.get("type", "gap"),
                 "dependencies": (evaluation_task_id,),
+                "max_attempts": 1,
             },
         )
         evaluation = ExecutionTaskDefinition(
@@ -876,6 +975,7 @@ class SchedulerProductionEntry:
                 ),
                 "parent_review_task_id": evaluation_task_id,
                 "replan_ordinal": ordinal,
+                "max_attempts": 2,
             },
         )
         updated = state.register_followup_pair(

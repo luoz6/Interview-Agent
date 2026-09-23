@@ -60,6 +60,12 @@ class ReviewRetryDueEvent(RuntimeEventEnvelope):
     next_attempt_number: int = Field(ge=2, le=3)
 
 
+class SchedulerCommitEvent(RuntimeEventEnvelope):
+    event_type: Literal["scheduler_commit"] = "scheduler_commit"
+    effect_kind: Literal["answer_accepted", "agent_result_committed"]
+    effect_id: str = Field(min_length=1)
+
+
 class PrincipalMemoryProposalRequestedEvent(RuntimeEventEnvelope):
     event_type: Literal["principal_memory_proposal_requested_v1"] = (
         "principal_memory_proposal_requested_v1"
@@ -80,6 +86,7 @@ __all__ = [
     "InterviewRetryDueEvent",
     "PrincipalMemoryProposalRequestedEvent",
     "ReviewRetryDueEvent",
+    "SchedulerCommitEvent",
     "RoundClosedEvent",
     "RuntimeEventEnvelope",
 ]

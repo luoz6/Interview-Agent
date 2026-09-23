@@ -930,6 +930,11 @@ def build_scheduler_production_entry(*, session_store=None):
             compose_scheduler_runtime,
             artifact_store=get_execution_artifact_store(),
             durable_command_port=get_scheduler_command_port(),
+            execution_commit_port=getattr(
+                resolved_session_store,
+                "_runtime_control",
+                None,
+            ),
             evaluation_state_provider=resolved_session_store.get,
         )
     else:
@@ -1058,6 +1063,7 @@ def compose_scheduler_runtime(
     command_store=None,
     durable_command_port=None,
     artifact_store=None,
+    execution_commit_port=None,
     evaluation_state_provider=None,
 ):
     """Compose one plan-scoped Scheduler from container-owned dependencies."""
@@ -1106,6 +1112,7 @@ def compose_scheduler_runtime(
         command_store=command_store,
         durable_command_port=durable_command_port,
         artifact_store=resolved_artifact_store,
+        execution_commit_port=execution_commit_port,
         evaluation_state_provider=evaluation_state_provider,
         worker_id=_runtime_worker_id("scheduler"),
     )

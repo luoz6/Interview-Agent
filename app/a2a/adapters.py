@@ -31,6 +31,9 @@ from app.domain.interview.scheduling.requests import (
 
 
 TypedSkillHandler = Callable[[AgentRequest, Any | None], Any]
+TypedStreamingSkillHandler = Callable[
+    [AgentRequest, Any | None, Callable[[str], None]], Any
+]
 
 
 def _typed_handler(
@@ -60,6 +63,34 @@ def _typed_handler(
                 observability_code="invalid_request",
             ) from exc
         return handler(typed_request, execution_context)
+
+    return adapter
+
+
+def _typed_stream_handler(
+    skill: str,
+    handler: TypedStreamingSkillHandler,
+) -> Callable[[dict[str, Any], Any | None, Callable[[str], None]], Any]:
+    request_type = REQUEST_CONTRACTS[skill]
+
+    def adapter(
+        request: dict[str, Any],
+        execution_context: Any | None,
+        on_delta: Callable[[str], None],
+    ):
+        try:
+            typed_request = request_type.model_validate(request)
+        except ValidationError as exc:
+            raise A2AAgentError(
+                code="invalid_request",
+                retryable=False,
+                terminal=True,
+                fallback_allowed=False,
+                public_message="Agent request is invalid.",
+                internal_reason=str(exc),
+                observability_code="invalid_request",
+            ) from exc
+        return handler(typed_request, execution_context, on_delta)
 
     return adapter
 
@@ -128,6 +159,68 @@ def register_examiner_adapter(
         handler=_typed_handler("generate-main-question", main_question_handler),
     )
 
+    def stream_main_question_handler(
+        request: GenerateMainQuestionRequest,
+        execution_context,
+        on_delta: Callable[[str], None],
+    ):
+        from app.agents.examiner import ExaminerAgent
+        from app.domain.interview.main_question_generation import (
+            deterministic_main_question_fallback,
+            validate_main_question,
+        )
+        from app.domain.interview.question_intent import QuestionIntentV1
+
+        raw_intent = dict(request.intent)
+        fixed_text = raw_intent.pop("fixed_question_text", None)
+        intent = QuestionIntentV1.model_validate(raw_intent)
+        if isinstance(fixed_text, str) and fixed_text.strip():
+            text = fixed_text.strip()
+            on_delta(text)
+            return MainQuestionArtifactPayload(
+                question_id=intent.question_id,
+                question_text=text,
+                render_mode="fixed",
+                reason_code="fixed_plan_question",
+            )
+
+        examiner = ExaminerAgent(llm=llm, execution_runner=execution_runner)
+        chunks: list[str] = []
+        try:
+            for chunk in examiner.stream_main_question_attempt(
+                intent=intent,
+                conversation=list(request.conversation),
+                evidence=list(request.evidence),
+                timeout_seconds=request.timeout_seconds,
+            ):
+                if not chunk:
+                    continue
+                chunks.append(chunk)
+                on_delta(chunk)
+            text = validate_main_question(
+                "".join(chunks), intent, request.conversation
+            ).text
+            mode = "generated"
+            reason_code = "generated"
+        except Exception as exc:
+            reason_code = getattr(exc, "reason_code", "provider_unavailable")
+            text = deterministic_main_question_fallback(intent, reason_code)
+            mode = "fallback"
+        return MainQuestionArtifactPayload(
+            question_id=intent.question_id,
+            question_text=text,
+            render_mode=mode,
+            reason_code=reason_code,
+        )
+
+    server.register_stream(
+        agent_id="interview-examiner",
+        skill="generate-main-question",
+        handler=_typed_stream_handler(
+            "generate-main-question", stream_main_question_handler
+        ),
+    )
+
     def handler(
         request: GenerateFollowupRequest,
         execution_context,
@@ -157,6 +250,53 @@ def register_examiner_adapter(
         agent_id="interview-examiner",
         skill="generate-followup",
         handler=_typed_handler("generate-followup", handler),
+    )
+
+    def stream_followup_handler(
+        request: GenerateFollowupRequest,
+        execution_context,
+        on_delta: Callable[[str], None],
+    ):
+        from app.agents.examiner import ExaminerAgent
+        from app.domain.interview.followup_prompts import fallback_followup
+
+        examiner = ExaminerAgent(llm=llm, execution_runner=execution_runner)
+        chunks: list[str] = []
+        try:
+            resolved_context = execution_context or examiner._standalone_context(
+                operation="stream_followup"
+            )
+            for chunk in examiner.stream_followup_attempt(
+                context=list(request.context),
+                execution_context=resolved_context,
+            ):
+                if not chunk:
+                    continue
+                chunks.append(chunk)
+                on_delta(chunk)
+            text = "".join(chunks).strip()
+            if not text:
+                raise ValueError("provider returned an empty follow-up stream")
+            mode = "generated"
+            reason_code = request.reason_code
+        except Exception:
+            text = fallback_followup(request.focus)
+            mode = "fallback"
+            reason_code = "provider_error"
+        return FollowupArtifactPayload(
+            question_id=request.question_id,
+            gap_id=request.gap_id,
+            followup_text=text,
+            reason_code=reason_code,
+            focus=request.focus,
+            policy_version=request.policy_version,
+            evidence_ids=list(request.evidence_ids),
+        )
+
+    server.register_stream(
+        agent_id="interview-examiner",
+        skill="generate-followup",
+        handler=_typed_stream_handler("generate-followup", stream_followup_handler),
     )
 
 

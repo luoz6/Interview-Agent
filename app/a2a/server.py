@@ -12,6 +12,9 @@ from app.a2a.protocol import A2ATask, A2AResult, _utc_now_iso
 
 
 SkillHandler = Callable[[dict[str, Any], Any | None], DomainArtifact]
+StreamingSkillHandler = Callable[
+    [dict[str, Any], Any | None, Callable[[str], None]], DomainArtifact
+]
 
 
 class LocalA2AServer:
@@ -23,11 +26,21 @@ class LocalA2AServer:
 
     def __init__(self, *, observability: AgentTaskLog | None = None) -> None:
         self._handlers: dict[tuple[str, str], SkillHandler] = {}
+        self._stream_handlers: dict[tuple[str, str], StreamingSkillHandler] = {}
         self.observability = observability or AgentTaskLog()
         self._tasks: dict[str, A2ATask] = {}
 
     def register(self, *, agent_id: str, skill: str, handler: SkillHandler) -> None:
         self._handlers[(agent_id, skill)] = handler
+
+    def register_stream(
+        self,
+        *,
+        agent_id: str,
+        skill: str,
+        handler: StreamingSkillHandler,
+    ) -> None:
+        self._stream_handlers[(agent_id, skill)] = handler
 
     @property
     def registered_skills(self) -> set[tuple[str, str]]:
@@ -35,6 +48,11 @@ class LocalA2AServer:
 
     def get_handler(self, *, agent_id: str, skill: str) -> SkillHandler | None:
         return self._handlers.get((agent_id, skill))
+
+    def get_stream_handler(
+        self, *, agent_id: str, skill: str
+    ) -> StreamingSkillHandler | None:
+        return self._stream_handlers.get((agent_id, skill))
 
     def submit(self, task: A2ATask, *, execution_context: Any | None = None) -> A2AResult:
         existing = self._find_idempotent_task(task)

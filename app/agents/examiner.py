@@ -71,6 +71,32 @@ class ExaminerAgent:
             timeout_seconds=timeout_seconds,
         )
 
+    def stream_main_question_attempt(
+        self,
+        *,
+        intent,
+        conversation: list[dict[str, str]],
+        evidence: list[dict[str, str]] | None = None,
+        timeout_seconds: float | None = None,
+    ) -> Iterator[str]:
+        del timeout_seconds
+        llm = self.llm or self._default_llm()
+        stream = getattr(llm, "stream_main_question", None)
+        if not callable(stream):
+            raise RuntimeError("provider does not support main-question streaming")
+        chunks: list[str] = []
+        for chunk in stream(
+            intent=intent,
+            conversation=conversation,
+            evidence=evidence or [],
+        ):
+            if not chunk:
+                continue
+            chunks.append(chunk)
+            yield chunk
+        if not chunks:
+            raise RuntimeError("provider returned an empty main-question stream")
+
     def stream_followup(
         self,
         *,
@@ -116,17 +142,15 @@ class ExaminerAgent:
             payload=context,
         )
         def provider_stream():
-            chunks = [
-                chunk
-                for chunk in (self.llm or self._default_llm()).stream_followup(
-                    context
-                )
-                if chunk
-            ]
+            chunks: list[str] = []
+            for chunk in (self.llm or self._default_llm()).stream_followup(context):
+                if not chunk:
+                    continue
+                chunks.append(chunk)
+                yield chunk
             if not chunks:
                 raise _EmptyFollowupStream()
             validate_followup_output("".join(chunks), context)
-            yield from chunks
 
         yield from self._execution_runner.stream(
             execution_context,

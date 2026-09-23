@@ -30,17 +30,17 @@
       "official_services_nonempty_loc": 75970
     },
     "p9": {
-      "python_files": 470,
-      "physical_loc": 120151,
-      "nonempty_loc": 109519,
+      "python_files": 522,
+      "physical_loc": 131412,
+      "nonempty_loc": 119496,
       "services_python_files": 0,
       "services_physical_loc": 0,
       "services_nonempty_loc": 0,
       "largest_module": {
         "file": "app/runtime/composition.py",
         "module": "app.runtime.composition",
-        "physical_loc": 2585,
-        "nonempty_loc": 2308
+        "physical_loc": 2965,
+        "nonempty_loc": 2639
       },
       "official_services_nonempty_loc": 0
     }
@@ -51,8 +51,8 @@
       "p0_module": "app.services.runtime",
       "p0_physical_loc": 2459,
       "p9_module": "app.runtime.composition",
-      "p9_physical_loc": 2585,
-      "delta": 126
+      "p9_physical_loc": 2965,
+      "delta": 506
     },
     {
       "owner": "Durable interview graph",
@@ -67,8 +67,8 @@
       "p0_module": "app.services.llm",
       "p0_physical_loc": 1507,
       "p9_module": "app.adapters.providers.llm",
-      "p9_physical_loc": 1404,
-      "delta": -103
+      "p9_physical_loc": 1440,
+      "delta": -67
     }
   ],
   "architecture_metrics": {
@@ -358,7 +358,7 @@
     },
     "exact_duplicate_groups": {
       "p0": 19,
-      "p9": 25
+      "p9": 28
     }
   },
   "final_gate_signals": {
@@ -378,6 +378,6 @@
   "postgres_reliability_deferred_reason": "BLOCKED_ENVIRONMENT / EXTERNAL_APPROVAL_UNAVAILABLE",
   "full_production_reliability_gate": "NOT_VERIFIED",
   "final_architecture_definition_satisfied": true,
-  "final_gate_scope_note": "P9-T04 supplies measurement evidence for the P0-P9 architecture refactor closure. Protected PostgreSQL reliability is deferred and the full production reliability gate remains NOT_VERIFIED.",
-  "decision": "The P9 measurement task is complete, its measured boundary signals are satisfied, and it supports P0-P9 architecture refactor closure."
+  "final_gate_scope_note": "This MA9 snapshot records current architecture metrics without overwriting the frozen P9 closure evidence. Protected PostgreSQL reliability remains deferred pending explicit approval, and the full production reliability gate remains NOT_VERIFIED.",
+  "decision": "The MA9 architecture snapshot satisfies all measured boundary signals. The historical P9 report remains separately frozen."
 }

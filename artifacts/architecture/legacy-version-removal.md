@@ -76,9 +76,9 @@ Blocked by: production_import, runtime_wiring, integration_dependency, migration
 
 Blocked by: production_import, runtime_wiring, integration_dependency.
 
-- `production_import`: `app/runtime/composition.py:1953` (from_import)
+- `production_import`: `app/runtime/composition.py:1960` (from_import)
 - `production_import`: `app/runtime/interview_workflow.py:11` (from_import)
-- `runtime_wiring`: `app/runtime/composition.py:1953` (from_import)
+- `runtime_wiring`: `app/runtime/composition.py:1960` (from_import)
 - `runtime_wiring`: `app/runtime/interview_workflow.py:11` (from_import)
 - `integration_dependency`: `tests/unit/test_dual_langgraph_rollout.py:13` (from_import)
 - `integration_dependency`: `tests/unit/test_durable_interview_graph.py:35` (from_import)

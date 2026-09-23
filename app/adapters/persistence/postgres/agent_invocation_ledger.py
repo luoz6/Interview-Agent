@@ -144,10 +144,28 @@ class PostgresAgentInvocationLedgerAdapter:
             raise LeaseLost("invocation is not running under a lease")
         if current.lease_owner != lease_owner or current.fencing_version != fencing_version:
             raise LeaseLost("stale worker cannot commit invocation")
-        sql = postgres_sql()
         with self._provider.connection() as connection:
             with connection.cursor() as cursor:
-                cursor.execute(
+                receipt = self.commit_with_cursor(
+                    cursor,
+                    identity,
+                    artifact_ref=artifact_ref,
+                    lease_owner=lease_owner,
+                    fencing_version=fencing_version,
+                )
+        return receipt
+
+    def commit_with_cursor(
+        self,
+        cursor,
+        identity: InvocationIdentity,
+        *,
+        artifact_ref: str,
+        lease_owner: str,
+        fencing_version: int,
+    ) -> InvocationCommitReceipt:
+        sql = postgres_sql()
+        cursor.execute(
                     sql.SQL(
                         "UPDATE {table} SET status='COMPLETED', artifact_ref=%s, "
                         "updated_at=NOW(), finished_at=NOW() WHERE execution_id=%s "
@@ -157,7 +175,7 @@ class PostgresAgentInvocationLedgerAdapter:
                     ).format(table=sql.Identifier(self.table_name)),
                     (artifact_ref, *identity.key, lease_owner, fencing_version),
                 )
-                row = cursor.fetchone()
+        row = cursor.fetchone()
         if not row:
             raise LeaseLost("invocation commit lost its fencing race")
         return InvocationCommitReceipt(

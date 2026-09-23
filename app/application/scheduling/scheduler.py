@@ -62,6 +62,7 @@ from app.ports.execution_artifacts import (
     ArtifactPayloadConflict,
     ExecutionArtifactStore,
 )
+from app.ports.execution_commit import ExecutionCommitPort
 
 
 class ExecutionStateStore(Protocol):
@@ -110,6 +111,19 @@ class SchedulerDispatchError(RuntimeError):
         super().__init__(message)
         self.task_id = task_id
         self.code = code
+
+
+class SchedulerInvariantError(RuntimeError):
+    """A Scheduler boundary cannot be resolved safely."""
+
+    def __init__(self, *, execution_id: str, state, reason_code: str) -> None:
+        self.execution_id = execution_id
+        self.state_revision = state.revision
+        self.reason_code = reason_code
+        super().__init__(
+            f"scheduler boundary {reason_code} for {execution_id} "
+            f"at revision {state.revision}"
+        )
 
 
 class UserCommandDurableConflict(RuntimeError):
@@ -212,6 +226,7 @@ class SchedulerApplicationCapability:
         invocation_ledger: AgentInvocationLedgerPort | None = None,
         ledger_port: AgentInvocationLedgerPort | None = None,
         artifact_store: ExecutionArtifactStore | None = None,
+        execution_commit_port: ExecutionCommitPort | None = None,
         evaluation_state_provider: Callable[[str], dict[str, Any]] | None = None,
         worker_id: str = "scheduler",
         lease_seconds: int = 300,
@@ -259,6 +274,7 @@ class SchedulerApplicationCapability:
             raise ValueError("lease_seconds must be positive")
         self.invocation_ledger = invocation_ledger or ledger_port
         self.artifact_store = artifact_store
+        self.execution_commit_port = execution_commit_port
         self.evaluation_state_provider = evaluation_state_provider
         self.worker_id = worker_id
         self.lease_seconds = lease_seconds
@@ -269,6 +285,7 @@ class SchedulerApplicationCapability:
         *,
         plan: ExecutionPlan | None = None,
         execution_context: Any | None = None,
+        stream_callback: Callable[[str], None] | None = None,
     ) -> SchedulerStepResult:
         """Load state and execute at most one valid next task."""
 
@@ -288,6 +305,7 @@ class SchedulerApplicationCapability:
             plan=resolved_plan,
             state=state,
             execution_context=execution_context,
+            stream_callback=stream_callback,
         )
 
     def run_once(
@@ -296,6 +314,7 @@ class SchedulerApplicationCapability:
         plan: ExecutionPlan,
         state: ExecutionState,
         execution_context: Any | None = None,
+        stream_callback: Callable[[str], None] | None = None,
     ) -> SchedulerStepResult:
         """Execute one step against an already-loaded state snapshot."""
 
@@ -305,6 +324,13 @@ class SchedulerApplicationCapability:
                 code="execution_identity_mismatch",
             )
         decision = self.policy.decide(plan=plan, state=state)
+        if decision.action == "NOOP" and decision.reason_code == "no_valid_next_action":
+            raise SchedulerInvariantError(
+                execution_id=state.execution_id,
+                state=state,
+                reason_code=decision.reason_code,
+            )
+        self._assert_execution_budget(plan, state, decision.action, decision.task_id)
         recovering_running = False
         selected_task_id = decision.task_id
         if (
@@ -381,14 +407,15 @@ class SchedulerApplicationCapability:
                 code="capability_unavailable",
             )
         self._validate_task_contract(task, capability)
+        input_artifact_types = tuple(ref.artifact_type for ref in state.artifact_refs)
+        if "evaluation-artifact-set" in input_artifact_types:
+            input_artifact_types = (*input_artifact_types, "evaluation-artifact")
         if not self.capability_port.validate_compatibility(
             agent_id=task.agent_id,
             skill=task.skill,
             request_contract_id=capability.request_contract_id,
             request_contract_version=capability.request_contract_version,
-            input_artifact_types=tuple(
-                ref.artifact_type for ref in state.artifact_refs
-            ),
+            input_artifact_types=input_artifact_types,
             capability_version=capability.capability_version,
         ):
             raise SchedulerDispatchError(
@@ -474,15 +501,45 @@ class SchedulerApplicationCapability:
                 lease_owner=lease.owner_id,
                 fencing_version=lease.fencing_version,
             )
+        runtime_task = running_state.task_state(task.task_id)
+        if runtime_task is None:
+            raise SchedulerDispatchError(
+                f"running task state disappeared for {task.task_id}",
+                task_id=task.task_id,
+                code="task_state_missing",
+            )
         if not recovering_running:
+            usage_changes: dict[str, Any] = {
+                "agent_calls_used": running_state.agent_calls_used + 1,
+                "execution_started_at": running_state.execution_started_at
+                or datetime.now(timezone.utc),
+            }
+            if runtime_task.attempt > 1:
+                usage_changes["retries_used"] = running_state.retries_used + 1
+            running_state = running_state.apply_transition(
+                expected_revision=running_state.revision,
+                transition_name=f"invocation-authority:{task.task_id}",
+                **usage_changes,
+            )
             self.state_store.save(running_state)
         try:
-            artifact = self.invocation_port.invoke(
-                agent_id=task.agent_id,
-                skill=task.skill,
-                request=request,
-                execution_context=execution_context,
-            )
+            if stream_callback is not None and callable(
+                getattr(self.invocation_port, "invoke_stream", None)
+            ):
+                artifact = self.invocation_port.invoke_stream(
+                    agent_id=task.agent_id,
+                    skill=task.skill,
+                    request=request,
+                    on_delta=stream_callback,
+                    execution_context=execution_context,
+                )
+            else:
+                artifact = self.invocation_port.invoke(
+                    agent_id=task.agent_id,
+                    skill=task.skill,
+                    request=request,
+                    execution_context=execution_context,
+                )
             if not isinstance(artifact, DomainArtifact):
                 raise SchedulerDispatchError(
                     "Agent invocation returned a non-domain artifact",
@@ -546,9 +603,15 @@ class SchedulerApplicationCapability:
             attempt=runtime_task.attempt,
             artifact=artifact,
         )
-        if self.artifact_store is not None:
+        atomic_result_commit = self.execution_commit_port is not None
+        if self.artifact_store is not None and not atomic_result_commit:
             self.artifact_store.put_if_absent(artifact_ref, artifact)
-        if ledger is not None and ledger_identity is not None and lease is not None:
+        if (
+            not atomic_result_commit
+            and ledger is not None
+            and ledger_identity is not None
+            and lease is not None
+        ):
             try:
                 receipt = ledger.commit(
                     ledger_identity,
@@ -609,10 +672,15 @@ class SchedulerApplicationCapability:
         # The task is marked COMPLETED only after the durable ledger has
         # accepted the logical artifact effect.  This is the MA2 commit
         # ordering; no completed state is persisted speculatively.
+        degraded_review = (
+            getattr(artifact, "evaluation_status", None) == "DEGRADED"
+            and getattr(artifact, "evidence_status", None) == "UNDETERMINED"
+        )
         completed_state = running_state.transition_task(
             expected_revision=running_state.revision,
             task_id=task.task_id,
-            target_status="COMPLETED",
+            target_status="FAILED" if degraded_review else "COMPLETED",
+            reason_code="review_degraded_retry" if degraded_review else None,
         )
         observation = {
             **_completed_observation_lineage(
@@ -623,7 +691,7 @@ class SchedulerApplicationCapability:
                 artifact_ref=artifact_ref,
             ),
             "task_id": task.task_id,
-            "status": "COMPLETED",
+            "status": "DEGRADED" if degraded_review else "COMPLETED",
             "artifact_ref": artifact_ref,
             "artifact_type": artifact.artifact_type,
             "artifact_version": artifact.schema_version,
@@ -650,11 +718,21 @@ class SchedulerApplicationCapability:
                 if self._all_tasks_terminal(plan, completed_state)
                 and artifact.artifact_type
                 not in {"main-question-artifact", "followup-artifact"}
+                and not degraded_review
                 else "RUNNING"
             ),
             scheduler_step_count=completed_state.scheduler_step_count + 1,
         )
-        self.state_store.save(observed_state)
+        if atomic_result_commit:
+            self.execution_commit_port.commit_agent_result(
+                artifact_ref=artifact_ref,
+                artifact=artifact,
+                identity=ledger_identity,
+                lease=lease,
+                state=observed_state,
+            )
+        else:
+            self.state_store.save(observed_state)
         return SchedulerStepResult(
             action="DISPATCH",
             state=observed_state,
@@ -681,7 +759,10 @@ class SchedulerApplicationCapability:
                 code="execution_identity_mismatch",
             )
         result = self.apply_user_command(state, command)
-        if result.state is not state:
+        if result.state is not state and not (
+            self.execution_commit_port is not None
+            and command.command_kind == "ANSWER"
+        ):
             self.state_store.save(result.state)
         return result
 
@@ -770,16 +851,25 @@ class SchedulerApplicationCapability:
         if not outcome.accepted:
             return UserCommandResult(outcome=outcome, state=state)
 
-        try:
-            self._enqueue_durable_command(command)
-        except UserCommandDurableConflict:
-            conflict = UserCommandConflictOutcome(
-                command_id=command.command_id,
-                disposition="CONFLICT",
-                reason_code="command_payload_conflict",
-            )
-            return UserCommandResult(outcome=conflict, state=state)
-        artifact = self._persist_answer_artifact(command)
+        atomic_answer_commit = (
+            self.execution_commit_port is not None
+            and command.command_kind == "ANSWER"
+        )
+        if not atomic_answer_commit:
+            try:
+                self._enqueue_durable_command(command)
+            except UserCommandDurableConflict:
+                conflict = UserCommandConflictOutcome(
+                    command_id=command.command_id,
+                    disposition="CONFLICT",
+                    reason_code="command_payload_conflict",
+                )
+                return UserCommandResult(outcome=conflict, state=state)
+        artifact = (
+            self._build_answer_artifact(command)
+            if atomic_answer_commit
+            else self._persist_answer_artifact(command)
+        )
         if artifact is None:
             artifact_refs = state.artifact_refs
             observation = {
@@ -808,6 +898,12 @@ class SchedulerApplicationCapability:
             execution_status="RUNNING",
             scheduler_step_count=state.scheduler_step_count + 1,
         )
+        if atomic_answer_commit:
+            self.execution_commit_port.commit_answer(
+                command=command,
+                artifact=artifact,
+                state=next_state,
+            )
         self.command_store.put(command)
         return UserCommandResult(outcome=outcome, state=next_state)
 
@@ -834,26 +930,8 @@ class SchedulerApplicationCapability:
         store = self.artifact_store
         if store is None or command.command_kind != "ANSWER":
             return None
-        answer_text = command.payload.get("answer_text")
-        if not isinstance(answer_text, str) or not answer_text.strip():
-            raise ValueError("answer_text is required")
-        if not isinstance(command.question_id, str) or not command.question_id:
-            raise ValueError("question_id is required for an answer artifact")
-        ref = answer_artifact_ref(command.execution_id, command.command_id)
-        artifact = AnswerArtifact(
-            artifact_ref=ref,
-            execution_id=command.execution_id,
-            question_id=command.question_id,
-            source_task_id=command.task_id,
-            answer_kind=(
-                "FOLLOWUP" if command.task_id.startswith("followup:") else "MAIN"
-            ),
-            answer_text=answer_text,
-            command_id=command.command_id,
-            wait_id=command.wait_id,
-            submitted_revision=command.expected_revision,
-            submitted_at=datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
-        )
+        artifact = self._build_answer_artifact(command)
+        ref = artifact.artifact_ref
         try:
             persisted = store.put_if_absent(ref, artifact)
         except ArtifactPayloadConflict:
@@ -869,6 +947,28 @@ class SchedulerApplicationCapability:
         if not isinstance(persisted, AnswerArtifact):
             raise ArtifactPayloadConflict(ref)
         return persisted
+
+    def _build_answer_artifact(self, command: UserCommand) -> AnswerArtifact:
+        answer_text = command.payload.get("answer_text")
+        if not isinstance(answer_text, str) or not answer_text.strip():
+            raise ValueError("answer_text is required")
+        if not isinstance(command.question_id, str) or not command.question_id:
+            raise ValueError("question_id is required for an answer artifact")
+        ref = answer_artifact_ref(command.execution_id, command.command_id)
+        return AnswerArtifact(
+            artifact_ref=ref,
+            execution_id=command.execution_id,
+            question_id=command.question_id,
+            source_task_id=command.task_id,
+            answer_kind=(
+                "FOLLOWUP" if command.task_id.startswith("followup:") else "MAIN"
+            ),
+            answer_text=answer_text,
+            command_id=command.command_id,
+            wait_id=command.wait_id,
+            submitted_revision=command.expected_revision,
+            submitted_at=datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+        )
 
     def _replay_persisted_answer(
         self,
@@ -1206,6 +1306,25 @@ class SchedulerApplicationCapability:
         return loader.load(execution_id)
 
     @staticmethod
+    def _assert_execution_budget(plan, state, action: str, task_id: str | None = None) -> None:
+        if action != "DISPATCH":
+            return
+        constraints = plan.execution_constraints
+        if constraints.max_agent_calls is not None and state.agent_calls_used >= constraints.max_agent_calls:
+            raise SchedulerDispatchError("agent call budget exhausted", code="AGENT_CALL_BUDGET_EXHAUSTED")
+        runtime = state.task_state(task_id) if task_id else None
+        # Retry budget is consumed only when a previously attempted task is
+        # about to acquire a new invocation authority.
+        if constraints.max_retries is not None and runtime is not None and runtime.attempt > 0 and state.retries_used >= constraints.max_retries:
+            raise SchedulerDispatchError("retry budget exhausted", code="RETRY_BUDGET_EXHAUSTED")
+        if constraints.max_scheduler_steps is not None and state.scheduler_step_count >= constraints.max_scheduler_steps:
+            raise SchedulerDispatchError("scheduler step budget exhausted", code="SCHEDULER_STEP_BUDGET_EXHAUSTED")
+        started = state.execution_started_at
+        if started is not None and constraints.execution_timeout_seconds is not None:
+            if (datetime.now(timezone.utc) - started).total_seconds() >= constraints.execution_timeout_seconds:
+                raise SchedulerDispatchError("execution timeout exceeded", code="EXECUTION_TIMEOUT")
+
+    @staticmethod
     def _find_next_task(
         plan: ExecutionPlan,
         state: ExecutionState,
@@ -1216,7 +1335,7 @@ class SchedulerApplicationCapability:
         completed = {
             item.task_id
             for item in state.task_states
-            if item.status in {"COMPLETED", "SKIPPED"}
+            if item.status in {"COMPLETED", "SKIPPED", "CANCELED"}
         }
         runtime_by_id = {item.task_id: item for item in state.task_states}
         dependencies = {

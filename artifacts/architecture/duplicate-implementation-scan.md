@@ -4,8 +4,8 @@ Status: P9-T01 COMPLETE - observational scan only
 
 ## Method
 
-- Python files scanned: 521
-- Top-level definitions scanned: 2948
+- Python files scanned: 522
+- Top-level definitions scanned: 2953
 - Parse errors: 0
 - Exact matches use normalized AST bodies with docstrings removed.
 - Repository, DTO, evaluator, runtime-wiring, and version-family matches are candidates, not deletion decisions.

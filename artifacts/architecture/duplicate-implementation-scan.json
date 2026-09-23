@@ -1,8 +1,8 @@
 {
   "metadata": {
     "generated_by": "tools/architecture/scan_duplicate_implementations.py",
-    "files_scanned": 521,
-    "definitions_scanned": 2948,
+    "files_scanned": 522,
+    "definitions_scanned": 2953,
     "parse_error_count": 0,
     "classification_rule": "Only normalized AST body matches are confirmed_exact; all family, shape, name, wiring, and version matches are review candidates."
   },
@@ -157,7 +157,7 @@
             "name": "MainQuestionValidationError",
             "kind": "class",
             "file": "app/domain/interview/main_question_generation.py",
-            "line": 41
+            "line": 42
           },
           {
             "module": "app.domain.interview.question_intent",
@@ -1520,7 +1520,7 @@
             "name": "SchedulerQuestionBoundary",
             "kind": "class",
             "file": "app/application/interview/scheduler_production_entry.py",
-            "line": 45
+            "line": 48
           },
           {
             "module": "app.domain.agent_streaming",
@@ -2008,7 +2008,7 @@
             "name": "consume_round_review_event",
             "kind": "function",
             "file": "app/runtime/composition.py",
-            "line": 2788
+            "line": 2795
           },
           {
             "module": "app.runtime.runtime_event_consumer",
@@ -2031,7 +2031,7 @@
             "name": "consume_round_review_event_payload",
             "kind": "function",
             "file": "app/runtime/composition.py",
-            "line": 2761
+            "line": 2768
           },
           {
             "module": "app.runtime.runtime_event_consumer",
